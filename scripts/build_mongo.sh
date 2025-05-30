@@ -73,6 +73,10 @@ if ! command -v ${LLVM_SYMBOLIZER} &> /dev/null; then
     unset LLVM_SYMBOLIZER
 fi
 
+# Active Python2
+log_info "Active Python 2.7.18"
+pyenv local 2.7.18
+
 # Base build command with common options
 COMMON_CMD="python2 buildscripts/scons.py \
 LIBPATH=/usr/local/lib \
