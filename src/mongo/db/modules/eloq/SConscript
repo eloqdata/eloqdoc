@@ -62,12 +62,18 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
         ("ROCKSDB_CLOUD_FS_TYPE", ROCKSDB_CLOUD_FS_TYPE_S3)
     ])
 
+if os.environ.get("OPEN_LOG_SERVICE", "0") in ("1", "ON", "on", "true", "True"):
+    env.Append(CPPDEFINES=["OPEN_LOG_SERVICE"])
+if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("S3"):
+    env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 1)])
+if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("GCS"):
+    env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 2)])
+
 env.Append(CPPDEFINES=[
     "OVERRIDE_GFLAGS_NAMESPACE",
     "RANGE_PARTITION_ENABLED",
     "BRPC_WITH_GLOG",
     "USE_ROCKSDB_LOG_STATE",
-    ("WITH_ROCKSDB_CLOUD", 1),
     # "BRPC_ENABLE_CPU_PROFILER",
     "EXT_TX_PROC_ENABLED",
     "FORK_HM_PROCESS",

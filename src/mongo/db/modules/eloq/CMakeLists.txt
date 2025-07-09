@@ -17,7 +17,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
 
 # --- Transaction Service Options ---
 option(EXT_TX_PROC_ENABLED "Allows external threads to move forward the tx service." ON)
-option(FORK_HM_PROCESS "Whether to fork a separate Host Manager process for Raft." ON)
+option(FORK_HM_PROCESS "Whether to fork a separate Host Manager process for Raft." OFF)
 option(RANGE_PARTITION_ENABLED "Whether to enable range partitioning features in the tx service." ON)
 option(STATISTICS "Whether to enable table statistics collection in the tx service." ON)
 
@@ -36,6 +36,12 @@ option(BRPC_WITH_GLOG "Build/link BRPC with glog support (affects tx_service, lo
 option(SMALL_RANGE "Optimize for small range sizes (affects tx_service)." OFF)
 option(USE_ASAN "Enable AddressSanitizer (ASan) for debugging." OFF)
 option(ABSL_PROPAGATE_CXX_STD "ABSL PROPAGATE CXX STD" ON)
+
+option(OPEN_LOG_SERVICE "Compile with open log service." ON)
+message("OPEN_LOG_SERVICE: " ${OPEN_LOG_SERVICE})
+if (OPEN_LOG_SERVICE)
+   add_compile_definitions(OPEN_LOG_SERVICE=1)
+endif()
 
 # --- Data Store Configuration (Set externally, e.g., -DWITH_DATA_STORE=CASSANDRA) ---
 # WITH_DATA_STORE: Specifies the backend data store.
@@ -90,7 +96,11 @@ include(cmake/find_dependencies.cmake) # Finds common and conditional dependenci
 include(cmake/compile_protos.cmake)   # Helper function for proto compilation
 include(cmake/build_eloq_metrics.cmake)
 include(cmake/build_tx_service.cmake)
+if (OPEN_LOG_SERVICE)
+include(cmake/build_open_log_service.cmake)
+else()
 include(cmake/build_log_service.cmake)
+endif()
 include(cmake/build_data_store.cmake)
 
 

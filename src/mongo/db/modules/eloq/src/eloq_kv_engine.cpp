@@ -303,6 +303,9 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         rocksdb_cloud_config.db_file_deletion_delay_ =
             eloqGlobalOptions.rocksdbCloudFileDeletionDelay;
 
+#if defined(OPEN_LOG_SERVICE)
+	        _logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1, rocksdb_cloud_config);
+#else
         _logServer = std::make_unique<txlog::LogServer>(
             nodeId,
             logServerPort,
@@ -321,8 +324,12 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
             // eloq_check_replay_log_size_interval_sec,
             // notify_checkpointer_threshold_size
         );
+#endif
 
 #else  // rocksdb
+#if defined(OPEN_LOG_SERVICE)
+	_logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1);
+#else
         size_t rocksdb_sst_files_size_limit_val =
             txlog::parse_size(eloq_rocksdb_sst_files_size_limit);
         _logServer = std::make_unique<txlog::LogServer>(
@@ -342,7 +349,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
             // eloq_check_replay_log_size_interval_sec,
             // notify_checkpointer_threshold_size
         );
-
+#endif
 #endif
 #endif /* USE_ROCKSDB_LOG_STATE */
 

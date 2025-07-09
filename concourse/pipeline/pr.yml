@@ -1,0 +1,64 @@
+resource_types:
+  - name: pull-request
+    type: docker-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: eloqdoc_pr
+    type: pull-request
+    check_every: 3m
+    source:
+      repository: eloqdata/eloqdoc
+      base_branch: "main"
+      access_token: ((git-token))
+      ignore_drafts: true
+
+  - name: logservice_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/log_service.git
+      private_key: ((git-key))
+
+  - name: mono_ubuntu_2404
+    type: registry-image
+    source:
+      repository: monographdb/monograph-dev-ci-ubuntu2404
+      tag: latest
+      username: monographdb
+      password: ((docker_hub_pass))
+
+jobs:
+  - name: compile-test
+    build_log_retention:
+      builds: 500
+    serial: true
+    plan:
+      - in_parallel:
+          steps:
+            - get: eloqdoc_pr
+              trigger: true
+              version: every
+            - get: logservice_src
+            - get: mono_ubuntu_2404
+      - put: eloqdoc_pr
+        params:
+          path: eloqdoc_pr
+          status: pending
+      - task: compile-test-task
+        image: mono_ubuntu_2404
+        file: eloqdoc_pr/concourse/tasks/compile_test_pr.yml
+        vars:
+          cass-host: ((cassandra-host))
+        privileged: true
+        on_failure:
+          put: eloqdoc_pr
+          params:
+            path: eloqdoc_pr
+            status: failure
+      - put: eloqdoc_pr
+        params:
+          path: eloqdoc_pr
+          status: success
+
