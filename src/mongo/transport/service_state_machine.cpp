@@ -193,8 +193,9 @@ public:
             // The cleanup hook gets moved out of _ssm->_cleanupHook so that it can only be called
             // once.
             auto cleanupHook = std::move(_ssm->_cleanupHook);
-            if (cleanupHook)
+            if (cleanupHook) {
                 cleanupHook();
+            }
 
             // It's very important that the Guard returns here and that the SSM's state does not
             // get modified in any way after the cleanup hook is called.
@@ -249,7 +250,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
       _serviceExecutor(_serviceContext->getServiceExecutor()),
       _sessionHandle(session),
       _threadName{str::stream() << "conn" << _session()->id()},
-      _dbClient{svcContext->makeClient(_threadName, std::move(session))},
+      _dbClient{svcContext->makeClient(_threadName, std::move(session), this)},
       _dbClientPtr{_dbClient.get()},
       _threadGroupId(groupId) {
     MONGO_LOG(1) << "ServiceStateMachine::ServiceStateMachine";
@@ -267,7 +268,7 @@ void ServiceStateMachine::reset(ServiceContext* svcContext,
     _serviceExecutor = _serviceContext->getServiceExecutor();
     _sessionHandle = session;
     // _threadName = str::stream() << "conn" << _session()->id();
-    _dbClient = svcContext->makeClient(_threadName, std::move(session));
+    _dbClient = svcContext->makeClient(_threadName, std::move(session), this);
     _dbClientPtr = _dbClient.get();
     _threadGroupId = groupId;
     _owned.store(Ownership::kUnowned);
@@ -427,7 +428,7 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         auto opCtx = Client::getCurrent()->makeOperationContext();
 
         // MONGO_LOG(0) << "Operation Context decorations memeory usage: " << opCtx->sizeBytes();
-        
+
         if (serverGlobalParams.enableCoroutine) {
             opCtx->setCoroutineFunctors(&_coroYield, &_coroResume);
         }
@@ -436,6 +437,8 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         // database work for this request.
         dbresponse = _sep->handleRequest(opCtx.get(), _inMessage);
 
+        // Calling reset() to wait for Eloq-Tx be committed/aborted before set _coroStatus to Empty.
+        opCtx.reset(nullptr);
 
         _coroStatus = CoroStatus::Empty;
         _serviceExecutor->ongoingCoroutineCountUpdate(_threadGroupId, -1);
@@ -510,9 +513,9 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         MONGO_LOG(1) << "coroutine begin";
                         _coroStatus = CoroStatus::OnGoing;
                         _serviceExecutor->ongoingCoroutineCountUpdate(_threadGroupId, 1);
-                        auto func = [this, ssm = shared_from_this()] {
+                        auto func = [ssm = shared_from_this()] {
                             Client::setCurrent(std::move(ssm->_dbClient));
-                            _runResumeProcess();
+                            ssm->_runResumeProcess();
                         };
 
                         _coroResume =
@@ -526,11 +529,13 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                             NoopAllocator(),
                             [this, &guard](boost::context::continuation&& sink) {
                                 _coroYield = [this, &sink]() {
-                                    MONGO_LOG(1) << "call yield";
+                                    MONGO_LOG(3) << "call yield";
                                     _dbClient = Client::releaseCurrent();
+                                    abortIfStackOverflow();
                                     sink = sink.resume();
                                 };
                                 _processMessage(std::move(guard));
+                                abortIfStackOverflow();
                                 return std::move(sink);
                             });
 
@@ -540,6 +545,7 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         //         _coroYield = [this, &sink]() {
                         //             MONGO_LOG(1) << "call yield";
                         //             _dbClient = Client::releaseCurrent();
+                        //             abortIfStackOverflow();
                         //             sink = sink.resume();
                         //         };
                         //         _processMessage(std::move(guard));
@@ -547,6 +553,7 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         //     });
                     } else if (_coroStatus == CoroStatus::OnGoing) {
                         MONGO_LOG(1) << "coroutine ongoing";
+                        abortIfStackOverflow();
                         _source = _source.resume();
                     }
                 }
@@ -575,9 +582,10 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
 }
 
 void ServiceStateMachine::_runResumeProcess() {
-    MONGO_LOG(1) << "ServiceStateMachine::_resumeRun";
+    MONGO_LOG(3) << "ServiceStateMachine::_resumeRun";
     if (_coroStatus == CoroStatus::OnGoing) {
-        MONGO_LOG(1) << "coroutine ongoing";
+        MONGO_LOG(3) << "coroutine ongoing";
+        abortIfStackOverflow();
         _source = _source.resume();
     }
 }

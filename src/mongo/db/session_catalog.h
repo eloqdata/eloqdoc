@@ -131,7 +131,8 @@ public:
 
 private:
     struct SessionRuntimeInfo {
-        SessionRuntimeInfo(LogicalSessionId lsid) : txnState(std::move(lsid)) {}
+        SessionRuntimeInfo(LogicalSessionId lsid, uint16_t threadGroupId)
+            : txnState(std::move(lsid), threadGroupId) {}
 
         // Current check-out state of the session. If set to false, the session can be checked out.
         // If set to true, the session is in use by another operation and the caller must wait to
@@ -155,13 +156,16 @@ private:
      * 'SessionRuntimeInfo' is guaranteed to be linked on the catalog's _txnTable as long as the
      * lock is held.
      */
-    std::shared_ptr<SessionRuntimeInfo> _getOrCreateSessionRuntimeInfo(
-        WithLock, OperationContext* opCtx, const LogicalSessionId& lsid);
+    std::shared_ptr<SessionRuntimeInfo> _getOrCreateSessionRuntimeInfo(WithLock,
+                                                                       OperationContext* opCtx,
+                                                                       const LogicalSessionId& lsid,
+                                                                       uint16_t threadGroupId);
 
     /**
      * Makes a session, previously checked out through 'checkoutSession', available again.
+     * void _releaseSession(const LogicalSessionId& lsid);
      */
-    void _releaseSession(const LogicalSessionId& lsid);
+    void _releaseSession(OperationContext* opCtx, const LogicalSessionId& lsid);
 
     stdx::mutex _mutex;
     SessionRuntimeInfoMap _txnTable;
@@ -211,7 +215,7 @@ public:
 
     ~ScopedCheckedOutSession() {
         if (_scopedSession) {
-            SessionCatalog::get(_opCtx)->_releaseSession(_scopedSession->getSessionId());
+            SessionCatalog::get(_opCtx)->_releaseSession(_opCtx, _scopedSession->getSessionId());
         }
     }
 

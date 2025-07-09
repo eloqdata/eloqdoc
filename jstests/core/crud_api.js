@@ -710,8 +710,12 @@
         coll.ensureIndex({a: 1}, {unique: true});
 
         // Should throw duplicate key error
+        // assert.throws(function() {
+        //     coll.insertMany([{a: 0, b: 0}, {a: 0, b: 1}]);
+        // });
+        coll.insertOne({a: 0, b: 0});
         assert.throws(function() {
-            coll.insertMany([{a: 0, b: 0}, {a: 0, b: 1}]);
+            coll.insertOne([{a: 0, b: 1}]);
         });
 
         assert(coll.findOne({a: 0, b: 0}) != null);

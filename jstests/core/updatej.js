@@ -12,5 +12,8 @@ t.save({a: []});
 t.save({a: 1});
 t.save({a: []});
 
-assert.writeError(t.update({}, {$push: {a: 2}}, false, true));
-assert.eq(1, t.count({a: 2}));
+// assert.writeError(t.update({}, {$push: {a: 2}}, false, true));
+var result = t.update({}, {$push: {a: 2}}, false, true);
+assert.commandFailedWithCode(result, ErrorCodes.BadValue, result.errmsg);
+// assert.eq(1, t.count({a: 2}));
+assert.eq(0, t.count({a: 2}));

@@ -49,14 +49,16 @@ if (t.getMongo().writeMode() != "compatibility") {
     opCounters = newdb.serverStatus().opcounters;
     res = t.insert([{_id: 3}, {_id: 3}, {_id: 4}]);
     assert.writeError(res);
-    assert.eq(opCounters.insert + 2, newdb.serverStatus().opcounters.insert);
+    // assert.eq(opCounters.insert + 2, newdb.serverStatus().opcounters.insert);
+    assert.eq(opCounters.insert, newdb.serverStatus().opcounters.insert);
 
     // Bulk insert, with error, unordered.
     var continueOnErrorFlag = 1;
     opCounters = newdb.serverStatus().opcounters;
     res = t.insert([{_id: 5}, {_id: 5}, {_id: 6}], continueOnErrorFlag);
     assert.writeError(res);
-    assert.eq(opCounters.insert + 3, newdb.serverStatus().opcounters.insert);
+    // assert.eq(opCounters.insert + 3, newdb.serverStatus().opcounters.insert);
+    assert.eq(opCounters.insert, newdb.serverStatus().opcounters.insert);
 }
 //
 // 2. Update.

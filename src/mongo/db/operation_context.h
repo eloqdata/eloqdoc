@@ -34,6 +34,7 @@
 #include <utility>
 
 #include "mongo/base/disallow_copying.h"
+#include "mongo/base/object_pool.h"
 #include "mongo/base/status.h"
 #include "mongo/db/client.h"
 #include "mongo/db/concurrency/locker.h"
@@ -50,7 +51,11 @@
 #include "mongo/util/time_support.h"
 #include "mongo/util/timer.h"
 
+#define D_USE_CORO_SYNC  // Use coroutine busy-poll sync, instead of blocking sync.
+
 namespace mongo {
+
+extern thread_local int16_t localThreadId;
 
 class Client;
 class CurOp;
@@ -113,6 +118,8 @@ public:
                                                        WriteUnitOfWork::RecoveryUnitState state);
 
     WriteUnitOfWork::RecoveryUnitState resetRecoveryUnit(WriteUnitOfWork::RecoveryUnitState state);
+
+    WriteUnitOfWork::RecoveryUnitState getRecoveryUnitState() const;
 
     // WriteUnitOfWork::RecoveryUnitState setRecoveryUnit(RecoveryUnit::UPtr unit,
     //                                                    WriteUnitOfWork::RecoveryUnitState state);
@@ -448,8 +455,7 @@ public:
         // threads share the same OperationContext with the worker thread named `thread_group`, but
         // they should not call yield or resume functions. Therefore, we need to verify the thread
         // name.
-        StringData threadName = getThreadName();
-        if (MONGO_likely(threadName.startsWith("thread_group"))) {
+        if (MONGO_likely(localThreadId != -1)) {
             return {_coroYield, _coroResume};
         } else {
             return {nullptr, nullptr};
@@ -469,6 +475,20 @@ public:
             level = repl::ReadConcernLevel::kEloqReadCommittedIsolationLevel;
         }
         _isolationLevel = static_cast<int>(level);
+    }
+
+    /**
+     * Get isUpsert flag.
+     */
+    bool isUpsert() const {
+        return _isUpsert;
+    }
+
+    /**
+     * Set isUpsert flag.
+     */
+    void setIsUpsert(bool isUpsert) {
+        _isUpsert = isUpsert;
     }
 
 private:
@@ -566,7 +586,26 @@ private:
     const std::function<void()>* _coroYield{nullptr};
     const std::function<void()>* _coroResume{nullptr};
     int _isolationLevel{0};
+    bool _isUpsert{false};
+
+    template <typename T>
+    friend void deinit(T* ptr);
 };
+
+template <>
+void deinit(OperationContext* ptr);
+
+void coroWait(std::unique_lock<std::mutex>& lock, OperationContext* opCtx);
+void coroWait(std::unique_lock<std::mutex>& lock,
+              OperationContext* opCtx,
+              const std::function<bool()>& pred);
+std::cv_status coroWaitUntil(std::unique_lock<std::mutex>& lock,
+                             OperationContext* opCtx,
+                             Date_t deadline);
+bool coroWaitUntil(std::unique_lock<std::mutex>& lock,
+                   OperationContext* opCtx,
+                   Date_t deadline,
+                   const std::function<bool()>& pred);
 
 namespace repl {
 /**

@@ -43,8 +43,8 @@
 
 namespace mongo {
 
-using std::unique_ptr;
 using std::string;
+using std::unique_ptr;
 using stdx::make_unique;
 
 namespace {
@@ -102,8 +102,7 @@ public:
         size_t numCursors = static_cast<size_t>(cmdObj["numCursors"].numberInt());
         uassert(ErrorCodes::BadValue,
                 str::stream() << "numCursors has to be between 1 and 10000"
-                              << " was: "
-                              << numCursors,
+                              << " was: " << numCursors,
                 numCursors >= 1 && numCursors <= 10000);
 
         std::vector<std::unique_ptr<RecordCursor>> iterators;
@@ -128,16 +127,20 @@ public:
             unique_ptr<MultiIteratorStage> mis =
                 make_unique<MultiIteratorStage>(opCtx, ws.get(), collection);
 
+            // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+            //
             // Takes ownership of 'ws' and 'mis'.
-            const auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+            // const auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+            // auto statusWithPlanExecutor = PlanExecutor::make(
+            //     opCtx,
+            //     std::move(ws),
+            //     std::move(mis),
+            //     collection,
+            //     readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
+            //         ? PlanExecutor::INTERRUPT_ONLY
+            //         : PlanExecutor::YIELD_AUTO);
             auto statusWithPlanExecutor = PlanExecutor::make(
-                opCtx,
-                std::move(ws),
-                std::move(mis),
-                collection,
-                readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
-                    ? PlanExecutor::INTERRUPT_ONLY
-                    : PlanExecutor::YIELD_AUTO);
+                opCtx, std::move(ws), std::move(mis), collection, PlanExecutor::INTERRUPT_ONLY);
             invariant(statusWithPlanExecutor.isOK());
             execs.push_back(std::move(statusWithPlanExecutor.getValue()));
         }

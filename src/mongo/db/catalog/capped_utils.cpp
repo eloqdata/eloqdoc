@@ -59,8 +59,8 @@ mongo::Status mongo::emptyCapped(OperationContext* opCtx, const NamespaceString&
 
     if (userInitiatedWritesAndNotPrimary) {
         return Status(ErrorCodes::NotMaster,
-                      str::stream() << "Not primary while truncating collection: "
-                                    << collectionName.ns());
+                      str::stream()
+                          << "Not primary while truncating collection: " << collectionName.ns());
     }
 
     Database* db = autoDb.getDb();
@@ -74,14 +74,14 @@ mongo::Status mongo::emptyCapped(OperationContext* opCtx, const NamespaceString&
 
     if (collectionName.isSystem() && !collectionName.isSystemDotProfile()) {
         return Status(ErrorCodes::IllegalOperation,
-                      str::stream() << "Cannot truncate a system collection: "
-                                    << collectionName.ns());
+                      str::stream()
+                          << "Cannot truncate a system collection: " << collectionName.ns());
     }
 
     if (collectionName.isVirtualized()) {
         return Status(ErrorCodes::IllegalOperation,
-                      str::stream() << "Cannot truncate a virtual collection: "
-                                    << collectionName.ns());
+                      str::stream()
+                          << "Cannot truncate a virtual collection: " << collectionName.ns());
     }
 
     if ((repl::ReplicationCoordinator::get(opCtx)->getReplicationMode() !=
@@ -137,10 +137,9 @@ mongo::Status mongo::cloneCollectionAsCapped(OperationContext* opCtx,
 
     if (db->getCollection(opCtx, toNss)) {
         return Status(ErrorCodes::NamespaceExists,
-                      str::stream() << "cloneCollectionAsCapped failed - destination collection "
-                                    << toNss.ns()
-                                    << " already exists. source collection: "
-                                    << fromNss.ns());
+                      str::stream()
+                          << "cloneCollectionAsCapped failed - destination collection "
+                          << toNss.ns() << " already exists. source collection: " << fromNss.ns());
     }
 
     // create new collection
@@ -174,10 +173,16 @@ mongo::Status mongo::cloneCollectionAsCapped(OperationContext* opCtx,
 
     long long excessSize = fromCollection->dataSize(opCtx) - allocatedSpaceGuess;
 
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // auto exec = InternalPlanner::collectionScan(opCtx,
+    //                                             fromNss.ns(),
+    //                                             fromCollection,
+    //                                             PlanExecutor::WRITE_CONFLICT_RETRY_ONLY,
+    //                                             InternalPlanner::FORWARD);
     auto exec = InternalPlanner::collectionScan(opCtx,
                                                 fromNss.ns(),
                                                 fromCollection,
-                                                PlanExecutor::WRITE_CONFLICT_RETRY_ONLY,
+                                                PlanExecutor::INTERRUPT_ONLY,
                                                 InternalPlanner::FORWARD);
 
     Snapshotted<BSONObj> objToClone;
@@ -280,8 +285,7 @@ mongo::Status mongo::convertToCapped(OperationContext* opCtx,
     if (!tmpNameResult.isOK()) {
         return tmpNameResult.getStatus().withContext(
             str::stream() << "Cannot generate temporary collection namespace to convert "
-                          << collectionName.ns()
-                          << " to a capped collection");
+                          << collectionName.ns() << " to a capped collection");
     }
     const auto& longTmpName = tmpNameResult.getValue();
     const auto shortTmpName = longTmpName.coll().toString();

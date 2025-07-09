@@ -294,6 +294,14 @@ public:
                 });
         }
 
+        void updateCatalogVersion() {
+            options.catalogVersion = UUID::gen().toString();
+        }
+
+        const std::string& catalogVersion() const {
+            return options.catalogVersion;
+        }
+
         std::string ns;
         CollectionOptions options;
         std::vector<IndexMetaData> indexes;

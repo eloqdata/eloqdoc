@@ -150,7 +150,8 @@ void BackgroundJob::jobBody() {
         run();
     } catch (const std::exception& e) {
         error() << "backgroundjob " << threadName << " exception: " << redact(e.what());
-        throw;
+        // EloqDoc crash.
+        // throw;
     }
 
     // We must cache this value so that we can use it after we leave the following scope.

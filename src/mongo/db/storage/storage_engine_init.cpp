@@ -336,6 +336,8 @@ public:
     void onDestroyClient(Client* client) override{};
     void onCreateOperationContext(OperationContext* opCtx) override {
         auto service = opCtx->getServiceContext();
+        // Eloq TableSchema require a OperationContext while storageEngine is not set.
+        // Acutally, we always use EloqLockerNoop.
         auto storageEngine = service->getStorageEngine();
         // NOTE(schwerin): The following uassert would be more desirable than the early return when
         // no storage engine is set, but to achieve that we would have to ensure that this file was
@@ -344,28 +346,25 @@ public:
         // uassert(<some code>,
         //         "Must instantiate storage engine before creating OperationContext",
         //         storageEngine);
-        if (!storageEngine) {
-            return;
-        }
-        if (storageEngine->getUseNoopLockImpl()) {
-            if (opCtx->lockState()) {
-                opCtx->resetLockState();
-            } else {
-                opCtx->setLockState(stdx::make_unique<EloqLockerNoop>());
-            }
-        } else if (storageEngine->isMmapV1()) {
-            MONGO_UNREACHABLE;
-            opCtx->setLockState(stdx::make_unique<MMAPV1LockerImpl>());
+
+
+        if (opCtx->lockState()) {
+            opCtx->resetLockState();
         } else {
-            MONGO_UNREACHABLE;
-            opCtx->setLockState(stdx::make_unique<DefaultLockerImpl>());
+            opCtx->setLockState(stdx::make_unique<EloqLockerNoop>());
         }
 
-        if (opCtx->recoveryUnit()) {
-            opCtx->resetRecoveryUnit(WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+        if (storageEngine) {
+            if (opCtx->recoveryUnit()) {
+                opCtx->resetRecoveryUnit(WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+            } else {
+                opCtx->setRecoveryUnit(storageEngine->newRecoveryUnit(),
+                                       WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+            }
         } else {
-            opCtx->setRecoveryUnit(storageEngine->newRecoveryUnit(),
-                                   WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+            // Keep recovery unit as nullptr.
+            // In this case, the RecoveryUnit is used by MongoTableSchema, which may not need a
+            // real RecoveryUnit in OperationContext.
         }
     }
     void onDestroyOperationContext(OperationContext* opCtx) override {}

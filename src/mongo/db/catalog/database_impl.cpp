@@ -26,7 +26,6 @@
  *    it in the license file.
  */
 
-
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
 #include <algorithm>
@@ -789,8 +788,10 @@ Collection* DatabaseImpl::getCollection(OperationContext* opCtx, const Namespace
     invariant(_name == nss.db());
     dassert(!cc().getOperationContext() || opCtx == cc().getOperationContext());
 
-    auto [exists, _] = opCtx->getServiceContext()->getStorageEngine()->lockCollection(
-        opCtx, nss.toStringData(), false);
+    bool exists = false;
+    std::string version;
+    auto status = opCtx->getServiceContext()->getStorageEngine()->lockCollection(
+        opCtx, nss.toStringData(), false, &exists, &version);
     if (!exists) {
         return nullptr;
     }
@@ -799,11 +800,24 @@ Collection* DatabaseImpl::getCollection(OperationContext* opCtx, const Namespace
 
     if (auto it = _collections.find(nss.ns()); it != _collections.end() && it->second) {
         auto found = it->second.get();
-        NamespaceUUIDCache& cache = NamespaceUUIDCache::get(opCtx);
-        if (auto uuid = found->uuid()) {
-            cache.ensureNamespaceInCache(nss, uuid.get());
+
+        if (found->catalogVersion() == version) {
+            NamespaceUUIDCache& cache = NamespaceUUIDCache::get(opCtx);
+            if (auto uuid = found->uuid()) {
+                cache.ensureNamespaceInCache(nss, uuid.get());
+            }
+            return found;
+        } else {
+            MONGO_LOG(1) << "nss: " << nss.toStringData()
+                         << " version changed. old: " << found->catalogVersion()
+                         << ", new: " << version;
+
+            auto& uuidCatalog = UUIDCatalog::get(opCtx);
+            uuidCatalog.removeUUIDCatalogEntry(found->uuid().get());
+
+            _clearCollectionCache(opCtx, nss.ns(), "collection version changed", true);
+            return _createCollectionHandler(opCtx, nss, false);
         }
-        return found;
     } else {
         return _createCollectionHandler(opCtx, nss, false);
     }
@@ -1145,8 +1159,10 @@ Status isSpecOk(OperationContext* opCtx,
         }
 
         // The collator must outlive the constructed MatchExpression.
+        // boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(opCtx, collator.get()));
         boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(opCtx, collator.get()));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator.get()));
 
         // Parsing the partial filter expression is not expected to fail here since the
         // expression would have been successfully parsed upstream during index creation.
@@ -1562,8 +1578,10 @@ MONGO_REGISTER_SHIM(Database::userCreateNS)
     }
 
     if (!collectionOptions.validator.isEmpty()) {
+        // boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(opCtx, collator.get()));
         boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(opCtx, collator.get()));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator.get()));
 
         // Save this to a variable to avoid reading the atomic variable multiple times.
         const auto currentFCV = serverGlobalParams.featureCompatibility.getVersion();

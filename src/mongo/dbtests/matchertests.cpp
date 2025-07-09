@@ -230,8 +230,10 @@ public:
         AutoGetCollectionForReadCommand ctx(&opCtx, nss);
 
         const CollatorInterface* collator = nullptr;
+        // const boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(opCtxPtr.get(), collator));
         const boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(opCtxPtr.get(), collator));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtxPtr.get(), collator));
         M m(BSON("$where"
                  << "function(){ return this.a == 1; }"),
             expCtx,

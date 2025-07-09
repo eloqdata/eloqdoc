@@ -194,6 +194,9 @@ BSONObj buildCollectionBson(OperationContext* opCtx,
     // unsettable read-only property, so put it in the 'info' section.
     auto uuid = options.uuid;
     options.uuid.reset();
+    // While the catalogVersion is stored as a collection option, from the user's perspective it is
+    // an invisible property in eloqdoc, so ignore it.
+    options.catalogVersion.clear();
     b.append("options", options.toBSON());
 
     BSONObjBuilder infoBuilder;
@@ -260,7 +263,10 @@ public:
             }
             // The collator is null because collection objects are compared using binary comparison.
             const CollatorInterface* collator = nullptr;
-            boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+            // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx,
+            // collator));
+            boost::intrusive_ptr<ExpressionContext> expCtx(
+                ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
             StatusWithMatchExpression statusWithMatcher =
                 MatchExpressionParser::parse(filterElt.Obj(), std::move(expCtx));
             uassertStatusOK(statusWithMatcher.getStatus());

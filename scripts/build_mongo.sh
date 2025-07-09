@@ -51,7 +51,8 @@ show_usage() {
     echo "Usage: $0 <build-type>"
     echo
     echo "Build Types:"
-    echo "  Debug          - Debug build with ASAN enabled"
+    echo "  Debug          - Debug build"
+    echo "  DebugASAN      - Debug build with ASAN enabled"
     echo "  Release        - Optimized release build with LTO"
     echo "  RelWithDebInfo - Release build with debug symbols"
     echo "  Compiledb      - Generate compilation database"
@@ -94,10 +95,17 @@ fi
 
 # ------------- Build type configurations -------------
 build_debug() {
+    log_step "Building Debug configuration"
+    rm -f ./src/mongo/db/modules/eloq/build
+    ln -s debug_build ./src/mongo/db/modules/eloq/build
+    ${COMMON_CMD} VARIANT_DIR=Debug --dbg=on --opt=off mongod
+}
+
+build_debug_asan() {
     log_step "Building Debug configuration with ASAN"
     rm -f ./src/mongo/db/modules/eloq/build
     ln -s debug_build ./src/mongo/db/modules/eloq/build
-    ${COMMON_CMD} VARIANT_DIR=Debug --dbg=on --opt=off --sanitize=leak,address mongod
+    ${COMMON_CMD} VARIANT_DIR=DebugAsan --dbg=on --opt=off --sanitize=leak,address mongod
 }
 
 build_release() {
@@ -123,7 +131,9 @@ build_compiledb() {
 
 build_client() {
     log_step "Building MongoDB client"
-    ${COMMON_CMD} VARIANT_DIR=Debug --dbg=on --opt=off mongo
+    rm -f ./src/mongo/db/modules/eloq/build
+    ln -s release_build ./src/mongo/db/modules/eloq/build
+    ${COMMON_CMD} VARIANT_DIR=RelWithDebInfo --dbg=on --opt=off mongo
 }
 
 # ------------- Validate input parameters -------------
@@ -152,6 +162,9 @@ log_info "Build started at $(date)"
 case "${BUILD_TYPE_LOWER}" in
     "debug")
         build_debug
+        ;;
+    "debugasan")
+        build_debug_asan
         ;;
     "release")
         build_release

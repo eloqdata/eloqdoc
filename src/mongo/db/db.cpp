@@ -280,9 +280,10 @@ ExitCode _initAndListen(int listenPort) {
 
     serviceContext->setFastClockSource(FastClockSourceFactory::create(Milliseconds(10)));
     auto opObserverRegistry = stdx::make_unique<OpObserverRegistry>();
-    /* Disable the sharding op observer for Eloq
-    opObserverRegistry->addObserver(stdx::make_unique<OpObserverShardingImpl>());
-    */
+    // Disable the sharding op observer for Eloq
+    // opObserverRegistry->addObserver(stdx::make_unique<OpObserverShardingImpl>());
+    opObserverRegistry->addObserver(stdx::make_unique<OpObserverImpl>());
+
     opObserverRegistry->addObserver(stdx::make_unique<UUIDCatalogObserver>());
 
     if (serverGlobalParams.clusterRole == ClusterRole::ShardServer) {
@@ -660,6 +661,10 @@ ExitCode _initAndListen(int listenPort) {
     }
 
     serviceContext->notifyStartupComplete();
+    if (serverGlobalParams.bootstrap) {
+        log() << "Bootstrap for Eloqdoc success. Exiting...";
+        exitCleanly(EXIT_CLEAN);
+    }
 
 #ifndef _WIN32
     mongo::signalForkSuccess();

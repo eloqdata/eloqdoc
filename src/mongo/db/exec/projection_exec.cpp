@@ -132,8 +132,10 @@ ProjectionExec::ProjectionExec(OperationContext* opCtx,
                 BSONObj elemMatchObj = e.wrap();
                 verify(elemMatchObj.isOwned());
                 _elemMatchObjs.push_back(elemMatchObj);
+                // boost::intrusive_ptr<ExpressionContext> expCtx(
+                //     new ExpressionContext(opCtx, _collator));
                 boost::intrusive_ptr<ExpressionContext> expCtx(
-                    new ExpressionContext(opCtx, _collator));
+                    ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, _collator));
                 StatusWithMatchExpression statusWithMatcher =
                     MatchExpressionParser::parse(elemMatchObj, std::move(expCtx));
                 verify(statusWithMatcher.isOK());

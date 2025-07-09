@@ -106,10 +106,11 @@ coll.remove({});
 var id = new ObjectId();
 coll.insert({_id: id, foo: "bar"});
 printjson(result = coll.insert({_id: id, foo: "baz"}));
-assert.eq(result.nInserted, 0);
-assert(result.getWriteError());
-assert(result.getWriteError().errmsg);
-assert(!result.getWriteConcernError());
+// assert.eq(result.nInserted, 0);
+// assert(result.getWriteError());
+// assert(result.getWriteError().errmsg);
+// assert(!result.getWriteConcernError());
+assert.commandFailedWithCode(result, ErrorCodes.DuplicateKey, result.errmsg)
 assert.eq(coll.count(), 1);
 
 //
@@ -117,13 +118,14 @@ assert.eq(coll.count(), 1);
 coll.remove({});
 coll.insert({foo: "bar"});
 printjson(result = coll.update({foo: "bar"}, {$invalid: "expr"}));
-assert.eq(result.nUpserted, 0);
-assert.eq(result.nMatched, 0);
-if (coll.getMongo().writeMode() == "commands")
-    assert.eq(0, result.nModified, tojson(result));
-assert(result.getWriteError());
-assert(result.getWriteError().errmsg);
-assert(!result.getUpsertedId());
+// assert.eq(result.nUpserted, 0);
+// assert.eq(result.nMatched, 0);
+// if (coll.getMongo().writeMode() == "commands")
+//     assert.eq(0, result.nModified, tojson(result));
+// assert(result.getWriteError());
+// assert(result.getWriteError().errmsg);
+// assert(!result.getUpsertedId());
+assert.commandFailedWithCode(result, ErrorCodes.FailedToParse, result.errmsg)
 assert.eq(coll.count(), 1);
 
 //
@@ -136,13 +138,14 @@ coll.insert({value: "not a number"});
 // $bit operator fails when the field is not integer
 // Note that multi-updates do not currently report partial stats if they fail
 printjson(result = coll.update({}, {$bit: {value: {and: NumberInt(0)}}}, {multi: true}));
-assert.eq(result.nUpserted, 0);
-assert.eq(result.nMatched, 0);
-if (coll.getMongo().writeMode() == "commands")
-    assert.eq(0, result.nModified, tojson(result));
-assert(result.getWriteError());
-assert(result.getWriteError().errmsg);
-assert(!result.getUpsertedId());
+// assert.eq(result.nUpserted, 0);
+// assert.eq(result.nMatched, 0);
+// if (coll.getMongo().writeMode() == "commands")
+//     assert.eq(0, result.nModified, tojson(result));
+// assert(result.getWriteError());
+// assert(result.getWriteError().errmsg);
+// assert(!result.getUpsertedId());
+assert.commandFailedWithCode(result, ErrorCodes.BadValue, result.errmsg)
 assert.eq(coll.count(), 11);
 
 //
@@ -160,10 +163,12 @@ coll.remove({});
 var id = new ObjectId();
 // Second insert fails with duplicate _id
 printjson(result = coll.insert([{_id: id, foo: "bar"}, {_id: id, foo: "baz"}]));
-assert.eq(result.nInserted, 1);
-assert(result.hasWriteErrors());
-assert(!result.hasWriteConcernError());
-assert.eq(coll.count(), 1);
+// assert.eq(result.nInserted, 1);
+// assert(result.hasWriteErrors());
+// assert(!result.hasWriteConcernError());
+// assert.eq(coll.count(), 1);
+assert.commandFailedWithCode(result, ErrorCodes.DuplicateKey, result.errmsg)
+assert.eq(coll.count(), 0);
 
 //
 // Custom write concern

@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <mutex>
+#include <utility>
 
 #include "mongo/platform/basic.h"
 
@@ -54,8 +55,6 @@
 #include "mongo/util/log.h"
 
 namespace mongo {
-extern thread_local int16_t localThreadId;
-
 MONGO_REGISTER_SHIM(IndexCatalogEntry::makeImpl)
 (IndexCatalogEntry* const this_,
  OperationContext* const opCtx,
@@ -67,6 +66,22 @@ MONGO_REGISTER_SHIM(IndexCatalogEntry::makeImpl)
     ->std::unique_ptr<IndexCatalogEntry::Impl> {
     return std::make_unique<IndexCatalogEntryImpl>(
         this_, opCtx, ns, collection, std::move(descriptor), infoCache);
+}
+
+MONGO_REGISTER_SHIM(IndexCatalogEntry::makeEloqImpl)
+(IndexCatalogEntry* const this_,
+ OperationContext* const opCtx,
+ StringData ns,
+ std::unique_ptr<IndexDescriptor> descriptor,
+ bool isReady,
+ RecordId head,
+ bool isMultikey,
+ const MultikeyPaths& multikeyPaths,
+ KVPrefix prefix,
+ PrivateTo<IndexCatalogEntry>)
+    ->std::unique_ptr<IndexCatalogEntry::Impl> {
+    return std::make_unique<IndexCatalogEntryImpl>(
+        this_, opCtx, ns, std::move(descriptor), isReady, head, isMultikey, multikeyPaths, prefix);
 }
 
 using std::string;
@@ -89,6 +104,63 @@ private:
     IndexCatalogEntry* _catalogEntry;
 };
 
+IndexCatalogEntryImpl::IndexCatalogEntryImpl(IndexCatalogEntry* this_,
+                                             OperationContext* opCtx,
+                                             StringData ns,
+                                             std::unique_ptr<IndexDescriptor> descriptor,
+                                             bool isReady,
+                                             RecordId head,
+                                             bool isMultikey,
+                                             const MultikeyPaths& multikeyPaths,
+                                             KVPrefix prefix)
+    : _ns(ns.toString()),
+      _collection(nullptr),
+      _descriptor(std::move(descriptor)),
+      _infoCache(nullptr),
+      _headManager(stdx::make_unique<HeadManagerImpl>(this_)),
+      _ordering(Ordering::make(_descriptor->keyPattern())),
+      _isReady(isReady),
+      _head(std::move(head)),
+      _isMultikey(isMultikey),
+      _indexMultikeyPaths(multikeyPaths),
+      _prefix(prefix) {
+    _descriptor->_cachedEntry = this_;
+    _indexTracksPathLevelMultikeyInfo = !_indexMultikeyPaths.empty();
+
+    if (BSONElement collationElement = _descriptor->getInfoElement("collation")) {
+        invariant(collationElement.isABSONObj());
+        BSONObj collation = collationElement.Obj();
+        auto statusWithCollator =
+            CollatorFactoryInterface::get(opCtx->getServiceContext())->makeFromBSON(collation);
+
+        // Index spec should have already been validated.
+        invariant(statusWithCollator.getStatus());
+
+        _collator = std::move(statusWithCollator.getValue());
+    }
+
+    if (BSONElement filterElement = _descriptor->getInfoElement("partialFilterExpression")) {
+        invariant(filterElement.isABSONObj());
+        BSONObj filter = filterElement.Obj();
+        // boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(opCtx, _collator.get()));
+        boost::intrusive_ptr<ExpressionContext> expCtx(
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, _collator.get()));
+
+        // Parsing the partial filter expression is not expected to fail here since the
+        // expression would have been successfully parsed upstream during index creation.
+        StatusWithMatchExpression statusWithMatcher =
+            MatchExpressionParser::parse(filter,
+                                         std::move(expCtx),
+                                         ExtensionsCallbackNoop(),
+                                         MatchExpressionParser::kBanAllSpecialFeatures);
+        invariant(statusWithMatcher.getStatus());
+        _filterExpression = std::move(statusWithMatcher.getValue());
+        LOG(2) << "have filter expression for " << _ns << " " << _descriptor->indexName() << " "
+               << redact(filter);
+    }
+}
+
 IndexCatalogEntryImpl::IndexCatalogEntryImpl(IndexCatalogEntry* const this_,
                                              OperationContext* const opCtx,
                                              const StringData ns,
@@ -102,21 +174,14 @@ IndexCatalogEntryImpl::IndexCatalogEntryImpl(IndexCatalogEntry* const this_,
       _headManager(stdx::make_unique<HeadManagerImpl>(this_)),
       _ordering(Ordering::make(_descriptor->keyPattern())),
       _isReady(_catalogIsReady(opCtx)),
+      _head(_catalogHead(opCtx)),
       _prefix(collection->getIndexPrefix(opCtx, _descriptor->indexName())) {
     _descriptor->_cachedEntry = this_;
-    _head = _catalogHead(opCtx);
 
-    // {
-    //     std::scoped_lock<std::mutex> lock(_globalIndexMultikeyPathsMutex);
-    //     _isMultikey.store(_catalogIsMultikey(opCtx, &_globalIndexMultikeyPaths));
-    //     _indexTracksPathLevelMultikeyInfo = !_globalIndexMultikeyPaths.empty();
-    // }
-
-    for (size_t i = 0; i < _localIndexMultikeyPathsVector.size(); ++i) {
-        std::scoped_lock<std::mutex> lock(_localIndexMultikeyPathsMutexVector[i]);
-        _isMultikey.store(_catalogIsMultikey(opCtx, &_localIndexMultikeyPathsVector[i]));
-        // _isMultikey.store(_catalogIsMultikey(opCtx, &_globalIndexMultikeyPaths));
-        _indexTracksPathLevelMultikeyInfo = !_localIndexMultikeyPathsVector[i].empty();
+    {
+        // stdx::lock_guard<stdx::mutex> lk(_indexMultikeyPathsMutex);
+        _isMultikey.store(_catalogIsMultikey(opCtx, &_indexMultikeyPaths));
+        _indexTracksPathLevelMultikeyInfo = !_indexMultikeyPaths.empty();
     }
 
     if (BSONElement collationElement = _descriptor->getInfoElement("collation")) {
@@ -134,8 +199,10 @@ IndexCatalogEntryImpl::IndexCatalogEntryImpl(IndexCatalogEntry* const this_,
     if (BSONElement filterElement = _descriptor->getInfoElement("partialFilterExpression")) {
         invariant(filterElement.isABSONObj());
         BSONObj filter = filterElement.Obj();
+        // boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(opCtx, _collator.get()));
         boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(opCtx, _collator.get()));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, _collator.get()));
 
         // Parsing the partial filter expression is not expected to fail here since the
         // expression would have been successfully parsed upstream during index creation.
@@ -182,7 +249,9 @@ bool IndexCatalogEntryImpl::isReady(OperationContext* opCtx) const {
         }
     }
 
-    DEV invariant(_isReady == _catalogIsReady(opCtx));
+    // Skip the readiness check.
+    // The catalog of index which failed to build do not exist in eloq engine.
+    // DEV invariant(_isReady == _catalogIsReady(opCtx));
     return _isReady;
 }
 
@@ -214,18 +283,14 @@ bool IndexCatalogEntryImpl::isMultikey(OperationContext* opCtx) const {
 }
 
 MultikeyPaths IndexCatalogEntryImpl::getMultikeyPaths(OperationContext* opCtx) const {
+    // stdx::lock_guard<stdx::mutex> lk(_indexMultikeyPathsMutex);
+
     auto session = OperationContextSession::get(opCtx);
-
-    // read local
-    int16_t id = localThreadId + 1;
-    std::unique_lock<std::mutex> lock(_localIndexMultikeyPathsMutexVector[id]);
-    MultikeyPaths ret = _localIndexMultikeyPathsVector[id];
-    lock.unlock();
-
     if (!session || !session->inMultiDocumentTransaction()) {
-        return ret;
+        return _indexMultikeyPaths;
     }
 
+    MultikeyPaths ret = _indexMultikeyPaths;
     for (const MultikeyPathInfo& path : session->getMultikeyPathInfo()) {
         if (path.nss == NamespaceString(_ns) && path.indexName == _descriptor->indexName()) {
             MultikeyPathTracker::mergeMultikeyPaths(&ret, path.multikeyPaths);
@@ -270,19 +335,13 @@ void IndexCatalogEntryImpl::setMultikey(OperationContext* opCtx,
     }
 
     if (_indexTracksPathLevelMultikeyInfo) {
-        assert(localThreadId >= 0);
-
-        // read local
-        int16_t id = localThreadId + 1;
-        std::scoped_lock<std::mutex> lock(_localIndexMultikeyPathsMutexVector[id]);
-        const auto& indexMultikeyPaths = _localIndexMultikeyPathsVector[id];
-
-        invariant(multikeyPaths.size() == indexMultikeyPaths.size());
+        // stdx::lock_guard<stdx::mutex> lk(_indexMultikeyPathsMutex);
+        invariant(multikeyPaths.size() == _indexMultikeyPaths.size());
 
         bool newPathIsMultikey = false;
         for (size_t i = 0; i < multikeyPaths.size(); ++i) {
-            if (!std::includes(indexMultikeyPaths[i].begin(),
-                               indexMultikeyPaths[i].end(),
+            if (!std::includes(_indexMultikeyPaths[i].begin(),
+                               _indexMultikeyPaths[i].end(),
                                multikeyPaths[i].begin(),
                                multikeyPaths[i].end())) {
                 // If 'multikeyPaths' contains a new path component that causes this index to be
@@ -340,39 +399,23 @@ void IndexCatalogEntryImpl::setMultikey(OperationContext* opCtx,
 
     // When the recovery unit commits, update the multikey paths if needed and clear the plan cache
     // if the index metadata has changed.
-    opCtx->recoveryUnit()->onCommit([this, multikeyPaths, indexMetadataHasChanged](
-                                        boost::optional<Timestamp>) {
-        _isMultikey.store(true);
+    opCtx->recoveryUnit()->onCommit(
+        [this, multikeyPaths, indexMetadataHasChanged](boost::optional<Timestamp>) {
+            _isMultikey.store(true);
 
-        if (_indexTracksPathLevelMultikeyInfo) {
-
-            // update all
-            // {
-            //     int16_t id = localThreadId + 1;
-            //     std::scoped_lock<std::mutex> lock(_localIndexMultikeyPathsMutexVector[id]);
-            //     // std::scoped_lock<std::mutex> lock(_globalIndexMultikeyPathsMutex);
-            //     for (size_t i = 0; i < multikeyPaths.size(); ++i) {
-            //         _globalIndexMultikeyPaths[i].insert(multikeyPaths[i].begin(),
-            //                                             multikeyPaths[i].end());
-            //     }
-            // }
-
-            for (size_t threadId = 0; threadId < _localIndexMultikeyPathsVector.size();
-                 ++threadId) {
-                std::scoped_lock<std::mutex> lock(_localIndexMultikeyPathsMutexVector[threadId]);
+            if (_indexTracksPathLevelMultikeyInfo) {
+                // stdx::lock_guard<stdx::mutex> lk(_indexMultikeyPathsMutex);
                 for (size_t i = 0; i < multikeyPaths.size(); ++i) {
-                    _localIndexMultikeyPathsVector[threadId][i].insert(multikeyPaths[i].begin(),
-                                                                       multikeyPaths[i].end());
+                    _indexMultikeyPaths[i].insert(multikeyPaths[i].begin(), multikeyPaths[i].end());
                 }
             }
-        }
 
-        if (indexMetadataHasChanged && _infoCache) {
-            LOG(1) << _ns << ": clearing plan cache - index " << _descriptor->keyPattern()
-                   << " set to multi key.";
-            _infoCache->clearQueryCache();
-        }
-    });
+            if (indexMetadataHasChanged && _infoCache) {
+                LOG(1) << _ns << ": clearing plan cache - index " << _descriptor->keyPattern()
+                       << " set to multi key.";
+                _infoCache->clearQueryCache();
+            }
+        });
 
     // Keep multikey changes in memory to correctly service later reads using this index.
     auto session = OperationContextSession::get(opCtx);

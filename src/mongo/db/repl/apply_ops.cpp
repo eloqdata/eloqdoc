@@ -157,9 +157,7 @@ Status _applyOps(OperationContext* opCtx,
                     ErrorCodes::AtomicityFailure,
                     str::stream()
                         << "cannot apply insert or update operation on a non-existent namespace "
-                        << nss.ns()
-                        << " in atomic applyOps mode: "
-                        << redact(opObj));
+                        << nss.ns() << " in atomic applyOps mode: " << redact(opObj));
             }
 
             // Reject malformed operations in an atomic applyOps.
@@ -169,8 +167,7 @@ Status _applyOps(OperationContext* opCtx,
                 uasserted(ErrorCodes::AtomicityFailure,
                           str::stream()
                               << "cannot apply a malformed operation in atomic applyOps mode: "
-                              << redact(opObj)
-                              << "; will retry without atomicity: "
+                              << redact(opObj) << "; will retry without atomicity: "
                               << exceptionToStatus().toString());
             }
 
@@ -220,9 +217,7 @@ Status _applyOps(OperationContext* opCtx,
                                       str::stream()
                                           << "cannot apply insert or update operation on a "
                                              "non-existent namespace "
-                                          << nss.ns()
-                                          << ": "
-                                          << mongo::redact(opObj));
+                                          << nss.ns() << ": " << mongo::redact(opObj));
                         }
 
                         OldClientContext ctx(opCtx, nss.ns());
@@ -334,7 +329,9 @@ Status _checkPrecondition(OperationContext* opCtx,
 
         // applyOps does not allow any extensions, such as $text, $where, $geoNear, $near,
         // $nearSphere, or $expr.
-        boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+        // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+        boost::intrusive_ptr<ExpressionContext> expCtx(
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
         Matcher matcher(preCondition["res"].Obj(), std::move(expCtx));
         if (!matcher.matches(realres)) {
             result->append("got", realres);

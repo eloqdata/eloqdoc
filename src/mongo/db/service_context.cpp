@@ -26,7 +26,7 @@
  *    it in the license file.
  */
 
-#include "mongo/base/object_pool.h"
+
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kDefault
 
 #include "mongo/platform/basic.h"
@@ -34,6 +34,7 @@
 #include "mongo/db/service_context.h"
 
 #include "mongo/base/init.h"
+#include "mongo/base/object_pool.h"
 #include "mongo/bson/bsonobj.h"
 #include "mongo/db/client.h"
 #include "mongo/db/concurrency/locker_noop.h"
@@ -161,8 +162,9 @@ void onCreate(T* object, const ObserversContainer& observers) {
 }  // namespace
 
 ServiceContext::UniqueClient ServiceContext::makeClient(std::string desc,
-                                                        transport::SessionHandle session) {
-    std::unique_ptr<Client> client(new Client(std::move(desc), this, std::move(session)));
+                                                        transport::SessionHandle session,
+                                                        ServiceStateMachine* stm) {
+    std::unique_ptr<Client> client(new Client(std::move(desc), this, std::move(session), stm));
     onCreate(client.get(), _clientObservers);
     {
         stdx::lock_guard<stdx::mutex> lk(_mutex);
@@ -241,13 +243,15 @@ ServiceContext::UniqueOperationContext ServiceContext::makeOperationContext(Clie
     auto opCtx =
         ObjectPool<OperationContext>::newObjectRawPointer(client, _nextOpId.fetchAndAdd(1));
     onCreate(opCtx, _clientObservers);
-    if (!opCtx->lockState()) {
-        opCtx->setLockState(std::make_unique<LockerNoop>());
-    }
-    if (!opCtx->recoveryUnit()) {
-        opCtx->setRecoveryUnit(new RecoveryUnitNoop(),
-                               WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
-    }
+    // if (!opCtx->lockState()) {
+    //     MONGO_UNREACHABLE;
+    //     opCtx->setLockState(std::make_unique<LockerNoop>());
+    // }
+    // if (!opCtx->recoveryUnit()) {
+    //     MONGO_UNREACHABLE;
+    //     opCtx->setRecoveryUnit(new RecoveryUnitNoop(),
+    //                            WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+    // }
     {
         stdx::lock_guard<Client> lk(*client);
         client->setOperationContext(opCtx);

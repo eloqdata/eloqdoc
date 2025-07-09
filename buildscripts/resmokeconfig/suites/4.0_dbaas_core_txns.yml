@@ -1,0 +1,50 @@
+test_kind: js_test
+
+selector:
+  roots:
+  - jstests/core/txns/**/*.js
+  exclude_files:
+  # Trying to change transactionLifetimeLimitSeconds
+  - jstests/core/txns/abort_expired_transaction.js
+  - jstests/core/txns/abort_transaction_thread_does_not_block_on_locks.js
+  - jstests/core/txns/kill_op_on_txn_expiry.js
+  # Trying to change featureCompatibilityVersion
+  - jstests/core/txns/abort_transactions_on_FCV_downgrade.js
+  - jstests/core/txns/only_allow_transactions_on_FCV_40.js
+  # Unauthorised drop in config db
+  - jstests/core/txns/banned_txn_dbs.js
+  # Uses eval
+  - jstests/core/txns/commands_not_allowed_in_txn.js
+  - jstests/core/txns/statement_ids_accepted.js
+  # Missing command clearLog
+  - jstests/core/txns/speculative_snapshot_includes_all_writes.js
+  # NEED TO INVESTIGATE
+  - jstests/core/txns/do_txn_atomicity.js
+  - jstests/core/txns/do_txn_basic.js
+  - jstests/core/txns/kill_cursors_in_transaction.js
+  - jstests/core/txns/kill_sessions_kills_transaction.js
+  - jstests/core/txns/multi_statement_transaction_command_args.js
+  - jstests/core/txns/multi_statement_transaction_using_api.js
+  - jstests/core/txns/no_read_concern_snapshot_outside_txn.js
+  - jstests/core/txns/transactions_profiling.js
+  - jstests/core/txns/transactions_profiling_with_drops.js
+  # crash
+  - jstests/core/txns/noop_createIndexes_not_blocked_by_txn.js
+  - jstests/core/txns/read_own_multikey_writes.js
+  - jstests/core/txns/transactions_block_ddl.js
+
+  exclude_with_any_tags:
+  - requires_capped
+  - assumes_superuser_permissions
+  - requires_eval_command
+  - requires_spawning_own_processes
+  - uses_multiple_connections
+  - uses_testing_only_commands
+  
+executor:
+  config:
+    shell_options:
+      eval: "testingReplication = true;"
+      readMode: commands
+      # ssl: ''
+

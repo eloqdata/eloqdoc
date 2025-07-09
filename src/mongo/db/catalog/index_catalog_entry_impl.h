@@ -58,6 +58,17 @@ class IndexCatalogEntryImpl : public IndexCatalogEntry::Impl {
     MONGO_DISALLOW_COPYING(IndexCatalogEntryImpl);
 
 public:
+    // Used for eloq engine
+    explicit IndexCatalogEntryImpl(IndexCatalogEntry* this_,
+                                   OperationContext* opCtx,
+                                   StringData ns,
+                                   std::unique_ptr<IndexDescriptor> descriptor,
+                                   bool isReady,
+                                   RecordId head,
+                                   bool isMultikey,
+                                   const MultikeyPaths& multikeyPaths,
+                                   KVPrefix prefix);
+
     explicit IndexCatalogEntryImpl(
         IndexCatalogEntry* this_,
         OperationContext* opCtx,
@@ -226,13 +237,7 @@ private:
     // in the index key pattern. Each element in the vector is an ordered set of positions (starting
     // at 0) into the corresponding indexed field that represent what prefixes of the indexed field
     // causes the index to be multikey.
-    // MultikeyPaths _indexMultikeyPaths;
-
-
-    mutable std::vector<std::mutex> _localIndexMultikeyPathsMutexVector{
-        1 + serverGlobalParams.reservedThreadNum};
-    std::vector<MultikeyPaths> _localIndexMultikeyPathsVector{1 +
-                                                              serverGlobalParams.reservedThreadNum};
+    MultikeyPaths _indexMultikeyPaths;
 
     // KVPrefix used to differentiate between index entries in different logical indexes sharing the
     // same underlying sorted data interface.

@@ -536,6 +536,7 @@ void KVCatalog::putMetaData(OperationContext* opCtx,
     {
         // rebuilt doc
         BSONObjBuilder b;
+        md.updateCatalogVersion();
         b.append("md", md.toBSON());
 
         BSONObjBuilder newIdentMap;
@@ -563,9 +564,10 @@ void KVCatalog::putMetaData(OperationContext* opCtx,
         obj = b.obj();
     }
 
-    MONGO_LOG(1) << "recording new metadata: " << obj;
+    MONGO_LOG(1) << "recording new metadata: " << obj.jsonString();
     Status status = _rs->updateRecord(opCtx, loc, obj.objdata(), obj.objsize(), false, nullptr);
-    fassert(28521, status.isOK());
+    uassertStatusOK(status);
+    // fassert(28521, status.isOK());
 }
 
 Status KVCatalog::renameCollection(OperationContext* opCtx,
@@ -585,6 +587,8 @@ Status KVCatalog::renameCollection(OperationContext* opCtx,
         md.rename(toNS);
         if (!stayTemp)
             md.options.temp = false;
+
+        md.updateCatalogVersion();
         b.append("md", md.toBSON());
 
         b.appendElementsUnique(old);
@@ -710,6 +714,7 @@ StatusWith<std::string> KVCatalog::newOrphanedIdent(OperationContext* opCtx, std
         md.options = optionsWithUUID;
         // Not Prefixed.
         md.prefix = KVPrefix::kNotPrefixed;
+        md.updateCatalogVersion();
         b.append("md", md.toBSON());
         obj = b.obj();
     }
@@ -740,6 +745,7 @@ BSONObj KVCatalog::_buildMetadata(OperationContext* opCtx,
     md.options = options;
     md.prefix = prefix;
     md.indexes.emplace_back(idIndexSpec, true, RecordId{}, false, prefix, false);
+    md.updateCatalogVersion();
     b.append("md", md.toBSON());
 
     {

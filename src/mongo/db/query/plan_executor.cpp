@@ -792,4 +792,11 @@ void PlanExecutor::Deleter::operator()(PlanExecutor* execPtr) {
     }
 }
 
+template <>
+void deinit(PlanExecutor* ptr) {
+    ptr->_cq.reset();
+    ptr->_workingSet.reset();
+    ptr->_qs.reset();
+    ptr->_root.reset();
+}
 }  // namespace mongo

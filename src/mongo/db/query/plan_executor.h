@@ -208,6 +208,8 @@ public:
                NamespaceString nss,
                YieldPolicy yieldPolicy);
 
+    template <typename T>
+    friend void deinit(T* ptr);
 
     //
     // Factory methods.
@@ -605,4 +607,6 @@ private:
     bool _everDetachedFromOperationContext = false;
 };
 
+template <>
+void deinit(PlanExecutor* ptr);
 }  // namespace mongo

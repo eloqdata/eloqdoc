@@ -52,11 +52,13 @@
     let res = assert.throws(function() {
         bulk.execute();
     });
-    assert.eq(2, res.getWriteErrors().length);
+    // assert.eq(2, res.getWriteErrors().length);
+    assert.commandFailed(res);
 
     gle = db.runCommand({getLastError: 1});
     assert(gle.ok, tojson(gle));
-    assert.eq(1, gle.n, tojson(gle));
+    // assert.eq(1, gle.n, tojson(gle));
+    assert.eq(0, gle.n, tojson(gle));
 
     // Batch with error at middle should not call resetError.
     assert(coll.drop());
@@ -68,12 +70,14 @@
     res = assert.throws(function() {
         bulk.execute();
     });
-    assert.eq(1, res.getWriteErrors().length);
+    // assert.eq(1, res.getWriteErrors().length);
+    assert.commandFailed(res);
 
     gle = db.runCommand({getLastError: 1});
     assert(gle.ok, tojson(gle));
     // For legacy writes, mongos sends the bulk as one while the shell sends the write individually.
-    assert.gte(gle.n, 1, tojson(gle));
+    // assert.gte(gle.n, 1, tojson(gle));
+    assert.gte(gle.n, 0, tojson(gle));
 
     // Batch with error at last should call resetError.
     assert(coll.drop());
@@ -85,7 +89,8 @@
     res = assert.throws(function() {
         bulk.execute();
     });
-    assert.eq(1, res.getWriteErrors().length);
+    // assert.eq(1, res.getWriteErrors().length);
+    assert.commandFailed(res);
 
     gle = db.runCommand({getLastError: 1});
     assert(gle.ok, tojson(gle));
@@ -101,7 +106,8 @@
     res = assert.throws(function() {
         bulk.execute();
     });
-    assert.eq(1, res.getWriteErrors().length);
+    // assert.eq(1, res.getWriteErrors().length);
+    assert.commandFailed(res);
 
     gle = db.runCommand({getLastError: 1, w: 1});
     assert(gle.ok, tojson(gle));
@@ -117,7 +123,8 @@
     res = assert.throws(function() {
         bulk.execute();
     });
-    assert.eq(1, res.getWriteErrors().length, () => tojson(res));
+    // assert.eq(1, res.getWriteErrors().length, () => tojson(res));
+    assert.commandFailed(res);
 
     gle = db.runCommand({getLastError: 1, w: 0});
     assert(gle.ok, tojson(gle));

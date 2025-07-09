@@ -30,8 +30,7 @@
 
 #include "mongo/platform/basic.h"
 
-#include "mongo/db/catalog/rename_collection.h"
-
+#include "mongo/base/error_codes.h"
 #include "mongo/db/background.h"
 #include "mongo/db/catalog/collection_catalog_entry.h"
 #include "mongo/db/catalog/database_holder.h"
@@ -39,6 +38,7 @@
 #include "mongo/db/catalog/drop_collection.h"
 #include "mongo/db/catalog/index_catalog.h"
 #include "mongo/db/catalog/index_create.h"
+#include "mongo/db/catalog/rename_collection.h"
 #include "mongo/db/catalog/uuid_catalog.h"
 #include "mongo/db/client.h"
 #include "mongo/db/concurrency/write_conflict_exception.h"
@@ -81,14 +81,8 @@ Status renameTargetCollectionToTmp(OperationContext* opCtx,
     if (!tmpNameResult.isOK()) {
         return tmpNameResult.getStatus().withContext(
             str::stream() << "Cannot generate a temporary collection name for the target "
-                          << targetNs.ns()
-                          << " ("
-                          << targetUUID
-                          << ") so that the source"
-                          << sourceNs.ns()
-                          << " ("
-                          << sourceUUID
-                          << ") could be renamed to "
+                          << targetNs.ns() << " (" << targetUUID << ") so that the source"
+                          << sourceNs.ns() << " (" << sourceUUID << ") could be renamed to "
                           << targetNs.ns());
     }
     const auto& tmpName = tmpNameResult.getValue();
@@ -148,8 +142,7 @@ Status renameCollectionCommon(OperationContext* opCtx,
     if (userInitiatedWritesAndNotPrimary) {
         return Status(ErrorCodes::NotMaster,
                       str::stream() << "Not primary while renaming collection " << source.ns()
-                                    << " to "
-                                    << target.ns());
+                                    << " to " << target.ns());
     }
 
     Database* const sourceDB = DatabaseHolder::getDatabaseHolder().get(opCtx, source.db());
@@ -356,8 +349,7 @@ Status renameCollectionCommon(OperationContext* opCtx,
     if (!tmpNameResult.isOK()) {
         return tmpNameResult.getStatus().withContext(
             str::stream() << "Cannot generate temporary collection name to rename " << source.ns()
-                          << " to "
-                          << target.ns());
+                          << " to " << target.ns());
     }
     const auto& tmpName = tmpNameResult.getValue();
 
@@ -529,6 +521,9 @@ Status renameCollection(OperationContext* opCtx,
                         const NamespaceString& source,
                         const NamespaceString& target,
                         const RenameCollectionOptions& options) {
+    // Currently RenameCollection is not supported
+    return Status(ErrorCodes::CommandNotSupported, "Not supported feature: Rename collection");
+
     if (source.isDropPendingNamespace()) {
         return Status(ErrorCodes::NamespaceNotFound,
                       str::stream() << "renameCollection() cannot accept a source "
@@ -629,9 +624,7 @@ Status renameCollectionForRollback(OperationContext* opCtx,
     invariant(source.db() == target.db(),
               str::stream() << "renameCollectionForRollback: source and target namespaces must "
                                "have the same database. source: "
-                            << source.toString()
-                            << ". target: "
-                            << target.toString());
+                            << source.toString() << ". target: " << target.toString());
 
     RenameCollectionOptions options;
     invariant(!options.dropTarget);

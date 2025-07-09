@@ -56,6 +56,7 @@ class Client;
 class OperationContext;
 class OpObserver;
 class ServiceEntryPoint;
+class ServiceStateMachine;
 
 namespace transport {
 class TransportLayer;
@@ -301,7 +302,9 @@ public:
      *
      * If supplied, "session" is the transport::Session used for communicating with the client.
      */
-    UniqueClient makeClient(std::string desc, transport::SessionHandle session = nullptr);
+    UniqueClient makeClient(std::string desc,
+                            transport::SessionHandle session = nullptr,
+                            ServiceStateMachine* stm = nullptr);
 
     /**
      * Creates a new OperationContext on "client".

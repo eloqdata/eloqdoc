@@ -1,0 +1,43 @@
+test_kind: js_test
+
+selector:
+  roots:
+  - jstests/core/fts_array.js
+  - jstests/core/fts_blog.js
+  - jstests/core/fts_blogwild.js
+  - jstests/core/fts_casesensitive.js
+  - jstests/core/fts_diacritic_and_caseinsensitive.js
+  - jstests/core/fts_diacritic_and_casesensitive.js
+  - jstests/core/fts_diacriticsensitive.js
+  - jstests/core/fts_dotted_prefix_fields.js
+  - jstests/core/fts_explain.js
+  - jstests/core/fts_index_version1.js
+  - jstests/core/fts_index_version2.js
+  - jstests/core/fts_index.js
+  - jstests/core/fts_index2.js
+  - jstests/core/fts_index3.js
+  - jstests/core/fts_mix.js
+  - jstests/core/fts_partition_no_multikey.js
+  - jstests/core/fts_partition1.js
+  - jstests/core/fts_proj.js
+  - jstests/core/fts_phrase.js
+  - jstests/core/fts_projection.js
+  - jstests/core/fts_querylang.js
+  - jstests/core/fts_score_sort.js
+  - jstests/core/fts_spanish.js
+  - jstests/core/fts_trailing_fields.js
+  - jstests/core/fts1.js
+  - jstests/core/fts6.js
+  - jstests/core/fts5.js
+  - jstests/core/fts4.js
+  - jstests/core/fts3.js
+  - jstests/core/fts2.js
+
+  exclude_files:
+
+executor:
+  config:
+    shell_options:
+      eval: var testingReplication = true;
+      readMode: commands
+      # ssl: ''

@@ -37,8 +37,8 @@
 
 namespace {
 
-using std::unique_ptr;
 using std::string;
+using std::unique_ptr;
 using std::vector;
 
 using namespace mongo;
@@ -51,8 +51,10 @@ unique_ptr<ParsedProjection> createParsedProjection(const BSONObj& query, const 
     QueryTestServiceContext serviceCtx;
     auto opCtx = serviceCtx.makeOperationContext();
     const CollatorInterface* collator = nullptr;
+    // const boost::intrusive_ptr<ExpressionContext> expCtx(
+    //     new ExpressionContext(opCtx.get(), collator));
     const boost::intrusive_ptr<ExpressionContext> expCtx(
-        new ExpressionContext(opCtx.get(), collator));
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx.get(), collator));
     StatusWithMatchExpression statusWithMatcher =
         MatchExpressionParser::parse(query, std::move(expCtx));
     ASSERT(statusWithMatcher.isOK());
@@ -60,10 +62,8 @@ unique_ptr<ParsedProjection> createParsedProjection(const BSONObj& query, const 
     ParsedProjection* out = NULL;
     Status status = ParsedProjection::make(opCtx.get(), projObj, queryMatchExpr.get(), &out);
     if (!status.isOK()) {
-        FAIL(mongoutils::str::stream() << "failed to parse projection " << projObj << " (query: "
-                                       << query
-                                       << "): "
-                                       << status.toString());
+        FAIL(mongoutils::str::stream() << "failed to parse projection " << projObj
+                                       << " (query: " << query << "): " << status.toString());
     }
     ASSERT(out);
     return unique_ptr<ParsedProjection>(out);
@@ -85,8 +85,10 @@ void assertInvalidProjection(const char* queryStr, const char* projStr) {
     QueryTestServiceContext serviceCtx;
     auto opCtx = serviceCtx.makeOperationContext();
     const CollatorInterface* collator = nullptr;
+    // const boost::intrusive_ptr<ExpressionContext> expCtx(
+    //     new ExpressionContext(opCtx.get(), collator));
     const boost::intrusive_ptr<ExpressionContext> expCtx(
-        new ExpressionContext(opCtx.get(), collator));
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx.get(), collator));
     StatusWithMatchExpression statusWithMatcher =
         MatchExpressionParser::parse(query, std::move(expCtx));
     ASSERT(statusWithMatcher.isOK());

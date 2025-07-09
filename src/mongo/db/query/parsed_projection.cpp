@@ -33,8 +33,8 @@
 
 namespace mongo {
 
-using std::unique_ptr;
 using std::string;
+using std::unique_ptr;
 
 /**
  * Parses the projection 'spec' and checks its validity with respect to the query 'query'.
@@ -132,8 +132,10 @@ Status ParsedProjection::make(OperationContext* opCtx,
                 // $nearSphere are not allowed in $elemMatch projections. $expr and $jsonSchema are
                 // not allowed because the matcher is not applied to the root of the document.
                 const CollatorInterface* collator = nullptr;
+                // boost::intrusive_ptr<ExpressionContext> expCtx(
+                //     new ExpressionContext(opCtx, collator));
                 boost::intrusive_ptr<ExpressionContext> expCtx(
-                    new ExpressionContext(opCtx, collator));
+                    ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
                 StatusWithMatchExpression statusWithMatcher =
                     MatchExpressionParser::parse(elemMatchObj,
                                                  std::move(expCtx),
@@ -296,9 +298,9 @@ Status ParsedProjection::make(OperationContext* opCtx,
             // $meta sortKey should not be checked as a part of _requiredFields, since it can
             // potentially produce a covered projection as long as the sort key is covered.
             if (BSONType::Object == elt.type()) {
-                dassert(
-                    SimpleBSONObjComparator::kInstance.evaluate(elt.Obj() == BSON("$meta"
-                                                                                  << "sortKey")));
+                dassert(SimpleBSONObjComparator::kInstance.evaluate(elt.Obj() ==
+                                                                    BSON("$meta"
+                                                                         << "sortKey")));
                 continue;
             }
             if (elt.trueValue()) {

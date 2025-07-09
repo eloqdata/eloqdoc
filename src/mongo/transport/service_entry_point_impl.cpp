@@ -139,7 +139,7 @@ void ServiceEntryPointImpl::startSession(transport::SessionHandle session) {
               << connectionCount << word << " now open)";
     }
 
-    ssm->setCleanupHook([this, ssmIt, session = std::move(session)] {
+    ssm->setCleanupHook([this, ssmIt, ssm, session = std::move(session)] {
         size_t connectionCount;
         auto remote = session->remote();
         {
@@ -151,6 +151,10 @@ void ServiceEntryPointImpl::startSession(transport::SessionHandle session) {
         _shutdownCondition.notify_one();
         const auto word = (connectionCount == 1 ? " connection"_sd : " connections"_sd);
         log() << "end connection " << remote << " (" << connectionCount << word << " now open)";
+
+        // EloqDoc reuse ServiceStateMachine. Close socket immediately.
+        ssm->releaseSessionHandler();
+        invariant(session.unique());
     });
 
     auto ownership = ServiceStateMachine::Ownership::kOwned;

@@ -62,6 +62,49 @@ ExpressionContext::ExpressionContext(OperationContext* opCtx,
     uuid = std::move(collUUID);
 }
 
+void ExpressionContext::reset(OperationContext* opCtx,
+                              const AggregationRequest& request,
+                              std::unique_ptr<CollatorInterface> collator,
+                              std::shared_ptr<MongoProcessInterface> mongoProcessInterface,
+                              StringMap<ExpressionContext::ResolvedNamespace> resolvedNamespaces,
+                              boost::optional<UUID> collUUID) {
+    // Reset members to their initial/default states.
+    // (Members like ns, mongoProcessInterface, timeZoneDatabase, variablesParseState
+    // are handled by assignments from arguments or re-initialization later in this function.)
+    explain = request.getExplain();
+    comment = request.getComment();
+    fromMongos = request.isFromMongos();
+    needsMerge = request.needsMerge();
+    inMongos = false;
+    allowDiskUse = request.shouldAllowDiskUse();
+    bypassDocumentValidation = request.shouldBypassDocumentValidation();
+    inMultiDocumentTransaction = false;
+    ns = request.getNamespaceString();
+    uuid = std::move(collUUID);
+    tempDir.clear();
+    this->opCtx = opCtx;
+    this->mongoProcessInterface = std::move(mongoProcessInterface);
+    timeZoneDatabase = nullptr;
+    collation = request.getCollation();
+    variables = Variables{};
+    variablesParseState = VariablesParseState{variables.useIdGenerator()};
+    tailableMode = TailableModeEnum::kNormal;
+    subPipelineDepth = 0;
+    maxFeatureCompatibilityVersion.reset();
+    _ownedCollator = std::move(collator);
+    _collator = _ownedCollator.get();
+    _documentComparator = DocumentComparator{_collator};
+    _valueComparator = ValueComparator{_collator};
+    _resolvedNamespaces = std::move(resolvedNamespaces);
+    _interruptCounter = kInterruptCheckPeriod;
+
+    // Note: _count is intentionally not reset here as it is typically managed
+    // by intrusive_ptr reference counting and is not part of the logical state
+    // being reset for reuse of the ExpressionContext object itself.
+    // In addition, when reset a ExpressionContext object from ObjectPool, the _count is
+    // already equals to 0.
+}
+
 ExpressionContext::ExpressionContext(OperationContext* opCtx, const CollatorInterface* collator)
     : opCtx(opCtx),
       mongoProcessInterface(std::make_shared<StubMongoProcessInterface>()),
@@ -75,15 +118,43 @@ ExpressionContext::ExpressionContext(OperationContext* opCtx, const CollatorInte
 
 
 void ExpressionContext::reset(OperationContext* opCtx, const CollatorInterface* collator) {
+    // Reset members to their initial/default states.
+    // (Members like ns, mongoProcessInterface, timeZoneDatabase, variablesParseState
+    // are handled by assignments from arguments or re-initialization later in this function.)
+    explain.reset();
+    comment.clear();
+    fromMongos = false;
+    needsMerge = false;
+    inMongos = false;
+    allowDiskUse = false;
+    bypassDocumentValidation = false;
+    inMultiDocumentTransaction = false;
+    ns.reset();
+    uuid.reset();
+    tempDir.clear();
     this->opCtx = opCtx;
-    mongoProcessInterface->reset();
+    mongoProcessInterface = std::make_shared<StubMongoProcessInterface>();
     timeZoneDatabase = opCtx && opCtx->getServiceContext()
         ? TimeZoneDatabase::get(opCtx->getServiceContext())
         : nullptr;
+    collation = BSONObj{};
+    variables = Variables{};
     variablesParseState = VariablesParseState{variables.useIdGenerator()};
+    tailableMode = TailableModeEnum::kNormal;
+    subPipelineDepth = 0;
+    maxFeatureCompatibilityVersion.reset();
+    _ownedCollator.reset();
     _collator = collator;
-    _documentComparator = {_collator};
-    _valueComparator = {_collator};
+    _documentComparator = DocumentComparator{_collator};
+    _valueComparator = ValueComparator{_collator};
+    _resolvedNamespaces.clear();
+    _interruptCounter = kInterruptCheckPeriod;
+
+    // Note: _count is intentionally not reset here as it is typically managed
+    // by intrusive_ptr reference counting and is not part of the logical state
+    // being reset for reuse of the ExpressionContext object itself.
+    // In addition, when reset a ExpressionContext object from ObejctPool, the _count is
+    // already equals to 0.
 }
 
 ExpressionContext::ExpressionContext(NamespaceString nss,
@@ -93,6 +164,46 @@ ExpressionContext::ExpressionContext(NamespaceString nss,
       mongoProcessInterface(std::move(processInterface)),
       timeZoneDatabase(tzDb),
       variablesParseState(variables.useIdGenerator()) {}
+
+void ExpressionContext::reset(NamespaceString nss,
+                              std::shared_ptr<MongoProcessInterface> processInterface,
+                              const TimeZoneDatabase* tzDb) {
+    // Reset members to their initial/default states.
+    // (Members like ns, mongoProcessInterface, timeZoneDatabase, variablesParseState
+    // are handled by assignments from arguments or re-initialization later in this function.)
+    explain.reset();
+    comment.clear();
+    fromMongos = false;
+    needsMerge = false;
+    inMongos = false;
+    allowDiskUse = false;
+    bypassDocumentValidation = false;
+    inMultiDocumentTransaction = false;
+    ns = std::move(nss);
+    uuid.reset();
+    tempDir.clear();
+    opCtx = nullptr;
+    mongoProcessInterface = std::move(processInterface);
+    timeZoneDatabase = tzDb;
+    collation = BSONObj{};
+    variables = Variables{};
+    variablesParseState = VariablesParseState{variables.useIdGenerator()};
+    tailableMode = TailableModeEnum::kNormal;
+    subPipelineDepth = 0;
+    maxFeatureCompatibilityVersion.reset();
+    _ownedCollator.reset();
+    _collator = nullptr;
+    _documentComparator = DocumentComparator{_collator};
+    _valueComparator = ValueComparator{_collator};
+    _resolvedNamespaces.clear();
+    _interruptCounter = kInterruptCheckPeriod;
+
+    // Note: _count is intentionally not reset here as it is typically managed
+    // by intrusive_ptr reference counting and is not part of the logical state
+    // being reset for reuse of the ExpressionContext object itself.
+    // In addition, when reset a ExpressionContext object from ObejctPool, the _count is
+    // already equals to 0.
+}
 
 void ExpressionContext::checkForInterrupt() {
     // This check could be expensive, at least in relative terms, so don't check every time.
@@ -148,8 +259,10 @@ intrusive_ptr<ExpressionContext> ExpressionContext::copyWith(
     NamespaceString ns,
     boost::optional<UUID> uuid,
     boost::optional<std::unique_ptr<CollatorInterface>> collator) const {
-    intrusive_ptr<ExpressionContext> expCtx =
-        new ExpressionContext(std::move(ns), mongoProcessInterface, timeZoneDatabase);
+    // intrusive_ptr<ExpressionContext> expCtx =
+    //     new ExpressionContext(std::move(ns), mongoProcessInterface, timeZoneDatabase);
+    intrusive_ptr<ExpressionContext> expCtx(ObjectPool<ExpressionContext>::newObjectRawPointer(
+        std::move(ns), mongoProcessInterface, timeZoneDatabase));
 
     expCtx->uuid = std::move(uuid);
     expCtx->explain = explain;

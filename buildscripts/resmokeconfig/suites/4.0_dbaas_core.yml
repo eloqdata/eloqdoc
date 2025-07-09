@@ -1,0 +1,98 @@
+test_kind: js_test
+
+selector:
+  roots:
+  - jstests/core/**/*.js
+  exclude_files:
+  - jstests/core/txns/**/*.js
+  # The find command fails with a different error message than the one expected when given a
+  # non-string collection name argument.
+  - jstests/core/commands_with_uuid.js
+  # dbadmin.js is timing-sensitive when reporting whether there is clock skew.
+  - jstests/core/dbadmin.js
+  # These test run commands using legacy queries, which are not supported on sessions.
+  - jstests/core/exhaust.js
+  - jstests/core/validate_cmd_ns.js
+  # Causal consistency is enabled when the retryWrites options is specified in the connection
+  # string. This leads to afterClusterTime being specified as a readConcern option, which conflicts
+  # with afterOpTime being specified as a readConcern option by the test.
+  - jstests/core/read_after_optime.js
+  # NEED TO INVESTIGATE
+  - jstests/core/bypass_doc_validation.js
+  - jstests/core/cannot_create_system_dot_indexes.js
+  - jstests/core/collation.js
+  # - jstests/core/escaped-logs.js
+  # - jstests/core/explain_uuid.js
+  - jstests/core/hostinfo.js
+  - jstests/core/index9.js
+  - jstests/core/index_id_options.js
+  - jstests/core/list_all_local_sessions.js
+  - jstests/core/list_indexes.js
+  - jstests/core/queryoptimizera.js
+  - jstests/core/restart_catalog.js
+  # crash for eloq
+  - jstests/core/*capped*.js
+  - jstests/core/indexes_multiple_commands.js
+  - jstests/core/create_indexes.js
+  - jstests/core/index_multiple_compatibility.js 
+  - jstests/core/collection_truncate.js
+  - jstests/core/list_indexes_invalidation.js
+  - jstests/core/bench_test1.js # assert: 32070.441376549097 is not less than or eq 7120.5 : A1
+  - jstests/core/covered_index_negative_1.js # hash index "errmsg" : "error processing query: ns=test.covered_negative_1Tree: f $eq 10.0\nSort: {}\nProj: { f: 1.0, _id: 0.0 }\n planner returned error: bad hint",
+  - jstests/core/covered_index_simple_3.js # "errmsg" : "error processing query: ns=test.covered_simple_3Tree: foo $eq 1.0\nSort: {}\nProj: { foo: 1.0, _id: 0.0 }\n planner returned error: bad hint",
+  - jstests/core/distinct_index1.js # TypeError: indexScanStage is null
+  - jstests/core/existsa.js # "errmsg" : "error processing query: ns=test.jstests_existsaTree: $not\n    a exists\nSort: {}\nProj: {}\n planner returned error: bad hint",
+  - jstests/core/find9.js # assert: [120] != [121] are not equal
+  - jstests/core/function_string_representations.js # "errmsg" : "Collection::insertDocument got document without _id for ns:local.tmp.mr.function_string_representations_0_test_inc",
+  - jstests/core/getmore_invalidated_cursors.js # "errmsg" : "cursor id 11556681461044 not found",
+  - jstests/core/index_multikey.js # assert: [true] != [false] are not equal : index should not be marked multikey after failed insert;
+  - jstests/core/indext.js # "errmsg" : "error processing query: ns=test.jstests_indextTree: $and\nSort: {}\nProj: {}\n planner returned error: bad hint",
+  - jstests/core/insert_long_index_key.js # index for big key should fail
+  - jstests/core/list_all_local_cursors.js # "errmsg" : "Unrecognized pipeline stage name: '$listLocalCursors'",
+  - jstests/core/list_collections_filter.js # assert: [[ ]] != [[ "lists", "ordered_sets", "unordered_sets" ]] are not equal
+  - jstests/core/list_collections_no_views.js # assert: command worked when it should have failed
+  - jstests/core/logprocessdetails.js # assert: [false] != [true] are not equal : Process details not present in RAM log
+  - jstests/core/max_time_ms.js # assert failed : expected sleep command to abort due to time limit, ok=0, code=59 
+  - jstests/core/nestedarr1.js # Error: [146] != [128] are not equal : Number of documents in collection does not match number of entries in index :
+  - jstests/core/nestedobj1.js  # assert: [146] != [127] are not equal : Number of documents in collection does not match number of entries in index
+  - jstests/core/remove9.js # Error: [500] != [501] are not equal :
+  - jstests/core/role_management_helpers.js # Error: Cannot grant nonexistent role roleA@role_management_helpers
+  - jstests/core/sortk.js # Error: [1] != [0] are not equal
+  - jstests/core/splitvector.js  # Error: 524288 is not greater than 2434500 : A0
+  - jstests/core/temp_cleanup.js # "errmsg" : "Collection::insertDocument got document without _id for ns:local.tmp.mr.tempCleanup_1_temp_cleanup_test_inc",
+  - jstests/core/uniqueness.js # unique index check
+  - jstests/core/views/duplicate_ns.js # assert: [2] != [1] are not equal
+  - jstests/core/views/invalid_system_views.js # assert: command worked when it should have failed:
+  # - jstests/core/*geo*.js
+  # - jstests/core/*fts.js
+  - jstests/core/*mr*.js
+  - jstests/core/*stages*.js
+  - jstests/core/*partial*.js
+  - jstests/core/*sparse*.js
+  - jstests/core/index13.js # raise Exception
+  - jstests/core/indexr.js # raise Exception
+  # - jstests/core/or4.js # raise Exception
+  # - jstests/core/or6.js
+  # - jstests/core/or8.js
+  - jstests/core/or_inexact.js # crash
+  - jstests/core/queryoptimizer3.js # crash
+  - jstests/core/removea.js # Hang!
+  - jstests/core/removeb.js # Hang!
+  - jstests/core/views/views_all_commands.js
+  # slow but meet expectations
+  - jstests/core/batch_write_command_insert.js
+  - jstests/core/batch_write_command_delete.js
+  - jstests/core/batch_write_command_update.js
+  exclude_with_any_tags:
+  - assumes_superuser_permissions
+  - requires_eval_command
+  - requires_spawning_own_processes
+  - uses_multiple_connections
+  - uses_testing_only_commands
+
+executor:
+  config:
+    shell_options:
+      eval: var testingReplication = true;
+      readMode: commands
+      # ssl: ''

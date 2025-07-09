@@ -202,8 +202,8 @@ StatusWith<StringMap<ExpressionContext::ResolvedNamespace>> resolveInvolvedNames
             auto resolvedView = viewCatalog->resolveView(opCtx, involvedNs);
             if (!resolvedView.isOK()) {
                 return {ErrorCodes::FailedToParse,
-                        str::stream() << "Failed to resolve view '" << involvedNs.ns() << "': "
-                                      << resolvedView.getStatus().toString()};
+                        str::stream() << "Failed to resolve view '" << involvedNs.ns()
+                                      << "': " << resolvedView.getStatus().toString()};
             }
 
             resolvedNamespaces[involvedNs.coll()] = {resolvedView.getValue().getNamespace(),
@@ -449,13 +449,20 @@ Status runAggregate(OperationContext* opCtx,
         }
 
         invariant(collatorToUse);
-        expCtx.reset(
-            new ExpressionContext(opCtx,
-                                  request,
-                                  std::move(*collatorToUse),
-                                  std::make_shared<PipelineD::MongoDInterface>(opCtx),
-                                  uassertStatusOK(resolveInvolvedNamespaces(opCtx, request)),
-                                  uuid));
+        // expCtx.reset(
+        //     new ExpressionContext(opCtx,
+        //                           request,
+        //                           std::move(*collatorToUse),
+        //                           std::make_shared<PipelineD::MongoDInterface>(opCtx),
+        //                           uassertStatusOK(resolveInvolvedNamespaces(opCtx, request)),
+        //                           uuid));
+        expCtx.reset(ObjectPool<ExpressionContext>::newObjectRawPointer(
+            opCtx,
+            request,
+            std::move(*collatorToUse),
+            std::make_shared<PipelineD::MongoDInterface>(opCtx),
+            uassertStatusOK(resolveInvolvedNamespaces(opCtx, request)),
+            uuid));
         expCtx->tempDir = storageGlobalParams.dbpath + "/_tmp";
         auto session = OperationContextSession::get(opCtx);
         expCtx->inMultiDocumentTransaction = session && session->inMultiDocumentTransaction();

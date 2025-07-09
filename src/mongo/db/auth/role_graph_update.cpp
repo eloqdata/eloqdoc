@@ -91,9 +91,7 @@ Status checkIdMatchesRoleName(const BSONElement& idElement, const RoleName& role
                       mongoutils::str::stream()
                           << "Role document _id fields must be encoded as the string "
                              "dbname.rolename.  Found "
-                          << idField
-                          << " for "
-                          << roleName.getFullName());
+                          << idField << " for " << roleName.getFullName());
     }
     return Status::OK();
 }
@@ -202,7 +200,9 @@ Status handleOplogUpdate(OperationContext* opCtx,
     if (!status.isOK())
         return status;
 
-    boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, nullptr));
+    // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, nullptr));
+    boost::intrusive_ptr<ExpressionContext> expCtx(
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, nullptr));
     UpdateDriver driver(std::move(expCtx));
     driver.setFromOplogApplication(true);
 
@@ -333,8 +333,8 @@ Status RoleGraph::handleLogOp(OperationContext* opCtx,
         return Status::OK();
     if (op[0] == '\0' || op[1] != '\0') {
         return Status(ErrorCodes::BadValue,
-                      mongoutils::str::stream() << "Unrecognized \"op\" field value \"" << op
-                                                << '"');
+                      mongoutils::str::stream()
+                          << "Unrecognized \"op\" field value \"" << op << '"');
     }
 
     if (ns.db() != AuthorizationManager::rolesCollectionNamespace.db())
@@ -369,8 +369,8 @@ Status RoleGraph::handleLogOp(OperationContext* opCtx,
                           "Namespace admin.system.roles is not a valid target for commands");
         default:
             return Status(ErrorCodes::BadValue,
-                          mongoutils::str::stream() << "Unrecognized \"op\" field value \"" << op
-                                                    << '"');
+                          mongoutils::str::stream()
+                              << "Unrecognized \"op\" field value \"" << op << '"');
     }
 }
 

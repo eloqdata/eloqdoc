@@ -87,9 +87,12 @@ public:
 
     RecoveryUnit* newRecoveryUnit() override;
     RecoveryUnit::UPtr newRecoveryUnitUPtr() override;
-    std::pair<bool, Status> lockCollection(OperationContext* opCtx,
-                                           StringData ns,
-                                           bool isForWrite) override;
+    Status lockCollection(OperationContext* opCtx,
+                          StringData ns,
+                          bool isForWrite,
+                          bool* exists,
+                          std::string* version) override;
+    void onAuthzDataChanged(OperationContext* opCtx) override;
 
     void listDatabases(std::vector<std::string>* out) const override;
     bool databaseExists(std::string_view dbName) const override;

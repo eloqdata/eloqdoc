@@ -194,6 +194,8 @@ public:
         virtual const NamespaceString& ns() const = 0;
         virtual OptionalCollectionUUID uuid() const = 0;
 
+        virtual const std::string& catalogVersion() const = 0;
+
         virtual void refreshUUID(OperationContext* opCtx) = 0;
 
         virtual const IndexCatalog* getIndexCatalog() const = 0;
@@ -383,6 +385,10 @@ public:
 
     inline OptionalCollectionUUID uuid() const {
         return this->_impl().uuid();
+    }
+
+    inline const std::string& catalogVersion() const {
+        return this->_impl().catalogVersion();
     }
 
     inline void refreshUUID(OperationContext* opCtx) {

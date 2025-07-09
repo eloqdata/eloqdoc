@@ -213,7 +213,7 @@ Status ReadConcernArgs::initialize(const BSONElement& readConcernElem) {
                 _originalLevel = ReadConcernLevel::kEloqSerializableIsolationLevel;
                 _level = ReadConcernLevel::kSnapshotReadConcern;
             } else {
-                warning() << kReadConcernDeprecationWarning;
+                MONGO_LOG(1) << kReadConcernDeprecationWarning;
 
                 if (levelString == kLocalReadConcernStr) {
                     _level = ReadConcernLevel::kLocalReadConcern;

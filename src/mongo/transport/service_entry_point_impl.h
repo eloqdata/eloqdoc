@@ -71,6 +71,10 @@ public:
         return _currentConnections.load();
     }
 
+    transport::ServiceExecutor* getServiceExecutor() final {
+        return _coroutineExecutor.get();
+    }
+
 private:
     using SSMList = stdx::list<std::shared_ptr<ServiceStateMachine>>;
     using SSMListIterator = SSMList::iterator;

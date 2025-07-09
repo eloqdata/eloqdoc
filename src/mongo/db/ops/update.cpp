@@ -84,8 +84,7 @@ UpdateResult update(OperationContext* opCtx, Database* db, const UpdateRequest& 
             if (userInitiatedWritesAndNotPrimary) {
                 uassertStatusOK(Status(ErrorCodes::PrimarySteppedDown,
                                        str::stream() << "Not primary while creating collection "
-                                                     << nsString.ns()
-                                                     << " during upsert"));
+                                                     << nsString.ns() << " during upsert"));
             }
             WriteUnitOfWork wuow(opCtx);
             collection = db->createCollection(opCtx, nsString.ns(), CollectionOptions());
@@ -112,7 +111,9 @@ BSONObj applyUpdateOperators(OperationContext* opCtx,
                              const BSONObj& from,
                              const BSONObj& operators) {
     const CollatorInterface* collator = nullptr;
-    boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+    // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+    boost::intrusive_ptr<ExpressionContext> expCtx(
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
     UpdateDriver driver(std::move(expCtx));
     std::map<StringData, std::unique_ptr<ExpressionWithPlaceholder>> arrayFilters;
     Status status = driver.parse(operators, arrayFilters);

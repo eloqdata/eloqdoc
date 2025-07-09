@@ -108,6 +108,10 @@ public:
         _localPool.Enqueue(std::unique_ptr<T>(ptr));
     }
 
+    static size_t poolSize() {
+        return _localPool.Size();
+    }
+
 private:
     static constexpr size_t kDefaultCapacity{32};
     static thread_local CircularQueue<std::unique_ptr<T>> _localPool;

@@ -11,9 +11,13 @@ gotError = null;
 for (x = 0; x < 100; x++) {
     print(x + " pushes");
     var res = t.update({}, {$push: {a: s}});
-    gotError = res.hasWriteError();
-    if (gotError)
+    // gotError = res.hasWriteError();
+    // if (gotError)
+    //     break;
+    if (!(res instanceof WriteResult)) {
+        gotError = res.errmsg;
         break;
+    }
 }
 
 assert(gotError, "should have gotten error");

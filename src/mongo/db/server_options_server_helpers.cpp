@@ -26,7 +26,6 @@
  *    it in the license file.
  */
 
-#include "mongo/util/options_parser/option_description.h"
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kControl
 
 #include "mongo/db/server_options_server_helpers.h"
@@ -57,6 +56,7 @@
 #include "mongo/util/net/sock.h"
 #include "mongo/util/net/socket_utils.h"
 #include "mongo/util/net/ssl_options.h"
+#include "mongo/util/options_parser/option_description.h"
 #include "mongo/util/options_parser/startup_options.h"
 
 using std::endl;
@@ -130,17 +130,22 @@ Status addGeneralServerOptions(moe::OptionSection* options) {
         .setDefault(moe::Value("synchronous"));
 
     // register options in config file
-    options->addOptionChaining(
-        "net.enableCoroutine", "enableCoroutine", moe::Bool, "whether to enable coroutine");
-    options->addOptionChaining("net.reservedThreadNum",
-                               "reservedThreadNum",
+    options->addOptionChaining("storage.eloq.enableCoroutine",
+                               "eloqEnableCoroutine",
+                               moe::Bool,
+                               "whether to enable coroutine");
+    options->addOptionChaining("storage.eloq.reservedThreadNum",
+                               "eloqReservedThreadNum",
                                moe::Unsigned,
                                "set the thread num for coroutine service executor mode");
-    options->addOptionChaining("net.adaptiveThreadNum",
-                               "adaptiveThreadNum",
+    options->addOptionChaining("storage.eloq.adaptiveThreadNum",
+                               "eloqAdaptiveThreadNum",
                                moe::Unsigned,
                                "set the thread num for adaptive service executor mode");
-
+    options
+        ->addOptionChaining(
+            "storage.eloq.bootstrap", "eloqBootstrap", moe::Bool, "Bootstrap the Eloq cluster.")
+        .setDefault(moe::Value(false));
 #if MONGO_ENTERPRISE_VERSION
     options->addOptionChaining("security.redactClientLogData",
                                "redactClientLogData",
@@ -563,8 +568,8 @@ Status storeServerOptions(const moe::Environment& params) {
         serverGlobalParams.serviceExecutor = "synchronous";
     }
 
-    if (params.count("net.enableCoroutine")) {
-        serverGlobalParams.enableCoroutine = params["net.enableCoroutine"].as<bool>();
+    if (params.count("storage.eloq.enableCoroutine")) {
+        serverGlobalParams.enableCoroutine = params["storage.eloq.enableCoroutine"].as<bool>();
         if (serverGlobalParams.enableCoroutine &&
             serverGlobalParams.serviceExecutor != "adaptive") {
             return Status(ErrorCodes::BadValue,
@@ -572,16 +577,25 @@ Status storeServerOptions(const moe::Environment& params) {
         }
     }
 
-    if (params.count("net.reservedThreadNum")) {
-        serverGlobalParams.reservedThreadNum = params["net.reservedThreadNum"].as<unsigned>();
+    if (params.count("storage.eloq.reservedThreadNum")) {
+        serverGlobalParams.reservedThreadNum =
+            params["storage.eloq.reservedThreadNum"].as<unsigned>();
         if (serverGlobalParams.reservedThreadNum < 1) {
             return Status(ErrorCodes::BadValue, "reservedThreadNum has to be at least 1");
         }
     }
-        if (params.count("net.adaptiveThreadNum")) {
-        serverGlobalParams.adaptiveThreadNum = params["net.adaptiveThreadNum"].as<unsigned>();
+    if (params.count("storage.eloq.adaptiveThreadNum")) {
+        serverGlobalParams.adaptiveThreadNum =
+            params["storage.eloq.adaptiveThreadNum"].as<unsigned>();
         if (serverGlobalParams.adaptiveThreadNum < 1) {
             return Status(ErrorCodes::BadValue, "adaptiveThreadNum has to be at least 1");
+        }
+    }
+
+    if (params.count("storage.eloq.bootstrap")) {
+        serverGlobalParams.bootstrap = params["storage.eloq.bootstrap"].as<bool>();
+        if (serverGlobalParams.bootstrap) {
+            log() << "This is a bootstrap for EloqDoc. The program will automatically exit after bootstrap.";
         }
     }
 

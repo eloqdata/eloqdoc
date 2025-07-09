@@ -71,10 +71,7 @@ public:
             ->createIndexOnEmptyCollection(&_opCtx,
                                            BSON("key" << BSON("x" << 1) << "name"
                                                       << "x_1"
-                                                      << "ns"
-                                                      << ns()
-                                                      << "v"
-                                                      << 1))
+                                                      << "ns" << ns() << "v" << 1))
             .status_with_transitional_ignore();
 
         for (int i = 0; i < kDocuments; i++) {
@@ -149,8 +146,10 @@ public:
         unique_ptr<WorkingSet> ws(new WorkingSet);
 
         const CollatorInterface* collator = nullptr;
+        // const boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(&_opCtx, collator));
         const boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(&_opCtx, collator));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
         StatusWithMatchExpression statusWithMatcher =
             MatchExpressionParser::parse(request.getQuery(), expCtx);
         ASSERT(statusWithMatcher.isOK());

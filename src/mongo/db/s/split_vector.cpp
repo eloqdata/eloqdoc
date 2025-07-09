@@ -161,13 +161,22 @@ StatusWith<std::vector<BSONObj>> splitVector(OperationContext* opCtx,
         long long currCount = 0;
         long long numChunks = 0;
 
+        // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+        // auto exec = InternalPlanner::indexScan(opCtx,
+        //                                        collection,
+        //                                        idx,
+        //                                        minKey,
+        //                                        maxKey,
+        //                                        BoundInclusion::kIncludeStartKeyOnly,
+        //                                        PlanExecutor::YIELD_AUTO,
+        //                                        InternalPlanner::FORWARD);
         auto exec = InternalPlanner::indexScan(opCtx,
                                                collection,
                                                idx,
                                                minKey,
                                                maxKey,
                                                BoundInclusion::kIncludeStartKeyOnly,
-                                               PlanExecutor::YIELD_AUTO,
+                                               PlanExecutor::INTERRUPT_ONLY,
                                                InternalPlanner::FORWARD);
 
         BSONObj currKey;
@@ -232,13 +241,22 @@ StatusWith<std::vector<BSONObj>> splitVector(OperationContext* opCtx,
             currCount = 0;
             log() << "splitVector doing another cycle because of force, keyCount now: " << keyCount;
 
+            // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+            // exec = InternalPlanner::indexScan(opCtx,
+            //                                   collection,
+            //                                   idx,
+            //                                   minKey,
+            //                                   maxKey,
+            //                                   BoundInclusion::kIncludeStartKeyOnly,
+            //                                   PlanExecutor::YIELD_AUTO,
+            //                                   InternalPlanner::FORWARD);
             exec = InternalPlanner::indexScan(opCtx,
                                               collection,
                                               idx,
                                               minKey,
                                               maxKey,
                                               BoundInclusion::kIncludeStartKeyOnly,
-                                              PlanExecutor::YIELD_AUTO,
+                                              PlanExecutor::INTERRUPT_ONLY,
                                               InternalPlanner::FORWARD);
 
             state = exec->getNext(&currKey, NULL);

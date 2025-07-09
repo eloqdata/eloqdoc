@@ -35,16 +35,18 @@ assert.eq(NumberLong("-2147483649"),
 c.drop();
 c.save({a: NumberLong("9223372036854775807")});
 updateResult = c.update({}, {$inc: {a: NumberInt(1)}});
-assert.eq(0,
-          updateResult.nMatched,
-          "Did not fail to increment a NumberLong past std::numeric_limits<int64_t>::max()");
+// assert.eq(0,
+//           updateResult.nMatched,
+//           "Did not fail to increment a NumberLong past std::numeric_limits<int64_t>::max()");
+assert.writeErrorWithCode(updateResult, ErrorCodes.BadValue);
 
 // A 64 bit underflow is an error
 c.drop();
 c.save({a: NumberLong("-9223372036854775808")});
 updateResult = c.update({}, {$inc: {a: NumberInt(-1)}});
-assert.eq(0,
-          updateResult.nMatched,
-          "Did not fail to decrement a NumberLong past std::numeric_limits<int64_t>::min()");
+// assert.eq(0,
+//           updateResult.nMatched,
+//           "Did not fail to decrement a NumberLong past std::numeric_limits<int64_t>::min()");
+assert.writeErrorWithCode(updateResult, ErrorCodes.BadValue);
 
 c.drop();

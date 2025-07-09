@@ -264,12 +264,6 @@ public:
                 it++;
                 continue;
             }
-
-            // We should never have to save and restore metadata locks.
-            invariant(RESOURCE_DATABASE == resId.getType() ||
-                      RESOURCE_COLLECTION == resId.getType() ||
-                      (RESOURCE_GLOBAL == resId.getType() && isSharedLockMode(mode)));
-
             OneLock info;
             info.resourceId = resId;
             info.mode = mode;

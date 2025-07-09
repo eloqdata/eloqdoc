@@ -44,7 +44,8 @@ namespace mongo {
 ParsedUpdate::ParsedUpdate(OperationContext* opCtx, const UpdateRequest* request)
     : _opCtx(opCtx),
       _request(request),
-      _driver(new ExpressionContext(opCtx, nullptr)),
+      //   _driver(new ExpressionContext(opCtx, nullptr)),
+      _driver(ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, nullptr)),
       _canonicalQuery() {}
 
 Status ParsedUpdate::parseRequest() {
@@ -101,7 +102,7 @@ Status ParsedUpdate::parseQueryToCQ() {
     // The projection needs to be applied after the update operation, so we do not specify a
     // projection during canonicalization.
     // auto qr = stdx::make_unique<QueryRequest>(_request->getNamespaceString());
-    auto qr= ObjectPool<QueryRequest>::newObject(_request->getNamespaceString());
+    auto qr = ObjectPool<QueryRequest>::newObject(_request->getNamespaceString());
     qr->setFilter(_request->getQuery());
     qr->setSort(_request->getSort());
     qr->setCollation(_request->getCollation());
@@ -152,8 +153,10 @@ Status ParsedUpdate::parseUpdate() {
 
 Status ParsedUpdate::parseArrayFilters() {
     for (auto rawArrayFilter : _request->getArrayFilters()) {
+        // boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(_opCtx, _collator.get()));
         boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(_opCtx, _collator.get()));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx, _collator.get()));
         auto parsedArrayFilter =
             MatchExpressionParser::parse(rawArrayFilter,
                                          std::move(expCtx),

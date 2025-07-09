@@ -159,16 +159,25 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> createRandomCursorEx
                 CollectionShardingState::get(opCtx, collection->ns())->getMetadata(opCtx),
                 ws.get(),
                 stage.release());
+            // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+            // return PlanExecutor::make(opCtx,
+            //                           std::move(ws),
+            //                           std::move(shardFilterStage),
+            //                           collection,
+            //                           PlanExecutor::YIELD_AUTO);
             return PlanExecutor::make(opCtx,
                                       std::move(ws),
                                       std::move(shardFilterStage),
                                       collection,
-                                      PlanExecutor::YIELD_AUTO);
+                                      PlanExecutor::INTERRUPT_ONLY);
         }
     }
 
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // return PlanExecutor::make(
+    //    opCtx, std::move(ws), std::move(stage), collection, PlanExecutor::YIELD_AUTO);
     return PlanExecutor::make(
-        opCtx, std::move(ws), std::move(stage), collection, PlanExecutor::YIELD_AUTO);
+        opCtx, std::move(ws), std::move(stage), collection, PlanExecutor::INTERRUPT_ONLY);
 }
 
 StatusWith<std::unique_ptr<PlanExecutor, PlanExecutor::Deleter>> attemptToGetExecutor(

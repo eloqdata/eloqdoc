@@ -55,6 +55,7 @@
 #include "mongo/s/grid.h"
 #include "mongo/transport/service_entry_point.h"
 #include "mongo/util/log.h"
+#include "mongo/util/mongoutils/str.h"
 
 namespace mongo {
 
@@ -113,6 +114,16 @@ void FeatureCompatibilityVersion::setIfCleanStartup(OperationContext* opCtx,
         uassertStatusOK(storageInterface->createCollection(opCtx, nss, options));
     }
 
+    // EloqDoc should discover table first.
+    AutoGetOrCreateDb autoDb(opCtx, nss.db(), mongo::MODE_X);
+    Database* db = autoDb.getDb();
+    Collection* collection = db->getCollection(opCtx, nss);
+    if (!collection) {
+        uasserted(ErrorCodes::NamespaceNotFound,
+                  str::stream() << "lock " << nss.toString() << " failed");
+    }
+    WriteUnitOfWork wunit(opCtx);
+
     // We then insert the featureCompatibilityVersion document into the server configuration
     // collection. The server parameter will be updated on commit by the op observer.
     uassertStatusOK(storageInterface->insertDocument(
@@ -126,6 +137,9 @@ void FeatureCompatibilityVersion::setIfCleanStartup(OperationContext* opCtx,
             Timestamp()},
         repl::OpTime::kUninitializedTerm));  // No timestamp or term because this write is not
                                              // replicated.
+
+    // EloqDoc commit transaction.
+    wunit.commit();
 }
 
 bool FeatureCompatibilityVersion::isCleanStartUp() {
@@ -214,12 +228,9 @@ void FeatureCompatibilityVersion::updateMinWireVersion() {
 void FeatureCompatibilityVersion::_validateVersion(StringData version) {
     uassert(40284,
             str::stream() << "featureCompatibilityVersion must be '"
-                          << FeatureCompatibilityVersionParser::kVersion40
-                          << "' or '"
-                          << FeatureCompatibilityVersionParser::kVersion36
-                          << "'. See "
-                          << feature_compatibility_version_documentation::kCompatibilityLink
-                          << ".",
+                          << FeatureCompatibilityVersionParser::kVersion40 << "' or '"
+                          << FeatureCompatibilityVersionParser::kVersion36 << "'. See "
+                          << feature_compatibility_version_documentation::kCompatibilityLink << ".",
             version == FeatureCompatibilityVersionParser::kVersion40 ||
                 version == FeatureCompatibilityVersionParser::kVersion36);
 }
@@ -265,7 +276,7 @@ public:
                           FeatureCompatibilityVersionParser::kParameterName.toString(),
                           false,  // allowedToChangeAtStartup
                           false   // allowedToChangeAtRuntime
-                          ) {}
+          ) {}
 
     virtual void append(OperationContext* opCtx, BSONObjBuilder& b, const std::string& name) {
         BSONObjBuilder featureCompatibilityVersionBuilder(b.subobjStart(name));

@@ -57,11 +57,16 @@
 #include "mongo/db/stats/top.h"
 #include "mongo/db/transaction_history_iterator.h"
 #include "mongo/stdx/memory.h"
+#include "mongo/transport/service_entry_point.h"
+#include "mongo/transport/service_executor.h"
 #include "mongo/transport/transport_layer.h"
 #include "mongo/util/fail_point_service.h"
 #include "mongo/util/log.h"
 #include "mongo/util/mongoutils/str.h"
 #include "mongo/util/net/socket_utils.h"
+
+
+#include <boost/context/continuation_fcontext.hpp>
 
 namespace mongo {
 
@@ -248,7 +253,9 @@ void updateSessionEntry(OperationContext* opCtx, const UpdateRequest& updateRequ
     auto originalDoc = originalRecordData.toBson();
 
     invariant(collection->getDefaultCollator() == nullptr);
-    boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, nullptr));
+    // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, nullptr));
+    boost::intrusive_ptr<ExpressionContext> expCtx(
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, nullptr));
 
     auto matcher =
         fassert(40673, MatchExpressionParser::parse(updateRequest.getQuery(), std::move(expCtx)));
@@ -292,7 +299,8 @@ MONGO_FAIL_POINT_DEFINE(hangAfterPreallocateSnapshot);
 
 const BSONObj Session::kDeadEndSentinel(BSON("$incompleteOplogHistory" << 1));
 
-Session::Session(LogicalSessionId sessionId) : _sessionId(std::move(sessionId)) {}
+Session::Session(LogicalSessionId sessionId, uint16_t threadGroupId)
+    : _sessionId(std::move(sessionId)), _threadGroupId(threadGroupId) {}
 
 void Session::setCurrentOperation(OperationContext* currentOperation) {
     stdx::lock_guard<stdx::mutex> lk(_mutex);
@@ -870,7 +878,7 @@ void Session::abortArbitraryTransaction() {
     _abortTransaction(lock);
 }
 
-void Session::abortArbitraryTransactionIfExpired() {
+void Session::abortArbitraryTransactionIfExpired(OperationContext* opCtx) {
     stdx::lock_guard<stdx::mutex> lock(_mutex);
     if (_txnState != MultiDocumentTransactionState::kInProgress || !_transactionExpireDate ||
         _transactionExpireDate >= Date_t::now()) {
@@ -890,7 +898,62 @@ void Session::abortArbitraryTransactionIfExpired() {
           << _sessionId.getId()
           << " because it has been running for longer than 'transactionLifetimeLimitSeconds'";
 
-    _abortTransaction(lock);
+    if (localThreadId != -1) {
+        _abortTransaction(lock);
+    } else {
+        bool finished = false;
+        std::mutex mux;
+        std::condition_variable cv;
+
+        std::function<void()> yieldFunc, resumeFunc;
+        opCtx->setCoroutineFunctors(&yieldFunc, &resumeFunc);
+        opCtx->setLogicalSessionId(_sessionId);
+        opCtx->setTxnNumber(_activeTxnNumber);
+        if (_txnResourceStash) {
+            _txnResourceStash->setOperationContext(opCtx);
+        }
+
+        transport::ServiceExecutor* serviceExecutor =
+            getGlobalServiceContext()->getServiceEntryPoint()->getServiceExecutor();
+
+        boost::context::continuation source;
+        auto contTask = [&source] {
+            log() << "killAllExpiredTransactions call resume";
+            source = source.resume();
+        };
+        resumeFunc = serviceExecutor->coroutineResumeFunctor(_threadGroupId, std::move(contTask));
+
+        transport::ServiceExecutor::Task yieldable =
+            [this, &lock, &finished, &mux, &cv, &source, &yieldFunc]() {
+                source = boost::context::callcc([this, &lock, &finished, &mux, &cv, &yieldFunc](
+                                                    boost::context::continuation&& sink) {
+                    yieldFunc = [&sink]() {
+                        log() << "killAllExpiredTransactions call yield";
+                        sink = sink.resume();
+                    };
+
+                    std::unique_lock lk(mux);
+                    _abortTransaction(lock);
+                    finished = true;
+                    cv.notify_one();
+                    return std::move(sink);
+                });
+            };
+
+        Status status =
+            serviceExecutor->schedule(std::move(yieldable),
+                                      transport::ServiceExecutor::ScheduleFlags::kEmptyFlags,
+                                      transport::ServiceExecutorTaskName::kSSMProcessMessage,
+                                      _threadGroupId);
+        if (status.isOK()) {
+            std::unique_lock lk(mux);
+            cv.wait(lk, [&finished]() { return finished; });
+        } else {
+            log() << "killAllExpiredTransactions schedule task error. " << status.reason();
+        }
+        // Call reset() to clear opCtx->_lsid.
+        opCtx->reset(opCtx->getClient(), opCtx->getOpID());
+    }
 }
 
 void Session::abortActiveTransaction(OperationContext* opCtx) {

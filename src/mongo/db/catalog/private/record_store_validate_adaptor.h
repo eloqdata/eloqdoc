@@ -92,10 +92,13 @@ public:
     void validateIndexKeyCount(IndexDescriptor* idx, int64_t numRecs, ValidateResults& results);
 
 private:
+    static bool approximate(int64_t num1, int64_t num2);
+
+private:
     OperationContext* _opCtx;             // Not owned.
     IndexConsistency* _indexConsistency;  // Not owned.
     ValidateCmdLevel _level;
     IndexCatalog* _indexCatalog;             // Not owned.
     ValidateResultsMap* _indexNsResultsMap;  // Not owned.
 };
-}  // namespace
+}  // namespace mongo

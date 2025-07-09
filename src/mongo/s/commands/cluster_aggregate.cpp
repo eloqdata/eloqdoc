@@ -1,30 +1,30 @@
 /**
-*    Copyright (C) 2016 MongoDB Inc.
-*
-*    This program is free software: you can redistribute it and/or  modify
-*    it under the terms of the GNU Affero General Public License, version 3,
-*    as published by the Free Software Foundation.
-*
-*    This program is distributed in the hope that it will be useful,
-*    but WITHOUT ANY WARRANTY; without even the implied warranty of
-*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*    GNU Affero General Public License for more details.
-*
-*    You should have received a copy of the GNU Affero General Public License
-*    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*
-*    As a special exception, the copyright holders give permission to link the
-*    code of portions of this program with the OpenSSL library under certain
-*    conditions as described in each individual source file and distribute
-*    linked combinations including the program with the OpenSSL library. You
-*    must comply with the GNU Affero General Public License in all respects for
-*    all of the code used other than as permitted herein. If you modify file(s)
-*    with this exception, you may extend this exception to your version of the
-*    file(s), but you are not obligated to do so. If you do not wish to do so,
-*    delete this exception statement from your version. If you delete this
-*    exception statement from all source files in the program, then also delete
-*    it in the license file.
-*/
+ *    Copyright (C) 2016 MongoDB Inc.
+ *
+ *    This program is free software: you can redistribute it and/or  modify
+ *    it under the terms of the GNU Affero General Public License, version 3,
+ *    as published by the Free Software Foundation.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Affero General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Affero General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *    As a special exception, the copyright holders give permission to link the
+ *    code of portions of this program with the OpenSSL library under certain
+ *    conditions as described in each individual source file and distribute
+ *    linked combinations including the program with the OpenSSL library. You
+ *    must comply with the GNU Affero General Public License in all respects for
+ *    all of the code used other than as permitted herein. If you modify file(s)
+ *    with this exception, you may extend this exception to your version of the
+ *    file(s), but you are not obligated to do so. If you do not wish to do so,
+ *    delete this exception statement from your version. If you delete this
+ *    exception statement from all source files in the program, then also delete
+ *    it in the license file.
+ */
 
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kCommand
 
@@ -111,8 +111,7 @@ Status appendExplainResults(
     BSONObjBuilder* result) {
     if (pipelineForTargetedShards->isSplitForShards()) {
         *result << "mergeType"
-                << (pipelineForMerging->canRunOnMongos()
-                        ? "mongos"
+                << (pipelineForMerging->canRunOnMongos()                ? "mongos"
                         : pipelineForMerging->needsPrimaryShardMerger() ? "primaryShard"
                                                                         : "anyShard")
                 << "splitPipeline"
@@ -472,9 +471,9 @@ DispatchShardPipelineResults dispatchShardPipeline(
     // Record the number of shards involved in the aggregation. If we are required to merge on
     // the primary shard, but the primary shard was not in the set of targeted shards, then we
     // must increment the number of involved shards.
-    CurOp::get(opCtx)->debug().nShards =
-        shardIds.size() + (needsPrimaryShardMerge && executionNsRoutingInfo &&
-                           !shardIds.count(executionNsRoutingInfo->db().primaryId()));
+    CurOp::get(opCtx)->debug().nShards = shardIds.size() +
+        (needsPrimaryShardMerge && executionNsRoutingInfo &&
+         !shardIds.count(executionNsRoutingInfo->db().primaryId()));
 
     return DispatchShardPipelineResults{needsPrimaryShardMerge,
                                         std::move(cursors),
@@ -686,7 +685,7 @@ std::pair<BSONObj, boost::optional<UUID>> getCollationAndUUID(
         : BSONObj();
 
     // Return the collection UUID if available, or boost::none otherwise.
-    const auto getUUID = [&]() -> auto {
+    const auto getUUID = [&]() -> auto{
         if (collectionIsSharded) {
             return routingInfo->cm()->getUUID();
         } else {
@@ -700,7 +699,7 @@ std::pair<BSONObj, boost::optional<UUID>> getCollationAndUUID(
     // If the collection exists, return its default collation, or the simple
     // collation if no explicit default is present. If the collection does not
     // exist, return an empty BSONObj.
-    const auto getCollation = [&]() -> auto {
+    const auto getCollation = [&]() -> auto{
         if (!collectionIsSharded && !collectionIsNotSharded) {
             return BSONObj();
         }
@@ -772,12 +771,19 @@ boost::intrusive_ptr<ExpressionContext> makeExpressionContext(OperationContext* 
 
     // Create the expression context, and set 'inMongos' to true. We explicitly do *not* set
     // mergeCtx->tempDir.
-    auto mergeCtx = new ExpressionContext(opCtx,
-                                          request,
-                                          std::move(collation),
-                                          std::make_shared<PipelineS::MongoSInterface>(),
-                                          resolveInvolvedNamespaces(opCtx, litePipe),
-                                          uuid);
+    // auto mergeCtx = new ExpressionContext(opCtx,
+    //                                       request,
+    //                                       std::move(collation),
+    //                                       std::make_shared<PipelineS::MongoSInterface>(),
+    //                                       resolveInvolvedNamespaces(opCtx, litePipe),
+    //                                       uuid);
+    auto mergeCtx = ObjectPool<ExpressionContext>::newObjectRawPointer(
+        opCtx,
+        request,
+        std::move(collation),
+        std::make_shared<PipelineS::MongoSInterface>(),
+        resolveInvolvedNamespaces(opCtx, litePipe),
+        uuid);
 
     mergeCtx->inMongos = true;
     return mergeCtx;
@@ -1006,8 +1012,8 @@ void ClusterAggregate::uassertAllShardsSupportExplain(
             status = getStatusFromCommandResult(result.swResponse.getValue().data);
         }
         uassert(17403,
-                str::stream() << "Shard " << result.shardId.toString() << " failed: "
-                              << causedBy(status),
+                str::stream() << "Shard " << result.shardId.toString()
+                              << " failed: " << causedBy(status),
                 status.isOK());
 
         uassert(17404,

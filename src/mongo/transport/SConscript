@@ -177,7 +177,7 @@ env.Library(
         '$BUILD_DIR/mongo/transport/message_compressor',
     ],
     SYSLIBDEPS=[
-        'boost_context'
+        'boost_context',
     ],
 )
 

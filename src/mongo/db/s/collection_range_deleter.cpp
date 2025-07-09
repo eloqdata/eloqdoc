@@ -189,14 +189,8 @@ boost::optional<Date_t> CollectionRangeDeleter::cleanUpNextRange(
                                 NamespaceString::kServerConfigurationNamespace.ns(),
                                 BSON("_id"
                                      << "startRangeDeletion"
-                                     << "ns"
-                                     << nss.ns()
-                                     << "epoch"
-                                     << epoch
-                                     << "min"
-                                     << range->getMin()
-                                     << "max"
-                                     << range->getMax()));
+                                     << "ns" << nss.ns() << "epoch" << epoch << "min"
+                                     << range->getMin() << "max" << range->getMax()));
             } catch (const DBException& e) {
                 stdx::lock_guard<stdx::mutex> scopedLock(css->_metadataManager->_managerLock);
                 css->_metadataManager->_clearAllCleanups(
@@ -304,8 +298,8 @@ StatusWith<int> CollectionRangeDeleter::_doDeletion(OperationContext* opCtx,
     auto catalog = collection->getIndexCatalog();
     const IndexDescriptor* idx = catalog->findShardKeyPrefixedIndex(opCtx, keyPattern, false);
     if (!idx) {
-        std::string msg = str::stream() << "Unable to find shard key index for "
-                                        << keyPattern.toString() << " in " << nss.ns();
+        std::string msg = str::stream()
+            << "Unable to find shard key index for " << keyPattern.toString() << " in " << nss.ns();
         LOG(0) << msg;
         return {ErrorCodes::InternalError, msg};
     }
@@ -324,8 +318,8 @@ StatusWith<int> CollectionRangeDeleter::_doDeletion(OperationContext* opCtx,
     const auto indexName = idx->indexName();
     IndexDescriptor* descriptor = collection->getIndexCatalog()->findIndexByName(opCtx, indexName);
     if (!descriptor) {
-        std::string msg = str::stream() << "shard key index with name " << indexName << " on '"
-                                        << nss.ns() << "' was dropped";
+        std::string msg = str::stream()
+            << "shard key index with name " << indexName << " on '" << nss.ns() << "' was dropped";
         LOG(0) << msg;
         return {ErrorCodes::InternalError, msg};
     }
@@ -336,12 +330,14 @@ StatusWith<int> CollectionRangeDeleter::_doDeletion(OperationContext* opCtx,
     }
 
     auto halfOpen = BoundInclusion::kIncludeStartKeyOnly;
-    auto manual = PlanExecutor::YIELD_MANUAL;
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // auto manual = PlanExecutor::YIELD_MANUAL;
+    auto policy = PlanExecutor::INTERRUPT_ONLY;
     auto forward = InternalPlanner::FORWARD;
     auto fetch = InternalPlanner::IXSCAN_FETCH;
 
     auto exec = InternalPlanner::indexScan(
-        opCtx, collection, descriptor, min, max, halfOpen, manual, forward, fetch);
+        opCtx, collection, descriptor, min, max, halfOpen, policy, forward, fetch);
 
     int numDeleted = 0;
     do {

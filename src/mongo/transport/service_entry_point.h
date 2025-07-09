@@ -30,6 +30,7 @@
 
 #include "mongo/base/disallow_copying.h"
 #include "mongo/db/dbmessage.h"
+#include "mongo/transport/service_executor.h"
 #include "mongo/transport/session.h"
 
 namespace mongo {
@@ -71,7 +72,7 @@ public:
     virtual ~ServiceEntryPoint() = default;
 
     virtual Status start() = 0;
-    
+
     /**
      * Begin running a new Session. This method returns immediately.
      */
@@ -101,6 +102,8 @@ public:
      * Processes a request and fills out a DbResponse.
      */
     virtual DbResponse handleRequest(OperationContext* opCtx, const Message& request) = 0;
+
+    virtual transport::ServiceExecutor* getServiceExecutor() = 0;
 
 protected:
     ServiceEntryPoint() = default;

@@ -109,6 +109,11 @@ public:
             return _readConcernArgs;
         }
 
+        void setOperationContext(OperationContext* opCtx) {
+            invariant(_recoveryUnit);
+            _recoveryUnit->setOperationContext(opCtx);
+        }
+
     private:
         bool _released = false;
         std::unique_ptr<Locker> _locker;
@@ -122,7 +127,7 @@ public:
 
     static const BSONObj kDeadEndSentinel;
 
-    explicit Session(LogicalSessionId sessionId);
+    Session(LogicalSessionId sessionId, uint16_t threadGroupId);
 
     const LogicalSessionId& getSessionId() const {
         return _sessionId;
@@ -280,7 +285,7 @@ public:
      * Same as abortArbitraryTransaction, except only executes if _transactionExpireDate indicates
      * that the transaction has expired.
      */
-    void abortArbitraryTransactionIfExpired();
+    void abortArbitraryTransactionIfExpired(OperationContext* opCtx);
 
     /*
      * Aborts the transaction inside the transaction, releasing transaction resources.
@@ -398,9 +403,13 @@ public:
         return _multikeyPathInfo;
     }
 
+    uint16_t ThreadGroupId() const {
+        return _threadGroupId;
+    }
+
     /**
-      * Sets the current operation running on this Session.
-      */
+     * Sets the current operation running on this Session.
+     */
     void setCurrentOperation(OperationContext* currentOperation);
 
     /**
@@ -582,6 +591,8 @@ private:
     // Tracks metrics for a single multi-document transaction.  Contains only txnNumber for
     // retryable writes.
     SingleTransactionStats _singleTransactionStats;
+
+    uint16_t _threadGroupId;
 };
 
 }  // namespace mongo

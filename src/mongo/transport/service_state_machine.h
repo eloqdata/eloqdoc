@@ -166,6 +166,10 @@ public:
 
     void setThreadGroupId(size_t id);
 
+    void releaseSessionHandler() {
+        _sessionHandle = nullptr;
+    }
+
 private:
     /*
      * A class that wraps up lifetime management of the _dbClient and _threadName for runNext();
@@ -271,13 +275,42 @@ private:
         }
     };
 
-    static constexpr size_t kCoroStackSize = 320 * 1024;
+    static constexpr size_t kCoroStackSize = 3200 * 1024;
+    static constexpr char kCanaryByte = 0xAB;
+    static constexpr size_t kCanarySize = 16;
+    static constexpr char kCanaryBytes[kCanarySize] = {
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+        kCanaryByte,
+    };
+
     boost::context::stack_context coroStackContext() {
         boost::context::stack_context sc;
         sc.size = kCoroStackSize;
         // Because stack grows downwards from high address?
         sc.sp = _coroStack + kCoroStackSize;
+        // Set canary bytes at the end of the stack to detect stack overflow.
+        std::memset(_coroStack, kCanaryByte, kCanarySize);
         return sc;
+    }
+
+    void abortIfStackOverflow() {
+        if (std::memcmp(_coroStack, kCanaryBytes, kCanarySize) != 0) {
+            std::abort();
+        }
     }
 
     boost::context::continuation _source;

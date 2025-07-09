@@ -42,6 +42,7 @@
 #include "mongo/db/service_context.h"
 #include "mongo/rpc/get_status_from_command_result.h"
 #include "mongo/stdx/memory.h"
+#include "mongo/transport/service_state_machine.h"
 #include "mongo/util/log.h"
 
 namespace mongo {
@@ -53,6 +54,8 @@ const auto operationSessionDecoration =
     OperationContext::declareDecoration<boost::optional<ScopedCheckedOutSession>>();
 
 }  // namespace
+
+extern thread_local int16_t localThreadId;
 
 void SessionCatalog::reset() {
     _txnTable.clear();
@@ -128,9 +131,25 @@ ScopedCheckedOutSession SessionCatalog::checkOutSession(OperationContext* opCtx)
 
     const auto lsid = *opCtx->getLogicalSessionId();
 
+#ifndef D_USE_CORO_SYNC
     stdx::unique_lock<stdx::mutex> ul(_mutex);
+#else
+    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    stdx::unique_lock<stdx::mutex> ul(_mutex, std::defer_lock);
+    while (!ul.try_lock()) {
+        (*coroResumePtr)();
+        (*coroYieldPtr)();
+    }
+#endif
 
-    auto sri = _getOrCreateSessionRuntimeInfo(ul, opCtx, lsid);
+    invariant(localThreadId >= 0);
+    uint16_t threadGroupId = localThreadId;
+    auto sri = _getOrCreateSessionRuntimeInfo(ul, opCtx, lsid, threadGroupId);
+
+    // TODO: Migrate to target thread group.
+    // if (uint16_t orig = sri->txnState.ThreadGroupId(); orig != threadGroupId) {
+    //     Client::getCurrent()->getServiceStateMachine()->setThreadGroupId(orig);
+    // }
 
     // Wait until the session is no longer checked out
     opCtx->waitForConditionOrInterrupt(
@@ -149,8 +168,19 @@ ScopedSession SessionCatalog::getOrCreateSession(OperationContext* opCtx,
     invariant(!opCtx->getTxnNumber());
 
     auto ss = [&] {
+#ifndef D_USE_CORO_SYNC
         stdx::unique_lock<stdx::mutex> ul(_mutex);
-        return ScopedSession(_getOrCreateSessionRuntimeInfo(ul, opCtx, lsid));
+#else
+        auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+        stdx::unique_lock<stdx::mutex> ul(_mutex, std::defer_lock);
+        while (!ul.try_lock()) {
+            (*coroResumePtr)();
+            (*coroYieldPtr)();
+        }
+#endif
+        invariant(localThreadId >= 0);
+        uint16_t threadGroupId = localThreadId;
+        return ScopedSession(_getOrCreateSessionRuntimeInfo(ul, opCtx, lsid, threadGroupId));
     }();
 
     // Perform the refresh outside of the mutex
@@ -182,7 +212,16 @@ void SessionCatalog::invalidateSessions(OperationContext* opCtx,
         }
     };
 
+#ifndef D_USE_CORO_SYNC
     stdx::lock_guard<stdx::mutex> lg(_mutex);
+#else
+    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    stdx::unique_lock<stdx::mutex> lg(_mutex, std::defer_lock);
+    while (!lg.try_lock()) {
+        (*coroResumePtr)();
+        (*coroYieldPtr)();
+    }
+#endif
 
     if (singleSessionDoc) {
         const auto lsid = LogicalSessionId::parse(IDLParserErrorContext("lsid"),
@@ -218,19 +257,29 @@ void SessionCatalog::scanSessions(OperationContext* opCtx,
 }
 
 std::shared_ptr<SessionCatalog::SessionRuntimeInfo> SessionCatalog::_getOrCreateSessionRuntimeInfo(
-    WithLock, OperationContext* opCtx, const LogicalSessionId& lsid) {
+    WithLock, OperationContext* opCtx, const LogicalSessionId& lsid, uint16_t threadGroupId) {
     invariant(!opCtx->lockState()->inAWriteUnitOfWork());
 
     auto it = _txnTable.find(lsid);
     if (it == _txnTable.end()) {
-        it = _txnTable.emplace(lsid, std::make_shared<SessionRuntimeInfo>(lsid)).first;
+        it = _txnTable.emplace(lsid, std::make_shared<SessionRuntimeInfo>(lsid, threadGroupId))
+                 .first;
     }
 
     return it->second;
 }
 
-void SessionCatalog::_releaseSession(const LogicalSessionId& lsid) {
+void SessionCatalog::_releaseSession(OperationContext* opCtx, const LogicalSessionId& lsid) {
+#ifndef D_USE_CORO_SYNC
     stdx::lock_guard<stdx::mutex> lg(_mutex);
+#else
+    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    stdx::unique_lock<stdx::mutex> lg(_mutex, std::defer_lock);
+    while (!lg.try_lock()) {
+        (*coroResumePtr)();
+        (*coroYieldPtr)();
+    }
+#endif
 
     auto it = _txnTable.find(lsid);
     invariant(it != _txnTable.end());

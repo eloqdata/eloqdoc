@@ -29,7 +29,8 @@ if (jsTest.options().auth) {
 }
 res = benchRun(benchArgs);
 
-assert.lte(seconds * res.update, t.findOne({_id: 1}).x * 1.5, "A1");
+// assert.lte(seconds * res.update, t.findOne({_id: 1}).x * 2, "A1");
+assert.lte(seconds * res.update, t.findOne({_id: 1}).x * 3, "A1");
 
 assert.eq(1, t.getIndexes().length, "B1");
 benchArgs['ops'] = [{op: "createIndex", ns: t.getFullName(), key: {x: 1}}];

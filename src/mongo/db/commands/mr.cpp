@@ -1509,8 +1509,13 @@ public:
                     Collection* coll = State::getCollectionOrUassert(opCtx, db, config.nss);
                     invariant(coll);
 
+                    // EloqDoc enables command level transaction. Set yield policy to
+                    // INTERRUPT_ONLY.
+                    //
+                    // exec = uassertStatusOK(
+                    //     getExecutor(opCtx, coll, std::move(cq), PlanExecutor::YIELD_AUTO, 0));
                     exec = uassertStatusOK(
-                        getExecutor(opCtx, coll, std::move(cq), PlanExecutor::YIELD_AUTO, 0));
+                        getExecutor(opCtx, coll, std::move(cq), PlanExecutor::INTERRUPT_ONLY, 0));
                 }
 
                 // Make sure the PlanExecutor is destroyed while holding the necessary locks.

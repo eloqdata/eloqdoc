@@ -161,8 +161,10 @@ TEST_F(QueryStageMultiPlanTest, MPSCollectionScanVsHighlySelectiveIXScan) {
     // Make the filter.
     BSONObj filterObj = BSON("foo" << 7);
     const CollatorInterface* collator = nullptr;
+    // const boost::intrusive_ptr<ExpressionContext> expCtx(
+    //     new ExpressionContext(_opCtx.get(), collator));
     const boost::intrusive_ptr<ExpressionContext> expCtx(
-        new ExpressionContext(_opCtx.get(), collator));
+        ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx.get(), collator));
     StatusWithMatchExpression statusWithMatcher = MatchExpressionParser::parse(filterObj, expCtx);
     verify(statusWithMatcher.isOK());
     unique_ptr<MatchExpression> filter = std::move(statusWithMatcher.getValue());
@@ -456,8 +458,10 @@ TEST_F(QueryStageMultiPlanTest, ShouldReportErrorIfExceedsTimeLimitDuringPlannin
     // Make the filter.
     BSONObj filterObj = BSON("foo" << 7);
     const CollatorInterface* collator = nullptr;
+    // const boost::intrusive_ptr<ExpressionContext> expCtx(
+    //     new ExpressionContext(_opCtx.get(), collator));
     const boost::intrusive_ptr<ExpressionContext> expCtx(
-        new ExpressionContext(_opCtx.get(), collator));
+        ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx.get(), collator));
     StatusWithMatchExpression statusWithMatcher = MatchExpressionParser::parse(filterObj, expCtx);
     verify(statusWithMatcher.isOK());
     unique_ptr<MatchExpression> filter = std::move(statusWithMatcher.getValue());
@@ -521,8 +525,10 @@ TEST_F(QueryStageMultiPlanTest, ShouldReportErrorIfKilledDuringPlanning) {
     // Make the filter.
     BSONObj filterObj = BSON("foo" << 7);
     const CollatorInterface* collator = nullptr;
+    // const boost::intrusive_ptr<ExpressionContext> expCtx(
+    //     new ExpressionContext(_opCtx.get(), collator));
     const boost::intrusive_ptr<ExpressionContext> expCtx(
-        new ExpressionContext(_opCtx.get(), collator));
+        ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx.get(), collator));
     StatusWithMatchExpression statusWithMatcher = MatchExpressionParser::parse(filterObj, expCtx);
     verify(statusWithMatcher.isOK());
     unique_ptr<MatchExpression> filter = std::move(statusWithMatcher.getValue());

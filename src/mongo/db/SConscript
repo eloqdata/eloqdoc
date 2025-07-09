@@ -651,7 +651,10 @@ env.Library(
     LIBDEPS_PRIVATE=[
         'commands/server_status',
         'update/update_driver',
-    ]
+    ],
+    SYSLIBDEPS=[
+        'boost_context',
+    ],
 )
 
 env.CppUnitTest(

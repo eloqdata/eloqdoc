@@ -488,6 +488,8 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutor(
     CanonicalQuery::UPtr canonicalQuery,
     PlanExecutor::YieldPolicy yieldPolicy,
     size_t plannerOptions) {
+    // Query is not an upsert operation.
+    opCtx->setIsUpsert(false);
     // unique_ptr<WorkingSet> ws = make_unique<WorkingSet>();
     auto ws = ObjectPool<WorkingSet>::newObject();
     // auto ws =ObjectPool<WorkingSet>::newObject();
@@ -624,9 +626,13 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getOplogStartHack(
         unique_ptr<WorkingSet> oplogws = make_unique<WorkingSet>();
         unique_ptr<OplogStart> stage =
             make_unique<OplogStart>(opCtx, collection, *minTs, oplogws.get());
+        // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+        //
         // Takes ownership of oplogws and stage.
+        // auto statusWithPlanExecutor = PlanExecutor::make(
+        //     opCtx, std::move(oplogws), std::move(stage), collection, PlanExecutor::YIELD_AUTO);
         auto statusWithPlanExecutor = PlanExecutor::make(
-            opCtx, std::move(oplogws), std::move(stage), collection, PlanExecutor::YIELD_AUTO);
+            opCtx, std::move(oplogws), std::move(stage), collection, PlanExecutor::INTERRUPT_ONLY);
         invariant(statusWithPlanExecutor.isOK());
         unique_ptr<PlanExecutor, PlanExecutor::Deleter> exec =
             std::move(statusWithPlanExecutor.getValue());
@@ -671,9 +677,18 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getOplogStartHack(
     unique_ptr<WorkingSet> ws = make_unique<WorkingSet>();
     unique_ptr<CollectionScan> cs =
         make_unique<CollectionScan>(opCtx, params, ws.get(), cq->root());
-    // Takes ownership of 'ws', 'cs', and 'cq'.
-    return PlanExecutor::make(
-        opCtx, std::move(ws), std::move(cs), std::move(cq), collection, PlanExecutor::YIELD_AUTO);
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
+    //  Takes ownership of 'ws', 'cs', and 'cq'.
+    // return PlanExecutor::make(
+    //     opCtx, std::move(ws), std::move(cs), std::move(cq), collection,
+    //     PlanExecutor::YIELD_AUTO);
+    return PlanExecutor::make(opCtx,
+                              std::move(ws),
+                              std::move(cs),
+                              std::move(cq),
+                              collection,
+                              PlanExecutor::INTERRUPT_ONLY);
 }
 
 StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> _getExecutorFind(
@@ -707,10 +722,15 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorFind(
     const NamespaceString& nss,
     CanonicalQuery::UPtr canonicalQuery,
     size_t plannerOptions) {
-    auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    auto yieldPolicy = readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
-        ? PlanExecutor::INTERRUPT_ONLY
-        : PlanExecutor::YIELD_AUTO;
+    // Find is not an upsert operation.
+    opCtx->setIsUpsert(false);
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
+    // auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // auto yieldPolicy = readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
+    //     ? PlanExecutor::INTERRUPT_ONLY
+    //     : PlanExecutor::YIELD_AUTO;
+    auto yieldPolicy = PlanExecutor::INTERRUPT_ONLY;
     return _getExecutorFind(
         opCtx, collection, nss, std::move(canonicalQuery), yieldPolicy, plannerOptions);
 }
@@ -720,11 +740,22 @@ StatusWith<std::unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorLega
     Collection* collection,
     const NamespaceString& nss,
     CanonicalQuery::UPtr canonicalQuery) {
+    // Legacy find is not an upsert operation.
+    opCtx->setIsUpsert(false);
+
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
+    // return _getExecutorFind(opCtx,
+    //                         collection,
+    //                         nss,
+    //                         std::move(canonicalQuery),
+    //                         PlanExecutor::YIELD_AUTO,
+    //                         QueryPlannerParams::DEFAULT);
     return _getExecutorFind(opCtx,
                             collection,
                             nss,
                             std::move(canonicalQuery),
-                            PlanExecutor::YIELD_AUTO,
+                            PlanExecutor::INTERRUPT_ONLY,
                             QueryPlannerParams::DEFAULT);
 }
 
@@ -782,6 +813,8 @@ StatusWith<unique_ptr<PlanStage>> applyProjection(OperationContext* opCtx,
 
 StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorDelete(
     OperationContext* opCtx, OpDebug* opDebug, Collection* collection, ParsedDelete* parsedDelete) {
+    // Delete is an upsert operation.
+    opCtx->setIsUpsert(true);
     const DeleteRequest* request = parsedDelete->getRequest();
 
     const NamespaceString& nss(request->getNamespaceString());
@@ -917,6 +950,8 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorDelete(
 
 StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorUpdate(
     OperationContext* opCtx, OpDebug* opDebug, Collection* collection, ParsedUpdate* parsedUpdate) {
+    // Update is an upsert operation.
+    opCtx->setIsUpsert(true);
     const UpdateRequest* request = parsedUpdate->getRequest();
     UpdateDriver* driver = parsedUpdate->getDriver();
 
@@ -1068,11 +1103,14 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorGroup(
     }
 
     unique_ptr<WorkingSet> ws = make_unique<WorkingSet>();
-    const auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    const auto yieldPolicy =
-        readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
-        ? PlanExecutor::INTERRUPT_ONLY
-        : PlanExecutor::YIELD_AUTO;
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
+    // const auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // const auto yieldPolicy =
+    //     readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
+    //     ? PlanExecutor::INTERRUPT_ONLY
+    //     : PlanExecutor::YIELD_AUTO;
+    const auto yieldPolicy = PlanExecutor::INTERRUPT_ONLY;
 
     if (!collection) {
         // Treat collections that do not exist as empty collections.  Note that the explain
@@ -1340,11 +1378,14 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorCount(
     }
     auto cq = std::move(statusWithCQ.getValue());
 
-    const auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    const auto yieldPolicy =
-        readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
-        ? PlanExecutor::INTERRUPT_ONLY
-        : PlanExecutor::YIELD_AUTO;
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
+    // const auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // const auto yieldPolicy =
+    //     readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
+    //     ? PlanExecutor::INTERRUPT_ONLY
+    //     : PlanExecutor::YIELD_AUTO;
+    const auto yieldPolicy = PlanExecutor::INTERRUPT_ONLY;
 
     if (!collection) {
         // Treat collections that do not exist as empty collections. Note that the explain
@@ -1532,11 +1573,14 @@ StatusWith<unique_ptr<PlanExecutor, PlanExecutor::Deleter>> getExecutorDistinct(
     Collection* collection,
     const std::string& ns,
     ParsedDistinct* parsedDistinct) {
-    const auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    const auto yieldPolicy =
-        readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
-        ? PlanExecutor::INTERRUPT_ONLY
-        : PlanExecutor::YIELD_AUTO;
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
+    // const auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // const auto yieldPolicy =
+    //     readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern
+    //     ? PlanExecutor::INTERRUPT_ONLY
+    //     : PlanExecutor::YIELD_AUTO;
+    const auto yieldPolicy = PlanExecutor::INTERRUPT_ONLY;
 
     if (!collection) {
         // Treat collections that do not exist as empty collections.

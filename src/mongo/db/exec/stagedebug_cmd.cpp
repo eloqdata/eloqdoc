@@ -64,8 +64,8 @@
 
 namespace mongo {
 
-using std::unique_ptr;
 using std::string;
+using std::unique_ptr;
 using std::vector;
 using stdx::make_unique;
 
@@ -190,8 +190,11 @@ public:
         unique_ptr<PlanStage> rootFetch =
             make_unique<FetchStage>(opCtx, ws.get(), userRoot, nullptr, collection);
 
+        // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+        // auto statusWithPlanExecutor = PlanExecutor::make(
+        //     opCtx, std::move(ws), std::move(rootFetch), collection, PlanExecutor::YIELD_AUTO);
         auto statusWithPlanExecutor = PlanExecutor::make(
-            opCtx, std::move(ws), std::move(rootFetch), collection, PlanExecutor::YIELD_AUTO);
+            opCtx, std::move(ws), std::move(rootFetch), collection, PlanExecutor::INTERRUPT_ONLY);
         fassert(28536, statusWithPlanExecutor.getStatus());
         auto exec = std::move(statusWithPlanExecutor.getValue());
 
@@ -244,8 +247,10 @@ public:
             BSONObj argObj = e.Obj();
             if (filterTag == e.fieldName()) {
                 const CollatorInterface* collator = nullptr;
+                // const boost::intrusive_ptr<ExpressionContext> expCtx(
+                //     new ExpressionContext(opCtx, collator));
                 const boost::intrusive_ptr<ExpressionContext> expCtx(
-                    new ExpressionContext(opCtx, collator));
+                    ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
                 auto statusWithMatcher =
                     MatchExpressionParser::parse(argObj,
                                                  expCtx,
@@ -283,11 +288,9 @@ public:
                         str::stream() << "Can't find index: " << keyPatternObj,
                         !indexes.empty());
                 uassert(ErrorCodes::AmbiguousIndexKeyPattern,
-                        str::stream() << indexes.size() << " matching indexes for key pattern: "
-                                      << keyPatternObj
-                                      << ". Conflicting indexes: "
-                                      << indexes[0]->infoObj()
-                                      << ", "
+                        str::stream() << indexes.size()
+                                      << " matching indexes for key pattern: " << keyPatternObj
+                                      << ". Conflicting indexes: " << indexes[0]->infoObj() << ", "
                                       << indexes[1]->infoObj(),
                         indexes.size() == 1);
                 desc = indexes[0];

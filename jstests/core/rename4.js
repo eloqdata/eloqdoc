@@ -11,7 +11,8 @@ function bad(f) {
     var res = eval(f);
 
     // Ensure error
-    if (!res.hasWriteError()) {
+    // if (!res.hasWriteError()) {
+    if (res instanceof WriteResult) {
         print("Error:" + res.toString());
         print("Existing docs (before)");
         printjson(docsBeforeUpdate);

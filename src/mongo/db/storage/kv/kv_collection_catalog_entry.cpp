@@ -192,26 +192,55 @@ Status KVCollectionCatalogEntry::prepareForIndexBuild(OperationContext* opCtx,
 
         // ready is always true
         IndexMetaData imd(
-            spec->infoObj(), true, RecordId(), false, prefix, isBackgroundSecondaryBuild);
+            spec->infoObj(), false, RecordId(), false, prefix, isBackgroundSecondaryBuild);
         if (indexTypeSupportsPathLevelMultikeyTracking(spec->getAccessMethodName())) {
             const auto feature =
                 KVCatalog::FeatureTracker::RepairableFeature::kPathLevelMultikeyTracking;
+
+            // Eloq doesn't allow repleatedly call UpsertTableTxRequest in one transaction. Launch
+            // another transaction to upsert featureDocument.
+            RecoveryUnit* oldRU = opCtx->releaseRecoveryUnit();
+            RecoveryUnit* newRU = opCtx->getServiceContext()->getStorageEngine()->newRecoveryUnit();
+            WriteUnitOfWork::RecoveryUnitState oldState =
+                opCtx->setRecoveryUnit(newRU, WriteUnitOfWork::kNotInUnitOfWork);
+            newRU->beginUnitOfWork(opCtx);
+
             if (!_catalog->getFeatureTracker()->isRepairableFeatureInUse(opCtx, feature)) {
                 _catalog->getFeatureTracker()->markRepairableFeatureAsInUse(opCtx, feature);
             }
+
+            newRU->commitUnitOfWork();
+            opCtx->setRecoveryUnit(oldRU, oldState);
+
             imd.multikeyPaths = MultikeyPaths{static_cast<size_t>(spec->keyPattern().nFields())};
         }
 
         // Mark collation feature as in use if the index has a non-simple collation.
         if (imd.spec["collation"]) {
             const auto feature = KVCatalog::FeatureTracker::NonRepairableFeature::kCollation;
+
+            // Eloq doesn't allow repleatedly call UpsertTableTxRequest in one transaction. Launch
+            // another transaction to upsert featureDocument.
+            RecoveryUnit* oldRU = opCtx->releaseRecoveryUnit();
+            RecoveryUnit* newRU = opCtx->getServiceContext()->getStorageEngine()->newRecoveryUnit();
+            WriteUnitOfWork::RecoveryUnitState oldState =
+                opCtx->setRecoveryUnit(newRU, WriteUnitOfWork::kNotInUnitOfWork);
+            newRU->beginUnitOfWork(opCtx);
+
             if (!_catalog->getFeatureTracker()->isNonRepairableFeatureInUse(opCtx, feature)) {
                 _catalog->getFeatureTracker()->markNonRepairableFeatureAsInUse(opCtx, feature);
             }
+
+            newRU->commitUnitOfWork();
+            opCtx->setRecoveryUnit(oldRU, oldState);
         }
 
         md.indexes.push_back(imd);
-        _catalog->putMetaData(opCtx, ns().toString(), md);
+        try {
+            _catalog->putMetaData(opCtx, ns().toString(), md);
+        } catch (const DBException& e) {
+            return e.toStatus();
+        }
     }
     string ident = _catalog->getIndexIdent(opCtx, ns().ns(), spec->indexName());
 
@@ -224,9 +253,9 @@ Status KVCollectionCatalogEntry::prepareForIndexBuild(OperationContext* opCtx,
 }
 
 void KVCollectionCatalogEntry::indexBuildSuccess(OperationContext* opCtx, StringData indexName) {
-    return;
-    MONGO_UNREACHABLE;
-
+    // return;
+    // MONGO_UNREACHABLE;
+    
     MetaData md = _getMetaData(opCtx);
     int offset = md.findIndexOffset(indexName);
     invariant(offset >= 0);

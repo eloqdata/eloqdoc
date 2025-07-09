@@ -1,31 +1,32 @@
 /**
-*    Copyright (C) 2014 MongoDB Inc.
-*
-*    This program is free software: you can redistribute it and/or  modify
-*    it under the terms of the GNU Affero General Public License, version 3,
-*    as published by the Free Software Foundation.
-*
-*    This program is distributed in the hope that it will be useful,
-*    but WITHOUT ANY WARRANTY; without even the implied warranty of
-*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*    GNU Affero General Public License for more details.
-*
-*    You should have received a copy of the GNU Affero General Public License
-*    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*
-*    As a special exception, the copyright holders give permission to link the
-*    code of portions of this program with the OpenSSL library under certain
-*    conditions as described in each individual source file and distribute
-*    linked combinations including the program with the OpenSSL library. You
-*    must comply with the GNU Affero General Public License in all respects for
-*    all of the code used other than as permitted herein. If you modify file(s)
-*    with this exception, you may extend this exception to your version of the
-*    file(s), but you are not obligated to do so. If you do not wish to do so,
-*    delete this exception statement from your version. If you delete this
-*    exception statement from all source files in the program, then also delete
-*    it in the license file.
-*/
+ *    Copyright (C) 2014 MongoDB Inc.
+ *
+ *    This program is free software: you can redistribute it and/or  modify
+ *    it under the terms of the GNU Affero General Public License, version 3,
+ *    as published by the Free Software Foundation.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Affero General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Affero General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *    As a special exception, the copyright holders give permission to link the
+ *    code of portions of this program with the OpenSSL library under certain
+ *    conditions as described in each individual source file and distribute
+ *    linked combinations including the program with the OpenSSL library. You
+ *    must comply with the GNU Affero General Public License in all respects for
+ *    all of the code used other than as permitted herein. If you modify file(s)
+ *    with this exception, you may extend this exception to your version of the
+ *    file(s), but you are not obligated to do so. If you do not wish to do so,
+ *    delete this exception statement from your version. If you delete this
+ *    exception statement from all source files in the program, then also delete
+ *    it in the license file.
+ */
 
+#include "mongo/base/error_codes.h"
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/catalog/index_key_validate.h"
@@ -100,7 +101,7 @@ static const std::set<StringData> allowedIdIndexFieldNames = {
     IndexDescriptor::kNamespaceFieldName,
     // Index creation under legacy writeMode can result in an index spec with an _id field.
     "_id"};
-}
+}  // namespace
 
 Status validateKeyPattern(const BSONObj& key, IndexDescriptor::IndexVersion indexVersion) {
     const ErrorCodes::Error code = ErrorCodes::CannotCreateIndex;
@@ -128,8 +129,7 @@ Status validateKeyPattern(const BSONObj& key, IndexDescriptor::IndexVersion inde
                 if (keyElement.type() == BSONType::Object || keyElement.type() == BSONType::Array) {
                     return {code,
                             str::stream() << "Values in index key pattern cannot be of type "
-                                          << typeName(keyElement.type())
-                                          << " for index version v:"
+                                          << typeName(keyElement.type()) << " for index version v:"
                                           << static_cast<int>(indexVersion)};
                 }
 
@@ -231,12 +231,13 @@ StatusWith<BSONObj> validateIndexSpec(
 
     for (auto&& indexSpecElem : indexSpec) {
         auto indexSpecElemFieldName = indexSpecElem.fieldNameStringData();
+
         if (IndexDescriptor::kKeyPatternFieldName == indexSpecElemFieldName) {
             if (indexSpecElem.type() != BSONType::Object) {
                 return {ErrorCodes::TypeMismatch,
-                        str::stream() << "The field '" << IndexDescriptor::kKeyPatternFieldName
-                                      << "' must be an object, but got "
-                                      << typeName(indexSpecElem.type())};
+                        str::stream()
+                            << "The field '" << IndexDescriptor::kKeyPatternFieldName
+                            << "' must be an object, but got " << typeName(indexSpecElem.type())};
             }
 
             std::vector<StringData> keys;
@@ -247,6 +248,9 @@ StatusWith<BSONObj> validateIndexSpec(
                             str::stream() << "The field '" << keyElemFieldName
                                           << "' appears multiple times in the index key pattern "
                                           << indexSpecElem.Obj()};
+                }
+                if (keyElem.str() == "hashed") {
+                    return {ErrorCodes::BadValue, "Not supported feature: hashed index."};
                 }
                 keys.push_back(keyElemFieldName);
             }
@@ -263,18 +267,18 @@ StatusWith<BSONObj> validateIndexSpec(
         } else if (IndexDescriptor::kIndexNameFieldName == indexSpecElemFieldName) {
             if (indexSpecElem.type() != BSONType::String) {
                 return {ErrorCodes::TypeMismatch,
-                        str::stream() << "The field '" << IndexDescriptor::kIndexNameFieldName
-                                      << "' must be a string, but got "
-                                      << typeName(indexSpecElem.type())};
+                        str::stream()
+                            << "The field '" << IndexDescriptor::kIndexNameFieldName
+                            << "' must be a string, but got " << typeName(indexSpecElem.type())};
             }
 
             hasIndexNameField = true;
         } else if (IndexDescriptor::kNamespaceFieldName == indexSpecElemFieldName) {
             if (indexSpecElem.type() != BSONType::String) {
                 return {ErrorCodes::TypeMismatch,
-                        str::stream() << "The field '" << IndexDescriptor::kNamespaceFieldName
-                                      << "' must be a string, but got "
-                                      << typeName(indexSpecElem.type())};
+                        str::stream()
+                            << "The field '" << IndexDescriptor::kNamespaceFieldName
+                            << "' must be a string, but got " << typeName(indexSpecElem.type())};
             }
 
             StringData ns = indexSpecElem.valueStringData();
@@ -286,22 +290,19 @@ StatusWith<BSONObj> validateIndexSpec(
 
             if (ns != expectedNamespace.ns()) {
                 return {ErrorCodes::BadValue,
-                        str::stream() << "The value of the field '"
-                                      << IndexDescriptor::kNamespaceFieldName
-                                      << "' ("
-                                      << ns
-                                      << ") doesn't match the namespace '"
-                                      << expectedNamespace.ns()
-                                      << "'"};
+                        str::stream()
+                            << "The value of the field '" << IndexDescriptor::kNamespaceFieldName
+                            << "' (" << ns << ") doesn't match the namespace '"
+                            << expectedNamespace.ns() << "'"};
             }
 
             hasNamespaceField = true;
         } else if (IndexDescriptor::kIndexVersionFieldName == indexSpecElemFieldName) {
             if (!indexSpecElem.isNumber()) {
                 return {ErrorCodes::TypeMismatch,
-                        str::stream() << "The field '" << IndexDescriptor::kIndexVersionFieldName
-                                      << "' must be a number, but got "
-                                      << typeName(indexSpecElem.type())};
+                        str::stream()
+                            << "The field '" << IndexDescriptor::kIndexVersionFieldName
+                            << "' must be a number, but got " << typeName(indexSpecElem.type())};
             }
 
             auto requestedIndexVersionAsInt = representAs<int>(indexSpecElem.number());
@@ -325,9 +326,9 @@ StatusWith<BSONObj> validateIndexSpec(
         } else if (IndexDescriptor::kCollationFieldName == indexSpecElemFieldName) {
             if (indexSpecElem.type() != BSONType::Object) {
                 return {ErrorCodes::TypeMismatch,
-                        str::stream() << "The field '" << IndexDescriptor::kCollationFieldName
-                                      << "' must be an object, but got "
-                                      << typeName(indexSpecElem.type())};
+                        str::stream()
+                            << "The field '" << IndexDescriptor::kCollationFieldName
+                            << "' must be an object, but got " << typeName(indexSpecElem.type())};
             }
 
             if (indexSpecElem.Obj().isEmpty()) {
@@ -340,10 +341,9 @@ StatusWith<BSONObj> validateIndexSpec(
         } else if (IndexDescriptor::kPartialFilterExprFieldName == indexSpecElemFieldName) {
             if (indexSpecElem.type() != BSONType::Object) {
                 return {ErrorCodes::TypeMismatch,
-                        str::stream() << "The field '"
-                                      << IndexDescriptor::kPartialFilterExprFieldName
-                                      << "' must be an object, but got "
-                                      << typeName(indexSpecElem.type())};
+                        str::stream()
+                            << "The field '" << IndexDescriptor::kPartialFilterExprFieldName
+                            << "' must be an object, but got " << typeName(indexSpecElem.type())};
             }
 
             // Just use the simple collator, even though the index may have a separate collation
@@ -352,8 +352,10 @@ StatusWith<BSONObj> validateIndexSpec(
             // after the fact. Here, we don't bother checking the collation after the fact, since
             // this invocation of the parser is just for validity checking.
             auto simpleCollator = nullptr;
+            // boost::intrusive_ptr<ExpressionContext> expCtx(
+            //     new ExpressionContext(opCtx, simpleCollator));
             boost::intrusive_ptr<ExpressionContext> expCtx(
-                new ExpressionContext(opCtx, simpleCollator));
+                ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, simpleCollator));
 
             // Special match expression features (e.g. $jsonSchema, $expr, ...) are not allowed in
             // a partialFilterExpression on index creation.
@@ -392,10 +394,8 @@ StatusWith<BSONObj> validateIndexSpec(
         return {ErrorCodes::CannotCreateIndex,
                 str::stream() << "Invalid index specification " << indexSpec
                               << "; cannot create an index with the '"
-                              << IndexDescriptor::kCollationFieldName
-                              << "' option and "
-                              << IndexDescriptor::kIndexVersionFieldName
-                              << "="
+                              << IndexDescriptor::kCollationFieldName << "' option and "
+                              << IndexDescriptor::kIndexVersionFieldName << "="
                               << static_cast<int>(*resolvedIndexVersion)};
     }
 

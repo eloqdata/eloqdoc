@@ -190,7 +190,9 @@ public:
             CurOp& curOp = *CurOp::get(_opCtx);
             OpDebug* opDebug = &curOp.debug();
             const CollatorInterface* collator = nullptr;
-            UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+            // UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+            UpdateDriver driver(
+                ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
             Collection* collection = ctx.getCollection();
 
             // Collection should be empty.
@@ -261,7 +263,9 @@ public:
             CurOp& curOp = *CurOp::get(_opCtx);
             OpDebug* opDebug = &curOp.debug();
             const CollatorInterface* collator = nullptr;
-            UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+            // UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+            UpdateDriver driver(
+                ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
             Database* db = ctx.db();
             Collection* coll = db->getCollection(&_opCtx, nss);
 
@@ -380,7 +384,8 @@ public:
         UpdateLifecycleImpl updateLifecycle(nss);
         UpdateRequest request(nss);
         const CollatorInterface* collator = nullptr;
-        UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+        // UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+        UpdateDriver driver(ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
         const int targetDocIndex = 0;  // We'll be working with the first doc in the collection.
         const BSONObj query = BSON("foo" << BSON("$gte" << targetDocIndex));
         const auto ws = make_unique<WorkingSet>();
@@ -471,7 +476,8 @@ public:
         UpdateLifecycleImpl updateLifecycle(nss);
         UpdateRequest request(nss);
         const CollatorInterface* collator = nullptr;
-        UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+        // UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+        UpdateDriver driver(ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
         const int targetDocIndex = 10;
         const BSONObj query = BSON("foo" << BSON("$gte" << targetDocIndex));
         const auto ws = make_unique<WorkingSet>();
@@ -558,7 +564,8 @@ public:
         UpdateLifecycleImpl updateLifecycle(nss);
         UpdateRequest request(nss);
         const CollatorInterface* collator = nullptr;
-        UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+        // UpdateDriver driver(new ExpressionContext(&_opCtx, collator));
+        UpdateDriver driver(ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
         const BSONObj query = BSONObj();
         const auto ws = make_unique<WorkingSet>();
         const unique_ptr<CanonicalQuery> cq(canonicalize(query));

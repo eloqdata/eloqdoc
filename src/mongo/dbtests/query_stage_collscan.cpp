@@ -93,8 +93,10 @@ public:
 
         // Make the filter.
         const CollatorInterface* collator = nullptr;
+        // const boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(&_opCtx, collator));
         const boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(&_opCtx, collator));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(&_opCtx, collator));
         StatusWithMatchExpression statusWithMatcher =
             MatchExpressionParser::parse(filterObj, expCtx);
         verify(statusWithMatcher.isOK());
@@ -418,4 +420,4 @@ public:
 };
 
 SuiteInstance<All> all;
-}
+}  // namespace QueryStageCollectionScan

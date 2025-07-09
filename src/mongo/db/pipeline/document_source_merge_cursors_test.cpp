@@ -76,7 +76,8 @@ class DocumentSourceMergeCursorsTest : public ShardingTestFixture {
 public:
     DocumentSourceMergeCursorsTest() {
         TimeZoneDatabase::set(getServiceContext(), std::make_unique<TimeZoneDatabase>());
-        _expCtx = new ExpressionContext(operationContext(), nullptr);
+        // _expCtx = new ExpressionContext(operationContext(), nullptr);
+        _expCtx = ObjectPool<ExpressionContext>::newObjectRawPointer(operationContext(), nullptr);
         _expCtx->ns = kTestNss;
     }
 
@@ -145,15 +146,12 @@ TEST_F(DocumentSourceMergeCursorsTest, ShouldRejectCursorWithNonStringNamespace)
 }
 
 TEST_F(DocumentSourceMergeCursorsTest, ShouldRejectCursorsWithDifferentNamespaces) {
-    auto spec = BSON(
-        "$mergeCursors"
-        << BSON_ARRAY(BSON("ns" << kTestNss.ns() << "id" << 0LL << "host" << kTestHost.toString())
-                      << BSON("ns"
-                              << "test.other"_sd
-                              << "id"
-                              << 0LL
-                              << "host"
-                              << kTestHost.toString())));
+    auto spec =
+        BSON("$mergeCursors" << BSON_ARRAY(
+                 BSON("ns" << kTestNss.ns() << "id" << 0LL << "host" << kTestHost.toString())
+                 << BSON("ns"
+                         << "test.other"_sd
+                         << "id" << 0LL << "host" << kTestHost.toString())));
     ASSERT_THROWS_CODE(DocumentSourceMergeCursors::createFromBson(spec.firstElement(), getExpCtx()),
                        AssertionException,
                        50720);
@@ -177,8 +175,7 @@ TEST_F(DocumentSourceMergeCursorsTest, ShouldRejectCursorWithNonStringHost) {
 TEST_F(DocumentSourceMergeCursorsTest, ShouldRejectCursorWithNonLongId) {
     auto spec = BSON("$mergeCursors" << BSON_ARRAY(BSON("ns" << kTestNss.ns() << "id"
                                                              << "zero"
-                                                             << "host"
-                                                             << kTestHost.toString())));
+                                                             << "host" << kTestHost.toString())));
     ASSERT_THROWS_CODE(DocumentSourceMergeCursors::createFromBson(spec.firstElement(), getExpCtx()),
                        AssertionException,
                        50722);
@@ -191,9 +188,9 @@ TEST_F(DocumentSourceMergeCursorsTest, ShouldRejectCursorWithNonLongId) {
 
 TEST_F(DocumentSourceMergeCursorsTest, ShouldRejectCursorWithExtraField) {
     auto spec =
-        BSON("$mergeCursors" << BSON_ARRAY(BSON(
-                 "ns" << kTestNss.ns() << "id" << 0LL << "host" << kTestHost.toString() << "extra"
-                      << "unexpected")));
+        BSON("$mergeCursors" << BSON_ARRAY(BSON("ns" << kTestNss.ns() << "id" << 0LL << "host"
+                                                     << kTestHost.toString() << "extra"
+                                                     << "unexpected")));
     ASSERT_THROWS_CODE(DocumentSourceMergeCursors::createFromBson(spec.firstElement(), getExpCtx()),
                        AssertionException,
                        50730);

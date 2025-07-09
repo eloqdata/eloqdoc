@@ -1,0 +1,17 @@
+test_kind: js_test
+
+selector:
+  roots:
+  - jstests/decimal/*.js
+  exclude_with_any_tags:
+  - assumes_superuser_permissions
+  - requires_eval_command
+  - requires_spawning_own_processes
+  - uses_multiple_connections
+  - uses_testing_only_commands
+
+executor:
+  config:
+    shell_options:
+      readMode: commands
+      # ssl: ''

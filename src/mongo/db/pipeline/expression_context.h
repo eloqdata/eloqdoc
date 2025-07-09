@@ -28,13 +28,13 @@
 
 #pragma once
 
-#include "mongo/base/object_pool.h"
 #include <boost/intrusive_ptr.hpp>
 #include <boost/optional.hpp>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "mongo/base/object_pool.h"
 #include "mongo/bson/bsonobj.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/operation_context.h"
@@ -54,6 +54,8 @@
 namespace mongo {
 
 class ExpressionContext {
+    friend class ObjectPool<ExpressionContext>;
+
 public:
     struct ResolvedNamespace {
         ResolvedNamespace() = default;
@@ -106,6 +108,12 @@ public:
                       StringMap<ExpressionContext::ResolvedNamespace> resolvedNamespaces,
                       boost::optional<UUID> collUUID);
 
+    void reset(OperationContext* opCtx,
+               const AggregationRequest& request,
+               std::unique_ptr<CollatorInterface> collator,
+               std::shared_ptr<MongoProcessInterface> mongoProcessInterface,
+               StringMap<ExpressionContext::ResolvedNamespace> resolvedNamespaces,
+               boost::optional<UUID> collUUID);
     /**
      * Constructs an ExpressionContext to be used for MatchExpression parsing outside of the context
      * of aggregation.
@@ -268,7 +276,9 @@ protected:
     ExpressionContext(NamespaceString nss,
                       std::shared_ptr<MongoProcessInterface>,
                       const TimeZoneDatabase* tzDb);
-
+    void reset(NamespaceString nss,
+               std::shared_ptr<MongoProcessInterface>,
+               const TimeZoneDatabase* tzDb);
     /**
      * Sets '_ownedCollator' and resets '_collator', 'documentComparator' and 'valueComparator'.
      *

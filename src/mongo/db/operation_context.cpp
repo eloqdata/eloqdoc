@@ -85,7 +85,9 @@ OperationContext::OperationContext(Client* client, unsigned int opId)
 
 void OperationContext::reset(Client* client, unsigned int opId) {
     MONGO_LOG(1) << "OperationContext::reset";
-    resetAllDecorations();
+
+    // Release all decorations at deinit().
+    // resetAllDecorations();
 
     _client = client;
     _opId = opId;
@@ -102,7 +104,8 @@ void OperationContext::reset(Client* client, unsigned int opId) {
     // _locker->reset();
     // _recoveryUnit->reset();
     _ruState = WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork;
-    _writeUnitOfWork.reset();
+    // Release wuow at deinit().
+    // _writeUnitOfWork.reset();
     _killCode.store(ErrorCodes::OK);
     _baton.reset();
     _waitMutex = nullptr;
@@ -116,6 +119,7 @@ void OperationContext::reset(Client* client, unsigned int opId) {
     _coroYield = nullptr;
     _coroResume = nullptr;
     _isolationLevel = 0;
+    _isUpsert = false;
 }
 
 void OperationContext::setDeadlineAndMaxTime(Date_t when,
@@ -202,6 +206,53 @@ Microseconds OperationContext::getRemainingMaxTimeMicros() const {
 
 void OperationContext::checkForInterrupt() {
     uassertStatusOK(checkForInterruptNoAssert());
+}
+
+template <>
+void deinit(OperationContext* ptr) {
+    ptr->resetAllDecorations();
+    ptr->_writeUnitOfWork.reset();
+}
+
+void coroWait(std::unique_lock<std::mutex>& lock, OperationContext* opCtx) {
+    invariant(localThreadId != -1);
+    invariant(lock.owns_lock());
+    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    (*coroResumePtr)();
+    lock.unlock();
+    (*coroYieldPtr)();
+    while (!lock.try_lock()) {
+        (*coroResumePtr)();
+        (*coroYieldPtr)();
+    }
+}
+
+void coroWait(std::unique_lock<std::mutex>& lock,
+              OperationContext* opCtx,
+              const std::function<bool()>& pred) {
+    while (!pred()) {
+        coroWait(lock, opCtx);
+    }
+}
+
+std::cv_status coroWaitUntil(std::unique_lock<std::mutex>& lock,
+                             OperationContext* opCtx,
+                             Date_t deadline) {
+    coroWait(lock, opCtx);
+    return Date_t::now() < deadline ? std::cv_status::no_timeout : std::cv_status::timeout;
+}
+
+bool coroWaitUntil(std::unique_lock<std::mutex>& lock,
+                   OperationContext* opCtx,
+                   Date_t deadline,
+                   const std::function<bool()>& pred) {
+    std::cv_status status = std::cv_status::no_timeout;
+    bool done = pred();
+    while (!done && status == std::cv_status::no_timeout) {
+        status = coroWaitUntil(lock, opCtx, deadline);
+        done = pred();
+    }
+    return done;
 }
 
 namespace {
@@ -317,8 +368,13 @@ StatusWith<stdx::cv_status> OperationContext::waitForConditionOrInterruptNoAsser
     invariant(getClient());
     {
         stdx::lock_guard<Client> clientLock(*getClient());
+#ifndef D_USE_CORO_SYNC
         invariant(!_waitMutex);
         invariant(!_waitCV);
+#else
+        invariant(!_waitMutex || _waitMutex == m.mutex());
+        invariant(!_waitCV || _waitCV == &cv);
+#endif
         invariant(0 == _numKillers);
 
         // This interrupt check must be done while holding the client lock, so as not to race with a
@@ -347,13 +403,22 @@ StatusWith<stdx::cv_status> OperationContext::waitForConditionOrInterruptNoAsser
 
     const auto waitStatus = [&] {
         if (Date_t::max() == deadline) {
+#ifndef D_USE_CORO_SYNC
             cv.wait(m);
+#else
+            coroWait(m, this);
+#endif
             return stdx::cv_status::no_timeout;
         }
+#ifndef D_USE_CORO_SYNC
         return getServiceContext()->getPreciseClockSource()->waitForConditionUntil(cv, m, deadline);
+#else
+        return coroWaitUntil(m, this, deadline);
+#endif
     }();
 
     // Continue waiting on cv until no other thread is attempting to kill this one.
+#ifndef D_USE_CORO_SYNC
     cv.wait(m, [this] {
         stdx::lock_guard<Client> clientLock(*getClient());
         if (0 == _numKillers) {
@@ -363,6 +428,17 @@ StatusWith<stdx::cv_status> OperationContext::waitForConditionOrInterruptNoAsser
         }
         return false;
     });
+#else
+    coroWait(m, this, [this] {
+        stdx::lock_guard<Client> clientLock(*getClient());
+        if (0 == _numKillers) {
+            _waitMutex = nullptr;
+            _waitCV = nullptr;
+            return true;
+        }
+        return false;
+    });
+#endif
 
     auto status = checkForInterruptNoAssert();
     if (!status.isOK()) {
@@ -434,6 +510,10 @@ WriteUnitOfWork::RecoveryUnitState OperationContext::resetRecoveryUnit(
     WriteUnitOfWork::RecoveryUnitState oldState = _ruState;
     _ruState = state;
     return oldState;
+}
+
+WriteUnitOfWork::RecoveryUnitState OperationContext::getRecoveryUnitState() const {
+    return _ruState;
 }
 
 void OperationContext::resetLockState() {

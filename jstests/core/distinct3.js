@@ -26,7 +26,11 @@ p = startParallelShell('for( i = 0; i < 100; ++i ) {                            
                        '    for( j = 0; j < 20; ++j ) {                           ' +
                        '        bulk.insert( { a:49, c:49, d:j } );               ' +
                        '    }                                                     ' +
-                       '    assert.writeOK(bulk.execute());                       ' +
+                       '    try {                                                 ' +
+                       '        assert.writeOK(bulk.execute());                   ' +
+                       '    } catch (ex) {                                        ' + 
+                       '        assert.eq(ex.code, ErrorCodes.WriteConflict);      ' +
+                       '    }                                                     ' +
                        '}                                                         ');
 
 for (i = 0; i < 100; ++i) {

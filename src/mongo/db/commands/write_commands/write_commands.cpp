@@ -371,7 +371,9 @@ private:
             updateRequest.setArrayFilters(write_ops::arrayFiltersOf(_batch.getUpdates()[0]));
             updateRequest.setMulti(_batch.getUpdates()[0].getMulti());
             updateRequest.setUpsert(_batch.getUpdates()[0].getUpsert());
-            updateRequest.setYieldPolicy(PlanExecutor::YIELD_AUTO);
+            // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+            // updateRequest.setYieldPolicy(PlanExecutor::YIELD_AUTO);
+            updateRequest.setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
             updateRequest.setExplain();
 
             ParsedUpdate parsedUpdate(opCtx, &updateRequest);
@@ -442,7 +444,9 @@ private:
             deleteRequest.setQuery(_batch.getDeletes()[0].getQ());
             deleteRequest.setCollation(write_ops::collationOf(_batch.getDeletes()[0]));
             deleteRequest.setMulti(_batch.getDeletes()[0].getMulti());
-            deleteRequest.setYieldPolicy(PlanExecutor::YIELD_AUTO);
+            // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+            // deleteRequest.setYieldPolicy(PlanExecutor::YIELD_AUTO);
+            deleteRequest.setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
             deleteRequest.setExplain();
 
             ParsedDelete parsedDelete(opCtx, &deleteRequest);

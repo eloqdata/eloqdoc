@@ -40,6 +40,7 @@
 #include <utility>
 
 #include "mongo/db/catalog/catalog_control.h"
+#include "mongo/db/concurrency/eloq_locker_noop.h"
 #include "mongo/db/logical_clock.h"
 #include "mongo/db/operation_context_noop.h"
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
@@ -96,7 +97,11 @@ KVStorageEngine::KVStorageEngine(
             "Storage engine does not support --directoryperdb",
             !(options.directoryPerDB && !engine->supportsDirectoryPerDB()));
 
-    OperationContextNoop opCtx(_engine->newRecoveryUnit());
+    // OperationContextNoop opCtx(_engine->newRecoveryUnit());
+    OperationContext opCtx(nullptr, 0);
+    opCtx.setRecoveryUnit(_engine->newRecoveryUnit(),
+                          WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+    opCtx.setLockState(std::make_unique<EloqLockerNoop>());
     loadCatalog(&opCtx);
 }
 
@@ -504,10 +509,13 @@ RecoveryUnit::UPtr KVStorageEngine::newRecoveryUnitUPtr() {
     return _engine->newRecoveryUnitUPtr();
 }
 
-std::pair<bool, Status> KVStorageEngine::lockCollection(OperationContext* opCtx,
-                                                        StringData ns,
-                                                        bool isForWrite) {
-    return _engine->lockCollection(opCtx, ns, isForWrite);
+Status KVStorageEngine::lockCollection(
+    OperationContext* opCtx, StringData ns, bool isForWrite, bool* exists, std::string* version) {
+    return _engine->lockCollection(opCtx, ns, isForWrite, exists, version);
+}
+
+void KVStorageEngine::onAuthzDataChanged(OperationContext* opCtx) {
+    return _engine->onAuthzDataChanged(opCtx);
 }
 
 void KVStorageEngine::listDatabases(std::vector<std::string>* out) const {

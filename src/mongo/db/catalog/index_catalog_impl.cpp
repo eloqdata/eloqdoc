@@ -26,7 +26,8 @@
  *    it in the license file.
  */
 
-#include "mongo/base/status.h"
+#include "boost/smart_ptr/intrusive_ptr.hpp"
+#include "mongo/db/pipeline/expression_context.h"
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kIndex
 
 #include "mongo/platform/basic.h"
@@ -36,6 +37,7 @@
 #include <vector>
 
 #include "mongo/base/init.h"
+#include "mongo/base/status.h"
 #include "mongo/bson/simple_bsonelement_comparator.h"
 #include "mongo/bson/simple_bsonobj_comparator.h"
 #include "mongo/db/audit.h"
@@ -181,7 +183,6 @@ IndexCatalogEntry* IndexCatalogImpl::_setupInMemoryStructures(
     std::unique_ptr<IndexAccessMethod> accessMethod(
         _collection->dbce()->getIndex(opCtx, _collection->getCatalogEntry(), entry.get()));
     entry->init(std::move(accessMethod));
-
     IndexCatalogEntry* save = entry.get();
     _entries.add(entry.release());
 
@@ -691,8 +692,10 @@ Status IndexCatalogImpl::_isSpecOk(OperationContext* opCtx, const BSONObj& spec)
         }
 
         // The collator must outlive the constructed MatchExpression.
+        // boost::intrusive_ptr<ExpressionContext> expCtx(
+        //     new ExpressionContext(opCtx, collator.get()));
         boost::intrusive_ptr<ExpressionContext> expCtx(
-            new ExpressionContext(opCtx, collator.get()));
+            ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator.get()));
 
         // Parsing the partial filter expression is not expected to fail here since the
         // expression would have been successfully parsed upstream during index creation.
@@ -988,7 +991,11 @@ public:
             // future, and we will need to do another write to reach the minimum visible snapshot.
             commitTime = LogicalClock::getClusterTimeForReplicaSet(_opCtx).asTimestamp();
         }
-        _collection->setMinimumVisibleSnapshot(commitTime.get());
+
+        // EloqDoc has erased discovered table after UpsertTableTxRequest succeed. _collection might
+        // released due to table schema changed..
+        //
+        // _collection->setMinimumVisibleSnapshot(commitTime.get());
 
         delete _entry;
     }

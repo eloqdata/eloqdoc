@@ -103,6 +103,9 @@ struct CollectionOptions {
     // SERVER-29926, SERVER-30095).
     OptionalCollectionUUID uuid;
 
+    // Use catalog version to test whether the catalog has changed. UUID string.
+    std::string catalogVersion;
+
     bool capped = false;
     long long cappedSize = 0;
     long long cappedMaxDocs = 0;
@@ -155,4 +158,4 @@ struct CollectionOptions {
     // The aggregation pipeline that defines this view.
     BSONObj pipeline;
 };
-}
+}  // namespace mongo

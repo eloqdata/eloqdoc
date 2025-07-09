@@ -705,6 +705,9 @@ assert = (function() {
                 errMsg = "no write errors: " + tojson(res);
             }
         } else if (res instanceof WriteCommandError) {
+            // EloqDoc enables command level transaction. On error, client interprect response as WriteCommandError.
+            writeErrorCodes.add(res.code);
+
             // Can only happen with bulk inserts
             // No-op since we're expecting an error
         } else if (res instanceof WriteError) {

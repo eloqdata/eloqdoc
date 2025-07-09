@@ -689,8 +689,10 @@ std::unique_ptr<ParsedProjection> createParsedProjection(const BSONObj& query,
     QueryTestServiceContext serviceCtx;
     auto opCtx = serviceCtx.makeOperationContext();
     const CollatorInterface* collator = nullptr;
+    // const boost::intrusive_ptr<ExpressionContext> expCtx(
+    //     new ExpressionContext(opCtx.get(), collator));
     const boost::intrusive_ptr<ExpressionContext> expCtx(
-        new ExpressionContext(opCtx.get(), collator));
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx.get(), collator));
     StatusWithMatchExpression queryMatchExpr =
         MatchExpressionParser::parse(query, std::move(expCtx));
     ASSERT(queryMatchExpr.isOK());
@@ -698,10 +700,8 @@ std::unique_ptr<ParsedProjection> createParsedProjection(const BSONObj& query,
     Status status =
         ParsedProjection::make(opCtx.get(), projObj, queryMatchExpr.getValue().get(), &out);
     if (!status.isOK()) {
-        FAIL(mongoutils::str::stream() << "failed to parse projection " << projObj << " (query: "
-                                       << query
-                                       << "): "
-                                       << status.toString());
+        FAIL(mongoutils::str::stream() << "failed to parse projection " << projObj
+                                       << " (query: " << query << "): " << status.toString());
     }
     ASSERT(out);
     return std::unique_ptr<ParsedProjection>(out);

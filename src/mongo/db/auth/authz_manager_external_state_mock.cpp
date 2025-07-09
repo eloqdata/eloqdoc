@@ -1,30 +1,30 @@
 /*
-*    Copyright (C) 2013 10gen Inc.
-*
-*    This program is free software: you can redistribute it and/or  modify
-*    it under the terms of the GNU Affero General Public License, version 3,
-*    as published by the Free Software Foundation.
-*
-*    This program is distributed in the hope that it will be useful,
-*    but WITHOUT ANY WARRANTY; without even the implied warranty of
-*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*    GNU Affero General Public License for more details.
-*
-*    You should have received a copy of the GNU Affero General Public License
-*    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*
-*    As a special exception, the copyright holders give permission to link the
-*    code of portions of this program with the OpenSSL library under certain
-*    conditions as described in each individual source file and distribute
-*    linked combinations including the program with the OpenSSL library. You
-*    must comply with the GNU Affero General Public License in all respects for
-*    all of the code used other than as permitted herein. If you modify file(s)
-*    with this exception, you may extend this exception to your version of the
-*    file(s), but you are not obligated to do so. If you do not wish to do so,
-*    delete this exception statement from your version. If you delete this
-*    exception statement from all source files in the program, then also delete
-*    it in the license file.
-*/
+ *    Copyright (C) 2013 10gen Inc.
+ *
+ *    This program is free software: you can redistribute it and/or  modify
+ *    it under the terms of the GNU Affero General Public License, version 3,
+ *    as published by the Free Software Foundation.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Affero General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Affero General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *    As a special exception, the copyright holders give permission to link the
+ *    code of portions of this program with the OpenSSL library under certain
+ *    conditions as described in each individual source file and distribute
+ *    linked combinations including the program with the OpenSSL library. You
+ *    must comply with the GNU Affero General Public License in all respects for
+ *    all of the code used other than as permitted herein. If you modify file(s)
+ *    with this exception, you may extend this exception to your version of the
+ *    file(s), but you are not obligated to do so. If you do not wish to do so,
+ *    delete this exception statement from your version. If you delete this
+ *    exception statement from all source files in the program, then also delete
+ *    it in the license file.
+ */
 
 #include "mongo/db/auth/authz_manager_external_state_mock.h"
 
@@ -82,8 +82,7 @@ void addPrivilegeObjectsOrWarningsToArrayElement(mutablebson::Element privileges
                         std::string(mongoutils::str::stream()
                                     << "Skipped privileges on resource "
                                     << privileges[i].getResourcePattern().toString()
-                                    << ". Reason: "
-                                    << errmsg)));
+                                    << ". Reason: " << errmsg)));
         }
     }
 }
@@ -183,7 +182,9 @@ Status AuthzManagerExternalStateMock::updateOne(OperationContext* opCtx,
                                                 const BSONObj& writeConcern) {
     namespace mmb = mutablebson;
     const CollatorInterface* collator = nullptr;
-    boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+    // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+    boost::intrusive_ptr<ExpressionContext> expCtx(
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
     UpdateDriver driver(std::move(expCtx));
     std::map<StringData, std::unique_ptr<ExpressionWithPlaceholder>> arrayFilters;
     Status status = driver.parse(updatePattern, arrayFilters);
@@ -294,7 +295,9 @@ Status AuthzManagerExternalStateMock::_queryVector(
     const BSONObj& query,
     std::vector<BSONObjCollection::iterator>* result) {
     const CollatorInterface* collator = nullptr;
-    boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+    // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx, collator));
+    boost::intrusive_ptr<ExpressionContext> expCtx(
+        ObjectPool<ExpressionContext>::newObjectRawPointer(opCtx, collator));
     StatusWithMatchExpression parseResult = MatchExpressionParser::parse(query, std::move(expCtx));
     if (!parseResult.isOK()) {
         return parseResult.getStatus();

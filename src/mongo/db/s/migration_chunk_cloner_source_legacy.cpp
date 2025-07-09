@@ -287,8 +287,7 @@ Status MigrationChunkClonerSourceLegacy::awaitUntilCriticalSectionIsAppropriate(
                 return {ErrorCodes::OperationIncomplete,
                         str::stream() << "Unable to enter critical section because the recipient "
                                          "shard thinks all data is cloned while there are still "
-                                      << cloneLocsRemaining
-                                      << " documents remaining"};
+                                      << cloneLocsRemaining << " documents remaining"};
             }
 
             return Status::OK();
@@ -604,17 +603,24 @@ Status MigrationChunkClonerSourceLegacy::_storeCurrentLocs(OperationContext* opC
     if (!idx) {
         return {ErrorCodes::IndexNotFound,
                 str::stream() << "can't find index with prefix " << _shardKeyPattern.toBSON()
-                              << " in storeCurrentLocs for "
-                              << _args.getNss().ns()};
+                              << " in storeCurrentLocs for " << _args.getNss().ns()};
     }
 
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
     // Install the stage, which will listen for notifications on the collection
+    // auto statusWithDeleteNotificationPlanExecutor =
+    //     PlanExecutor::make(opCtx,
+    //                        stdx::make_unique<WorkingSet>(),
+    //                        stdx::make_unique<DeleteNotificationStage>(this, opCtx),
+    //                        collection,
+    //                        PlanExecutor::YIELD_MANUAL);
     auto statusWithDeleteNotificationPlanExecutor =
         PlanExecutor::make(opCtx,
                            stdx::make_unique<WorkingSet>(),
                            stdx::make_unique<DeleteNotificationStage>(this, opCtx),
                            collection,
-                           PlanExecutor::YIELD_MANUAL);
+                           PlanExecutor::INTERRUPT_ONLY);
     if (!statusWithDeleteNotificationPlanExecutor.isOK()) {
         return statusWithDeleteNotificationPlanExecutor.getStatus();
     }
@@ -627,15 +633,24 @@ Status MigrationChunkClonerSourceLegacy::_storeCurrentLocs(OperationContext* opC
     BSONObj min = Helpers::toKeyFormat(kp.extendRangeBound(_args.getMinKey(), false));
     BSONObj max = Helpers::toKeyFormat(kp.extendRangeBound(_args.getMaxKey(), false));
 
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    //
     // We can afford to yield here because any change to the base data that we might miss is already
     // being queued and will migrate in the 'transferMods' stage.
+    // auto exec = InternalPlanner::indexScan(opCtx,
+    //                                        collection,
+    //                                        idx,
+    //                                        min,
+    //                                        max,
+    //                                        BoundInclusion::kIncludeStartKeyOnly,
+    //                                        PlanExecutor::YIELD_AUTO);
     auto exec = InternalPlanner::indexScan(opCtx,
                                            collection,
                                            idx,
                                            min,
                                            max,
                                            BoundInclusion::kIncludeStartKeyOnly,
-                                           PlanExecutor::YIELD_AUTO);
+                                           PlanExecutor::INTERRUPT_ONLY);
 
     // Use the average object size to estimate how many objects a full chunk would carry do that
     // while traversing the chunk's range using the sharding index, below there's a fair amount of
@@ -690,19 +705,10 @@ Status MigrationChunkClonerSourceLegacy::_storeCurrentLocs(OperationContext* opC
         return {
             ErrorCodes::ChunkTooBig,
             str::stream() << "Cannot move chunk: the maximum number of documents for a chunk is "
-                          << maxRecsWhenFull
-                          << ", the maximum chunk size is "
-                          << _args.getMaxChunkSizeBytes()
-                          << ", average document size is "
-                          << avgRecSize
-                          << ". Found "
-                          << recCount
-                          << " documents in chunk "
-                          << " ns: "
-                          << _args.getNss().ns()
-                          << " "
-                          << _args.getMinKey()
-                          << " -> "
+                          << maxRecsWhenFull << ", the maximum chunk size is "
+                          << _args.getMaxChunkSizeBytes() << ", average document size is "
+                          << avgRecSize << ". Found " << recCount << " documents in chunk "
+                          << " ns: " << _args.getNss().ns() << " " << _args.getMinKey() << " -> "
                           << _args.getMaxKey()};
     }
 

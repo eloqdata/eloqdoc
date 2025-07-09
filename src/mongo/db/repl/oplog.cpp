@@ -1,30 +1,30 @@
 /**
-*    Copyright (C) 2008-2014 MongoDB Inc.
-*
-*    This program is free software: you can redistribute it and/or  modify
-*    it under the terms of the GNU Affero General Public License, version 3,
-*    as published by the Free Software Foundation.
-*
-*    This program is distributed in the hope that it will be useful,
-*    but WITHOUT ANY WARRANTY; without even the implied warranty of
-*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*    GNU Affero General Public License for more details.
-*
-*    You should have received a copy of the GNU Affero General Public License
-*    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*
-*    As a special exception, the copyright holders give permission to link the
-*    code of portions of this program with the OpenSSL library under certain
-*    conditions as described in each individual source file and distribute
-*    linked combinations including the program with the OpenSSL library. You
-*    must comply with the GNU Affero General Public License in all respects for
-*    all of the code used other than as permitted herein. If you modify file(s)
-*    with this exception, you may extend this exception to your version of the
-*    file(s), but you are not obligated to do so. If you do not wish to do so,
-*    delete this exception statement from your version. If you delete this
-*    exception statement from all source files in the program, then also delete
-*    it in the license file.
-*/
+ *    Copyright (C) 2008-2014 MongoDB Inc.
+ *
+ *    This program is free software: you can redistribute it and/or  modify
+ *    it under the terms of the GNU Affero General Public License, version 3,
+ *    as published by the Free Software Foundation.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Affero General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Affero General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *    As a special exception, the copyright holders give permission to link the
+ *    code of portions of this program with the OpenSSL library under certain
+ *    conditions as described in each individual source file and distribute
+ *    linked combinations including the program with the OpenSSL library. You
+ *    must comply with the GNU Affero General Public License in all respects for
+ *    all of the code used other than as permitted herein. If you modify file(s)
+ *    with this exception, you may extend this exception to your version of the
+ *    file(s), but you are not obligated to do so. If you do not wish to do so,
+ *    delete this exception statement from your version. If you delete this
+ *    exception statement from all source files in the program, then also delete
+ *    it in the license file.
+ */
 
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kReplication
 
@@ -353,7 +353,7 @@ OplogDocWriter _logOpWriter(OperationContext* opCtx,
     appendSessionInfo(opCtx, &b, statementId, sessionInfo, oplogLink);
     return OplogDocWriter(OplogDocWriter(b.obj(), obj));
 }
-}  // end anon namespace
+}  // namespace
 
 /* we write to local.oplog.rs:
      { ts : ..., h: ..., v: ..., op: ..., etc }
@@ -373,7 +373,7 @@ OplogDocWriter _logOpWriter(OperationContext* opCtx,
  * writers - an array with size nDocs of DocWriter objects.
  * timestamps - an array with size nDocs of respective Timestamp objects for each DocWriter.
  * oplogCollection - collection to be written to.
-  * finalOpTime - the OpTime of the last DocWriter object.
+ * finalOpTime - the OpTime of the last DocWriter object.
  */
 void _logOpsInner(OperationContext* opCtx,
                   const NamespaceString& nss,
@@ -401,8 +401,7 @@ void _logOpsInner(OperationContext* opCtx,
                 // are logging within one WriteUnitOfWork.
                 invariant(finalOpTime.getTimestamp() <= *commitTime,
                           str::stream() << "Final OpTime: " << finalOpTime.toString()
-                                        << ". Commit Time: "
-                                        << commitTime->toString());
+                                        << ". Commit Time: " << commitTime->toString());
             }
 
             // Optimes on the primary should always represent consistent database states.
@@ -431,10 +430,11 @@ OpTime logOp(OperationContext* opCtx,
     // For commands, the test below is on the command ns and therefore does not check for
     // specific namespaces such as system.profile. This is the caller's responsibility.
     if (replCoord->isOplogDisabledFor(opCtx, nss)) {
-        uassert(ErrorCodes::IllegalOperation,
-                str::stream() << "retryable writes is not supported for unreplicated ns: "
-                              << nss.ns(),
-                statementId == kUninitializedStmtId);
+        // EloqDoc doesn't write oplog.
+        // uassert(ErrorCodes::IllegalOperation,
+        //         str::stream() << "retryable writes is not supported for unreplicated ns: "
+        //                       << nss.ns(),
+        //         statementId == kUninitializedStmtId);
         return {};
     }
 
@@ -482,10 +482,11 @@ std::vector<OpTime> logInsertOps(OperationContext* opCtx,
 
     auto replCoord = ReplicationCoordinator::get(opCtx);
     if (replCoord->isOplogDisabledFor(opCtx, nss)) {
-        uassert(ErrorCodes::IllegalOperation,
-                str::stream() << "retryable writes is not supported for unreplicated ns: "
-                              << nss.ns(),
-                begin->stmtId == kUninitializedStmtId);
+        // EloqDoc doesn't write oplog.
+        // uassert(ErrorCodes::IllegalOperation,
+        //         str::stream() << "retryable writes is not supported for unreplicated ns: "
+        //                       << nss.ns(),
+        //         begin->stmtId == kUninitializedStmtId);
         return {};
     }
 
@@ -542,7 +543,7 @@ std::vector<OpTime> logInsertOps(OperationContext* opCtx,
         sleepmillis(numMillis);
     }
 
-    std::unique_ptr<DocWriter const* []> basePtrs(new DocWriter const*[count]);
+    std::unique_ptr<DocWriter const*[]> basePtrs(new DocWriter const*[count]);
     for (size_t i = 0; i < count; i++) {
         basePtrs[i] = &writers[i];
     }
@@ -567,7 +568,7 @@ long long getNewOplogSizeBytes(OperationContext* opCtx, const ReplSettings& repl
         LOG(3) << "32bit system; choosing " << sz << " bytes oplog";
         return sz;
     }
-// First choose a minimum size.
+    // First choose a minimum size.
 
 #if defined(__APPLE__)
     // typically these are desktops (dev machines), so keep it smallish
@@ -719,8 +720,7 @@ std::pair<OptionalCollectionUUID, NamespaceString> parseCollModUUIDAndNss(Operat
     const auto nsByUUID = catalog.lookupNSSByUUID(uuid);
     uassert(ErrorCodes::NamespaceNotFound,
             str::stream() << "Failed to apply operation due to missing collection (" << uuid
-                          << "): "
-                          << redact(cmd.toString()),
+                          << "): " << redact(cmd.toString()),
             !nsByUUID.isEmpty());
     return std::pair<OptionalCollectionUUID, NamespaceString>(uuid, nsByUUID);
 }
@@ -1004,8 +1004,7 @@ std::pair<BSONObj, NamespaceString> prepForApplyOpsIndexInsert(const BSONElement
             indexNss.isValid());
     uassert(ErrorCodes::InvalidNamespace,
             str::stream() << "Database name mismatch for database (" << requestNss.db()
-                          << ") while creating index: "
-                          << op,
+                          << ") while creating index: " << op,
             requestNss.db() == indexNss.db());
 
     if (!indexSpec["v"]) {
@@ -1073,8 +1072,7 @@ Status applyOperation_inlock(OperationContext* opCtx,
         collection = catalog.lookupCollectionByUUID(uuid);
         uassert(ErrorCodes::NamespaceNotFound,
                 str::stream() << "Failed to apply operation due to missing collection (" << uuid
-                              << "): "
-                              << redact(op.toString()),
+                              << "): " << redact(op.toString()),
                 collection);
         requestNss = collection->ns();
         dassert(opCtx->lockState()->isCollectionLockedForMode(

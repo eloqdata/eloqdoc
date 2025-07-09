@@ -133,7 +133,6 @@ storage:
       coreNum: 2
       checkpointerIntervalSec: 10
       nodeMemoryLimitMB: 8192
-      nodeLogLimitMB: 8192
       realtimeSampling: true
       collectActiveTxTsIntervalSec: 2
       checkpointerDelaySec: 5

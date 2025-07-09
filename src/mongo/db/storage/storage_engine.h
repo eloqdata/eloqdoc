@@ -164,11 +164,17 @@ public:
         MONGO_UNREACHABLE;
     }
 
-    virtual std::pair<bool, Status> lockCollection(OperationContext* opCtx,
-                                                   StringData ns,
-                                                   bool isForWrite) {
+    virtual Status lockCollection(OperationContext* opCtx,
+                                  StringData ns,
+                                  bool isForWrite,
+                                  bool* exists,
+                                  std::string* version) {
         MONGO_UNREACHABLE;
     }
+
+    virtual void onAuthzDataChanged(OperationContext* opCtx) {
+        MONGO_UNREACHABLE;
+    };
 
     /**
      * List the databases stored in this storage engine.

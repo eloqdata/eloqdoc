@@ -307,10 +307,12 @@ public:
             }
         }
 
+        // EloqDoc enables command level transaction.
+        //
         // Relocking temporarily releases the Database lock while holding a Global IX lock. This
         // prevents the replication state from changing, but requires abandoning the current
         // snapshot in case indexes change during the period of time where no database lock is held.
-        opCtx->recoveryUnit()->abandonSnapshot();
+        // opCtx->recoveryUnit()->abandonSnapshot();
         dbLock.relockWithMode(MODE_X);
 
         // Allow the strong lock acquisition above to be interrupted, but from this point forward do

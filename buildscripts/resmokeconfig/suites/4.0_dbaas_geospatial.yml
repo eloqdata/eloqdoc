@@ -1,0 +1,132 @@
+test_kind: js_test
+
+selector:
+  roots:
+  - jstests/core/geo1.js
+  - jstests/core/geo10.js
+  - jstests/core/geo2.js
+  - jstests/core/geo3.js
+  - jstests/core/geo5.js
+  - jstests/core/geo6.js
+  - jstests/core/geo7.js
+  - jstests/core/geo9.js
+  - jstests/core/geo_2d_explain.js
+  - jstests/core/geo_2d_trailing_fields.js
+  - jstests/core/geo_2d_with_geojson_point.js
+  - jstests/core/geo_allowedcomparisons.js
+  - jstests/core/geo_array0.js
+  - jstests/core/geo_array1.js
+  - jstests/core/geo_array2.js
+  - jstests/core/geo_big_polygon.js
+  - jstests/core/geo_big_polygon2.js
+  - jstests/core/geo_big_polygon3.js
+  - jstests/core/geo_borders.js
+  - jstests/core/geo_box1.js
+  - jstests/core/geo_box1_noindex.js
+  - jstests/core/geo_box2.js
+  - jstests/core/geo_box3.js
+  - jstests/core/geo_center_sphere1.js
+  - jstests/core/geo_center_sphere2.js
+  - jstests/core/geo_circle1.js
+  - jstests/core/geo_circle1_noindex.js
+  - jstests/core/geo_circle2.js
+  - jstests/core/geo_circle2a.js
+  - jstests/core/geo_circle3.js
+  - jstests/core/geo_circle4.js
+  - jstests/core/geo_circle5.js
+  - jstests/core/geo_distinct.js
+  - jstests/core/geo_exactfetch.js
+  - jstests/core/geo_fiddly_box.js
+  - jstests/core/geo_fiddly_box2.js
+  - jstests/core/geo_group.js
+  - jstests/core/geo_haystack1.js
+  - jstests/core/geo_haystack2.js
+  - jstests/core/geo_haystack3.js
+  - jstests/core/geo_invalid_2d_params.js
+  - jstests/core/geo_invalid_polygon.js
+  - jstests/core/geo_mapreduce.js
+  - jstests/core/geo_mapreduce2.js
+  - jstests/core/geo_max.js
+  - jstests/core/geo_mindistance.js
+  - jstests/core/geo_mindistance_boundaries.js
+  - jstests/core/geo_multikey0.js
+  - jstests/core/geo_multikey1.js
+  - jstests/core/geo_multinest0.js
+  - jstests/core/geo_multinest1.js
+  - jstests/core/geo_near_random1.js
+  - jstests/core/geo_near_random2.js
+  - jstests/core/geo_nearwithin.js
+  - jstests/core/geo_operator_crs.js
+  - jstests/core/geo_oob_sphere.js
+  - jstests/core/geo_or.js
+  - jstests/core/geo_poly_edge.js
+  - jstests/core/geo_poly_line.js
+  - jstests/core/geo_polygon1.js
+  - jstests/core/geo_polygon1_noindex.js
+  - jstests/core/geo_polygon2.js
+  - jstests/core/geo_polygon3.js
+  - jstests/core/geo_queryoptimizer.js
+  - jstests/core/geo_regex0.js
+  - jstests/core/geo_s2cursorlimitskip.js
+  - jstests/core/geo_s2dedupnear.js
+  - jstests/core/geo_s2descindex.js
+  - jstests/core/geo_s2disjoint_holes.js
+  - jstests/core/geo_s2dupe_points.js
+  - jstests/core/geo_s2edgecases.js
+  - jstests/core/geo_s2exact.js
+  - jstests/core/geo_s2explain.js
+  - jstests/core/geo_s2holesameasshell.js
+  - jstests/core/geo_s2index.js
+  - jstests/core/geo_s2indexoldformat.js
+  - jstests/core/geo_s2indexversion1.js
+  - jstests/core/geo_s2intersection.js
+  - jstests/core/geo_s2largewithin.js
+  - jstests/core/geo_s2meridian.js
+  - jstests/core/geo_s2multi.js
+  - jstests/core/geo_s2near.js
+  - jstests/core/geo_s2nearComplex.js
+  - jstests/core/geo_s2near_equator_opposite.js
+  - jstests/core/geo_s2nearcorrect.js
+  - jstests/core/geo_s2nearwithin.js
+  - jstests/core/geo_s2nongeoarray.js
+  - jstests/core/geo_s2nonstring.js
+  - jstests/core/geo_s2nopoints.js
+  - jstests/core/geo_s2oddshapes.js
+  - jstests/core/geo_s2ordering.js
+  - jstests/core/geo_s2overlappingpolys.js
+  - jstests/core/geo_s2polywithholes.js
+  - jstests/core/geo_s2selfintersectingpoly.js
+  - jstests/core/geo_s2sparse.js
+  - jstests/core/geo_s2twofields.js
+  - jstests/core/geo_s2validindex.js
+  - jstests/core/geo_s2within.js
+  - jstests/core/geo_s2within_line_polygon_sphere.js
+  - jstests/core/geo_small_large.js
+  - jstests/core/geo_sort1.js
+  - jstests/core/geo_uniqueDocs.js
+  - jstests/core/geo_uniqueDocs2.js
+  - jstests/core/geo_update.js
+  - jstests/core/geo_update1.js
+  - jstests/core/geo_update2.js
+  - jstests/core/geo_update_btree.js
+  - jstests/core/geo_update_btree2.js
+  - jstests/core/geo_update_dedup.js
+  - jstests/core/geo_validate.js
+  - jstests/core/geo_withinquery.js
+  - jstests/core/geoa.js
+  - jstests/core/geob.js
+  - jstests/core/geoc.js
+  - jstests/core/geod.js
+  - jstests/core/geoe.js
+  - jstests/core/geof.js
+  - jstests/core/geonear_cmd_input_validation.js
+  - jstests/core/geonear_key.js
+
+  exclude_files:
+
+executor:
+  config:
+    shell_options:
+      eval: var testingReplication = true;
+      readMode: commands
+      # ssl: ''

@@ -147,11 +147,13 @@ void makeUpdateRequest(const OperationContext* opCtx,
     requestOut->setExplain(explain);
     requestOut->setLifecycle(updateLifecycle);
 
-    const auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    requestOut->setYieldPolicy(readConcernArgs.getLevel() ==
-                                       repl::ReadConcernLevel::kSnapshotReadConcern
-                                   ? PlanExecutor::INTERRUPT_ONLY
-                                   : PlanExecutor::YIELD_AUTO);
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // const auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // requestOut->setYieldPolicy(readConcernArgs.getLevel() ==
+    //                                    repl::ReadConcernLevel::kSnapshotReadConcern
+    //                                ? PlanExecutor::INTERRUPT_ONLY
+    //                                : PlanExecutor::YIELD_AUTO);
+    requestOut->setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
 }
 
 void makeDeleteRequest(const OperationContext* opCtx,
@@ -166,11 +168,13 @@ void makeDeleteRequest(const OperationContext* opCtx,
     requestOut->setReturnDeleted(true);  // Always return the old value.
     requestOut->setExplain(explain);
 
-    const auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    requestOut->setYieldPolicy(readConcernArgs.getLevel() ==
-                                       repl::ReadConcernLevel::kSnapshotReadConcern
-                                   ? PlanExecutor::INTERRUPT_ONLY
-                                   : PlanExecutor::YIELD_AUTO);
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // const auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // requestOut->setYieldPolicy(readConcernArgs.getLevel() ==
+    //                                    repl::ReadConcernLevel::kSnapshotReadConcern
+    //                                ? PlanExecutor::INTERRUPT_ONLY
+    //                                : PlanExecutor::YIELD_AUTO);
+    requestOut->setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
 }
 
 void appendCommandResponse(const PlanExecutor* exec,

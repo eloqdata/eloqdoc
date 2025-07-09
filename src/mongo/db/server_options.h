@@ -83,6 +83,8 @@ struct ServerGlobalParams {
     size_t reservedThreadNum = 1;
     size_t adaptiveThreadNum = 1;
 
+    bool bootstrap{false};
+
     int unixSocketPermissions = DEFAULT_UNIX_PERMS;  // permissions for the UNIX domain socket
 
     std::string keyFile;           // Path to keyfile, or empty if none.

@@ -304,7 +304,7 @@ std::function<void()> ServiceExecutorCoroutine::coroutineResumeFunctor(uint16_t 
                                                                        Task task) {
     assert(threadGroupId < _threadGroups.size());
     return [thd_group = &_threadGroups[threadGroupId], tsk = std::move(task)]() {
-        thd_group->resumeTask(std::move(tsk));
+        thd_group->resumeTask(tsk);
     };
 }
 

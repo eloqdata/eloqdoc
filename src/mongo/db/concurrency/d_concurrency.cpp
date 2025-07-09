@@ -249,8 +249,10 @@ Lock::DBLock::~DBLock() {
 }
 
 void Lock::DBLock::relockWithMode(LockMode newMode) {
+    // EloqDoc enables command level transaction.
+    //
     // 2PL would delay the unlocking
-    invariant(!_opCtx->lockState()->inAWriteUnitOfWork());
+    // invariant(!_opCtx->lockState()->inAWriteUnitOfWork());
 
     // Not allowed to change global intent
     invariant(!isSharedLockMode(_mode) || isSharedLockMode(newMode));

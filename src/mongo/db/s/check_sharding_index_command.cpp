@@ -135,13 +135,22 @@ public:
             max = Helpers::toKeyFormat(kp.extendRangeBound(max, false));
         }
 
+        // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+        // auto exec = InternalPlanner::indexScan(opCtx,
+        //                                        collection,
+        //                                        idx,
+        //                                        min,
+        //                                        max,
+        //                                        BoundInclusion::kIncludeStartKeyOnly,
+        //                                        PlanExecutor::YIELD_AUTO,
+        //                                        InternalPlanner::FORWARD);
         auto exec = InternalPlanner::indexScan(opCtx,
                                                collection,
                                                idx,
                                                min,
                                                max,
                                                BoundInclusion::kIncludeStartKeyOnly,
-                                               PlanExecutor::YIELD_AUTO,
+                                               PlanExecutor::INTERRUPT_ONLY,
                                                InternalPlanner::FORWARD);
 
         // Find the 'missingField' value used to represent a missing document field in a key of
@@ -164,8 +173,8 @@ public:
             BSONObjIterator i(currKey);
             for (int k = 0; k < keyPatternLength; k++) {
                 if (!i.more()) {
-                    errmsg = str::stream() << "index key " << currKey << " too short for pattern "
-                                           << keyPattern;
+                    errmsg = str::stream()
+                        << "index key " << currKey << " too short for pattern " << keyPattern;
                     return false;
                 }
                 BSONElement currKeyElt = i.next();

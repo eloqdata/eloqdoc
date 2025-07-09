@@ -91,9 +91,9 @@ Status RecordStoreValidateAdaptor::validate(const RecordId& recordId,
                      multikeyPaths);
 
         if (!descriptor->isMultikey(_opCtx) && documentKeySet.size() > 1) {
-            std::string msg = str::stream() << "Index " << descriptor->indexName()
-                                            << " is not multi-key but has more than one"
-                                            << " key in document " << recordId;
+            std::string msg = str::stream()
+                << "Index " << descriptor->indexName() << " is not multi-key but has more than one"
+                << " key in document " << recordId;
             curRecordResults.errors.push_back(msg);
             curRecordResults.valid = false;
         }
@@ -224,7 +224,7 @@ void RecordStoreValidateAdaptor::validateIndexKeyCount(IndexDescriptor* idx,
     bool hasTooFewKeys = false;
     bool noErrorOnTooFewKeys = !failIndexKeyTooLong.load() && (_level != kValidateFull);
 
-    if (idx->isIdIndex() && totalKeys != numRecs) {
+    if (idx->isIdIndex() && !approximate(totalKeys, numRecs)) {
         hasTooFewKeys = totalKeys < numRecs ? true : hasTooFewKeys;
         std::string msg = str::stream() << "number of _id index entries (" << numIndexedKeys
                                         << ") does not match the number of documents in the index ("
@@ -237,7 +237,8 @@ void RecordStoreValidateAdaptor::validateIndexKeyCount(IndexDescriptor* idx,
         }
     }
 
-    if (results.valid && !idx->isMultikey(_opCtx) && totalKeys > numRecs) {
+    if (results.valid && !idx->isMultikey(_opCtx) && totalKeys > numRecs &&
+        !approximate(totalKeys, numRecs)) {
         std::string err = str::stream()
             << "index " << idx->indexName() << " is not multi-key, but has more entries ("
             << numIndexedKeys << ") than documents in the index (" << numRecs - numLongKeys << ")";
@@ -247,7 +248,8 @@ void RecordStoreValidateAdaptor::validateIndexKeyCount(IndexDescriptor* idx,
     // Ignore any indexes with a special access method. If an access method name is given, the
     // index may be a full text, geo or special index plugin with different semantics.
     if (results.valid && !idx->isSparse() && !idx->isPartial() && !idx->isIdIndex() &&
-        idx->getAccessMethodName() == "" && totalKeys < numRecs) {
+        idx->getAccessMethodName() == "" && totalKeys < numRecs &&
+        !approximate(totalKeys, numRecs)) {
         hasTooFewKeys = true;
         std::string msg = str::stream()
             << "index " << idx->indexName() << " is not sparse or partial, but has fewer entries ("
@@ -269,4 +271,13 @@ void RecordStoreValidateAdaptor::validateIndexKeyCount(IndexDescriptor* idx,
         results.warnings.push_back(warning);
     }
 }
-}  // namespace
+
+bool RecordStoreValidateAdaptor::approximate(int64_t num1, int64_t num2) {
+    if (num2 != 0) {
+        float f = static_cast<float>(num1) / num2;
+        return f > 0.8 && f < 1.2;
+    } else {
+        return num1 == 0 || num1 == 1;
+    }
+}
+}  // namespace mongo

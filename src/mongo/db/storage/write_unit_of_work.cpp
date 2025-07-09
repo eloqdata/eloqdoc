@@ -93,12 +93,27 @@ void WriteUnitOfWork::commit() {
     invariant(!_committed);
     invariant(!_released);
     invariant(_opCtx->_ruState == RecoveryUnitState::kActiveUnitOfWork);
+    // if (_toplevel) {
+    //     _opCtx->recoveryUnit()->commitUnitOfWork();
+    //     _opCtx->_ruState = RecoveryUnitState::kNotInUnitOfWork;
+    // }
+    // _opCtx->lockState()->endWriteUnitOfWork();
+    // _committed = true;
+
+    // WiredTiger commit succeed always. However, Eloq commit might fail and throw an exception.
+    // Even if commit throw an exception, the below finally block should execute, too.
+    const auto finally = MakeGuard([this]() {
+        if (_toplevel) {
+            _opCtx->_ruState = RecoveryUnitState::kNotInUnitOfWork;
+        }
+        _opCtx->lockState()->endWriteUnitOfWork();
+        _committed = true;
+    });
+
+
     if (_toplevel) {
         _opCtx->recoveryUnit()->commitUnitOfWork();
-        _opCtx->_ruState = RecoveryUnitState::kNotInUnitOfWork;
     }
-    _opCtx->lockState()->endWriteUnitOfWork();
-    _committed = true;
 }
 
 }  // namespace mongo

@@ -138,6 +138,9 @@ Status CollectionOptions::parse(const BSONObj& options, ParseKind kind) {
                 return res.getStatus();
             }
             uuid = res.getValue();
+        } else if (fieldName == "catalogVersion") {
+            invariant(UUID::isUUIDString(e.String()));
+            catalogVersion = e.String();
         } else if (fieldName == "capped") {
             capped = e.trueValue();
         } else if (fieldName == "size") {
@@ -263,9 +266,9 @@ Status CollectionOptions::parse(const BSONObj& options, ParseKind kind) {
             idIndex = std::move(tempIdIndex);
         } else if (!createdOn24OrEarlier && !mongo::isGenericArgument(fieldName)) {
             return Status(ErrorCodes::InvalidOptions,
-                          str::stream() << "The field '" << fieldName
-                                        << "' is not a valid collection option. Options: "
-                                        << options);
+                          str::stream()
+                              << "The field '" << fieldName
+                              << "' is not a valid collection option. Options: " << options);
         }
     }
 
@@ -285,6 +288,10 @@ BSONObj CollectionOptions::toBSON() const {
 void CollectionOptions::appendBSON(BSONObjBuilder* builder) const {
     if (uuid) {
         builder->appendElements(uuid->toBSON());
+    }
+
+    if (!catalogVersion.empty()) {
+        builder->append("catalogVersion", catalogVersion);
     }
 
     if (capped) {
@@ -432,4 +439,4 @@ bool CollectionOptions::matchesStorageOptions(const CollectionOptions& other,
 
     return true;
 }
-}
+}  // namespace mongo

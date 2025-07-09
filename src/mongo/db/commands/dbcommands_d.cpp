@@ -238,10 +238,16 @@ public:
                 new AutoGetCollectionForReadCommand(opCtx, nss));
             Collection* coll = ctx->getCollection();
 
+            // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+            // auto exec = uassertStatusOK(getExecutor(opCtx,
+            //                                         coll,
+            //                                         std::move(cq),
+            //                                         PlanExecutor::YIELD_MANUAL,
+            //                                         QueryPlannerParams::NO_TABLE_SCAN));
             auto exec = uassertStatusOK(getExecutor(opCtx,
                                                     coll,
                                                     std::move(cq),
-                                                    PlanExecutor::YIELD_MANUAL,
+                                                    PlanExecutor::INTERRUPT_ONLY,
                                                     QueryPlannerParams::NO_TABLE_SCAN));
 
             // We need to hold a lock to clean up the PlanExecutor, so make sure we have one when we

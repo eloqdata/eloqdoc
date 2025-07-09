@@ -8,7 +8,8 @@
     function assertFailsValidation(res) {
         var DocumentValidationFailure = 121;
         assert.writeError(res);
-        assert.eq(res.getWriteError().code, DocumentValidationFailure);
+        // assert.eq(res.getWriteError().code, DocumentValidationFailure);
+        assert.commandFailedWithCode(res, DocumentValidationFailure, res.errmsg);
     }
 
     var t = db.doc_validation_options;

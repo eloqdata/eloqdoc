@@ -494,7 +494,8 @@ bool runCommandImpl(OperationContext* opCtx,
                     LogicalTime startOperationTime,
                     const ServiceEntryPointCommon::Hooks& behaviors,
                     BSONObjBuilder* extraFieldsBuilder,
-                    const boost::optional<OperationSessionInfoFromClient>& sessionOptions) {
+                    const boost::optional<OperationSessionInfoFromClient>& sessionOptions,
+                    bool atomicCmd) {
     const Command* command = invocation->definition();
     auto bytesToReserve = command->reserveBytesForReply();
 
@@ -513,7 +514,16 @@ bool runCommandImpl(OperationContext* opCtx,
         if (session) {
             invokeInTransaction(opCtx, invocation, &crb);
         } else {
-            invocation->run(opCtx, &crb);
+            if (atomicCmd) {
+                // EloqDoc enables command level transaction.
+                WriteUnitOfWork wuow(opCtx);
+                invocation->run(opCtx, &crb);
+                if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+                    wuow.commit();
+                }
+            } else {
+                invocation->run(opCtx, &crb);
+            }
         }
     } else {
         auto wcResult = uassertStatusOK(extractWriteConcern(opCtx, request.body));
@@ -547,7 +557,16 @@ bool runCommandImpl(OperationContext* opCtx,
             if (session) {
                 invokeInTransaction(opCtx, invocation, &crb);
             } else {
-                invocation->run(opCtx, &crb);
+                if (atomicCmd) {
+                    // EloqDoc enables command level transaction.
+                    WriteUnitOfWork wuow(opCtx);
+                    invocation->run(opCtx, &crb);
+                    if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+                        wuow.commit();
+                    }
+                } else {
+                    invocation->run(opCtx, &crb);
+                }
             }
         } catch (const DBException&) {
             waitForWriteConcern(*extraFieldsBuilder);
@@ -670,8 +689,14 @@ void execCommandDatabase(OperationContext* opCtx,
         // servers may result in a deadlock when a server tries to check out a session it is already
         // using to service an earlier operation in the command's chain. To avoid this, only check
         // out sessions for commands that require them.
-        const bool shouldCheckoutSession = static_cast<bool>(opCtx->getTxnNumber()) &&
+        // const bool shouldCheckoutSession = static_cast<bool>(opCtx->getTxnNumber()) &&
+        //     sessionCheckoutWhitelist.find(command->getName()) != sessionCheckoutWhitelist.cend();
+        //
+        // EloqDoc enables command level transaction.
+        const bool whitelistCmd =
             sessionCheckoutWhitelist.find(command->getName()) != sessionCheckoutWhitelist.cend();
+        const bool atomicCmd = whitelistCmd && command->getName() != "applyOps";
+        const bool shouldCheckoutSession = static_cast<bool>(opCtx->getTxnNumber()) && whitelistCmd;
 
         // Parse the arguments specific to multi-statement transactions.
         boost::optional<bool> startMultiDocTxn = boost::none;
@@ -909,7 +934,8 @@ void execCommandDatabase(OperationContext* opCtx,
                                 startOperationTime,
                                 behaviors,
                                 &extraFieldsBuilder,
-                                sessionOptions)) {
+                                sessionOptions,
+                                atomicCmd)) {
                 command->incrementCommandsFailed();
             }
         } catch (const DBException&) {
@@ -1147,7 +1173,18 @@ void receivedInsert(OperationContext* opCtx, const NamespaceString& nsString, co
         audit::logInsertAuthzCheck(opCtx->getClient(), nsString, obj, status.code());
         uassertStatusOK(status);
     }
-    performInserts(opCtx, insertOp);
+
+    // EloqDoc enables command level transaction.
+    try {
+
+        WriteUnitOfWork wuow(opCtx);
+        performInserts(opCtx, insertOp);
+        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+            wuow.commit();
+        }
+    } catch (const DBException& ex) {
+        LOG(1) << "performInserts throw DBException " << ex.what();
+    }
 }
 
 void receivedUpdate(OperationContext* opCtx, const NamespaceString& nsString, const Message& m) {
@@ -1170,7 +1207,16 @@ void receivedUpdate(OperationContext* opCtx, const NamespaceString& nsString, co
                                status.code());
     uassertStatusOK(status);
 
-    performUpdates(opCtx, updateOp);
+    // EloqDoc enables command level transaction.
+    try {
+        WriteUnitOfWork wuow(opCtx);
+        performUpdates(opCtx, updateOp);
+        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+            wuow.commit();
+        }
+    } catch (const DBException& ex) {
+        LOG(1) << "performUpdates throw DBException " << ex.what();
+    }
 }
 
 void receivedDelete(OperationContext* opCtx, const NamespaceString& nsString, const Message& m) {
@@ -1183,7 +1229,16 @@ void receivedDelete(OperationContext* opCtx, const NamespaceString& nsString, co
     audit::logDeleteAuthzCheck(opCtx->getClient(), nsString, singleDelete.getQ(), status.code());
     uassertStatusOK(status);
 
-    performDeletes(opCtx, deleteOp);
+    // EloqDoc enables command level transaction.
+    try {
+        WriteUnitOfWork wuow(opCtx);
+        performDeletes(opCtx, deleteOp);
+        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+            wuow.commit();
+        }
+    } catch (const DBException& ex) {
+        LOG(1) << "performDeletes throw DBException " << ex.what();
+    }
 }
 
 DbResponse receivedGetMore(OperationContext* opCtx,
@@ -1290,11 +1345,13 @@ DbResponse ServiceEntryPointCommon::handleRequest(OperationContext* opCtx,
     Client& c = *opCtx->getClient();
 
     if (c.isInDirectClient()) {
-        if (!opCtx->getLogicalSessionId() || !opCtx->getTxnNumber() ||
-            repl::ReadConcernArgs::get(opCtx).getLevel() !=
-                repl::ReadConcernLevel::kSnapshotReadConcern) {
-            invariant(!opCtx->lockState()->inAWriteUnitOfWork());
-        }
+        // EloqDoc enables command level transaction.
+        //
+        // if (!opCtx->getLogicalSessionId() || !opCtx->getTxnNumber() ||
+        //     repl::ReadConcernArgs::get(opCtx).getLevel() !=
+        //         repl::ReadConcernLevel::kSnapshotReadConcern) {
+        //     invariant(!opCtx->lockState()->inAWriteUnitOfWork());
+        // }
     } else {
         LastError::get(c).startRequest();
         AuthorizationSession::get(c)->startRequest(opCtx);

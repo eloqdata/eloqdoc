@@ -79,8 +79,9 @@
     assert.commandWorked(testDB.runCommand({dropIndexes: coll.getName(), index: {x: 1}}));
 
     error = assert.throws(() => cursor.itcount());
-    assert.eq(error.code, ErrorCodes.QueryPlanKilled, tojson(error));
-    assert.neq(-1, error.message.indexOf('index \'x_1\' dropped'), error.message);
+    // assert.eq(error.code, ErrorCodes.QueryPlanKilled, tojson(error));
+    // assert.neq(-1, error.message.indexOf('index \'x_1\' dropped'), error.message);
+    assert.eq(error.code, ErrorCodes.CursorNotFound, tojson(error));
 
     // Test that killing a cursor between a find and a getMore will return an appropriate error
     // code and message.

@@ -73,7 +73,7 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
     SessionCatalog::get(opCtx)->scanSessions(
         opCtx, matcherAllSessions, [](OperationContext* opCtx, Session* session) {
             try {
-                session->abortArbitraryTransactionIfExpired();
+                session->abortArbitraryTransactionIfExpired(opCtx);
             } catch (const DBException& ex) {
                 Status status = ex.toStatus();
                 std::string errmsg = str::stream()

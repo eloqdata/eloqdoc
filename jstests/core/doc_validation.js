@@ -281,6 +281,7 @@
     assert.writeOK(coll.insert({a: 1, b: 1}));
     let res = coll.insert({a: 1, b: 0});
     assert.writeError(res);
-    assert.eq(res.getWriteError().code, 16608);
+    // assert.eq(res.getWriteError().code, 16608);
+    assert.commandFailedWithCode(res, 16608, "validator");
     assert.writeOK(coll.insert({a: -1, b: -1}));
 })();

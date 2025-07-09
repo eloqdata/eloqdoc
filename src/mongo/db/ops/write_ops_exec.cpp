@@ -239,6 +239,11 @@ bool handleError(OperationContext* opCtx,
         throw;
     }
 
+    // EloqDoc enables command level transaction.
+    if (opCtx->lockState()->inAWriteUnitOfWork()) {
+        throw;
+    }
+
     if (ex.extraInfo<StaleConfigInfo>()) {
         if (!opCtx->getClient()->isInDirectClient()) {
             auto& oss = OperationShardingState::get(opCtx);
@@ -485,11 +490,13 @@ SingleWriteResult makeWriteResultForInsertOrDeleteRetry() {
 WriteResult performInserts(OperationContext* opCtx,
                            const write_ops::Insert& wholeOp,
                            bool fromMigrate) {
+    // Eloqdoc enables command level transaction.
+    //
     // Insert performs its own retries, so we should only be within a WriteUnitOfWork when run in a
     // transaction.
-    auto session = OperationContextSession::get(opCtx);
-    invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
-              (session && session->inActiveOrKilledMultiDocumentTransaction()));
+    // auto session = OperationContextSession::get(opCtx);
+    // invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
+    //           (session && session->inActiveOrKilledMultiDocumentTransaction()));
     auto& curOp = *CurOp::get(opCtx);
     ON_BLOCK_EXIT([&] {
         // This is the only part of finishCurOp we need to do for inserts because they reuse the
@@ -503,7 +510,6 @@ WriteResult performInserts(OperationContext* opCtx,
                     durationCount<Microseconds>(curOp.elapsedTimeExcludingPauses()),
                     curOp.isCommand(),
                     curOp.getReadWriteType());
-
     });
 
     {
@@ -619,11 +625,13 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
     request.setMulti(op.getMulti());
     request.setUpsert(op.getUpsert());
 
-    auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    request.setYieldPolicy(readConcernArgs.getLevel() ==
-                                   repl::ReadConcernLevel::kSnapshotReadConcern
-                               ? PlanExecutor::INTERRUPT_ONLY
-                               : PlanExecutor::YIELD_AUTO);
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // request.setYieldPolicy(readConcernArgs.getLevel() ==
+    //                                repl::ReadConcernLevel::kSnapshotReadConcern
+    //                            ? PlanExecutor::INTERRUPT_ONLY
+    //                            : PlanExecutor::YIELD_AUTO);
+    request.setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
 
     ParsedUpdate parsedUpdate(opCtx, &request);
     uassertStatusOK(parsedUpdate.parseRequest());
@@ -691,11 +699,13 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
 }
 
 WriteResult performUpdates(OperationContext* opCtx, const write_ops::Update& wholeOp) {
+    // EloqDoc enables command level transaction.
+    //
     // Update performs its own retries, so we should not be in a WriteUnitOfWork unless run in a
     // transaction.
-    auto session = OperationContextSession::get(opCtx);
-    invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
-              (session && session->inActiveOrKilledMultiDocumentTransaction()));
+    // auto session = OperationContextSession::get(opCtx);
+    // invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
+    //           (session && session->inActiveOrKilledMultiDocumentTransaction()));
     uassertStatusOK(userAllowedWriteNS(wholeOp.getNamespace()));
 
     DisableDocumentValidationIfTrue docValidationDisabler(
@@ -775,11 +785,13 @@ static SingleWriteResult performSingleDeleteOp(OperationContext* opCtx,
     request.setQuery(op.getQ());
     request.setCollation(write_ops::collationOf(op));
     request.setMulti(op.getMulti());
-    auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    request.setYieldPolicy(readConcernArgs.getLevel() ==
-                                   repl::ReadConcernLevel::kSnapshotReadConcern
-                               ? PlanExecutor::INTERRUPT_ONLY
-                               : PlanExecutor::YIELD_AUTO);
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+    // request.setYieldPolicy(readConcernArgs.getLevel() ==
+    //                                repl::ReadConcernLevel::kSnapshotReadConcern
+    //                            ? PlanExecutor::INTERRUPT_ONLY
+    //                            : PlanExecutor::YIELD_AUTO);
+    request.setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
     request.setStmtId(stmtId);
 
     ParsedDelete parsedDelete(opCtx, &request);
@@ -832,11 +844,13 @@ static SingleWriteResult performSingleDeleteOp(OperationContext* opCtx,
 }
 
 WriteResult performDeletes(OperationContext* opCtx, const write_ops::Delete& wholeOp) {
+    // EloqDoc enables command level transaction.
+    //
     // Delete performs its own retries, so we should not be in a WriteUnitOfWork unless we are in a
     // transaction.
-    auto session = OperationContextSession::get(opCtx);
-    invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
-              (session && session->inActiveOrKilledMultiDocumentTransaction()));
+    // auto session = OperationContextSession::get(opCtx);
+    // invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
+    //           (session && session->inActiveOrKilledMultiDocumentTransaction()));
     uassertStatusOK(userAllowedWriteNS(wholeOp.getNamespace()));
 
     DisableDocumentValidationIfTrue docValidationDisabler(

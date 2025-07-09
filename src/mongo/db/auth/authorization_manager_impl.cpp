@@ -51,7 +51,6 @@
 #include "mongo/db/auth/privilege_parser.h"
 #include "mongo/db/auth/role_graph.h"
 #include "mongo/db/auth/sasl_options.h"
-#include "mongo/db/auth/sasl_options.h"
 #include "mongo/db/auth/user.h"
 #include "mongo/db/auth/user_document_parser.h"
 #include "mongo/db/auth/user_name.h"
@@ -70,10 +69,10 @@
 namespace mongo {
 namespace {
 
+using std::back_inserter;
 using std::begin;
 using std::end;
 using std::endl;
-using std::back_inserter;
 using std::string;
 using std::vector;
 
@@ -348,11 +347,10 @@ Status AuthorizationManagerImpl::_initializeUserFromPrivilegeDocument(User* user
     std::string userName = parser.extractUserNameFromUserDocument(privDoc);
     if (userName != user->getName().getUser()) {
         return Status(ErrorCodes::BadValue,
-                      mongoutils::str::stream() << "User name from privilege document \""
-                                                << userName
-                                                << "\" doesn't match name of provided User \""
-                                                << user->getName().getUser()
-                                                << "\"");
+                      mongoutils::str::stream()
+                          << "User name from privilege document \"" << userName
+                          << "\" doesn't match name of provided User \""
+                          << user->getName().getUser() << "\"");
     }
 
     Status status = parser.initializeUserCredentialsFromUserDocument(user, privDoc);
@@ -470,8 +468,7 @@ Status AuthorizationManagerImpl::acquireUser(OperationContext* opCtx,
             case schemaVersion24:
                 status = Status(ErrorCodes::AuthSchemaIncompatible,
                                 mongoutils::str::stream()
-                                    << "Authorization data schema version "
-                                    << schemaVersion24
+                                    << "Authorization data schema version " << schemaVersion24
                                     << " not supported after MongoDB version 2.6.");
                 break;
         }
@@ -710,6 +707,8 @@ void AuthorizationManagerImpl::logOp(OperationContext* opCtx,
     if (appliesToAuthzData(op, nss, o)) {
         _externalState->logOp(opCtx, op, nss, o, o2);
         _invalidateRelevantCacheData(op, nss, o, o2);
+        // EloqDoc should notify all node groups to reload auth data.
+        opCtx->getServiceContext()->getStorageEngine()->onAuthzDataChanged(opCtx);
     }
 }
 

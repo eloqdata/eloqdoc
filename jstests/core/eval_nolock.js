@@ -15,7 +15,8 @@ for (i = 0; i < 10; i++)
 res = db.runCommand({
     eval: function() {
         db.eval_nolock.insert({_id: 123});
-        return db.eval_nolock.count();
+        // return db.eval_nolock.count();
+        return db.eval_nolock.count({}, {hint: {_id: 1}});
     },
     nolock: true
 });

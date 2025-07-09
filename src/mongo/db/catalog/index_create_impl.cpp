@@ -295,7 +295,6 @@ StatusWith<std::vector<BSONObj>> MultiIndexBlockImpl::init(const std::vector<BSO
 
         // TODO SERVER-14888 Suppress this in cases we don't want to audit.
         audit::logCreateIndex(_opCtx->getClient(), &info, descriptor->indexName(), ns);
-
         _indexes.push_back(std::move(index));
     }
 
@@ -364,13 +363,15 @@ Status MultiIndexBlockImpl::insertAllDocumentsInCollection(std::set<RecordId>* d
 
     unsigned long long n = 0;
 
-    PlanExecutor::YieldPolicy yieldPolicy;
-    if (_buildInBackground) {
-        invariant(_allowInterruption);
-        yieldPolicy = PlanExecutor::YIELD_AUTO;
-    } else {
-        yieldPolicy = PlanExecutor::WRITE_CONFLICT_RETRY_ONLY;
-    }
+    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
+    // PlanExecutor::YieldPolicy yieldPolicy;
+    // if (_buildInBackground) {
+    //     invariant(_allowInterruption);
+    //     yieldPolicy = PlanExecutor::YIELD_AUTO;
+    // } else {
+    //     yieldPolicy = PlanExecutor::WRITE_CONFLICT_RETRY_ONLY;
+    // }
+    PlanExecutor::YieldPolicy yieldPolicy = PlanExecutor::INTERRUPT_ONLY;
     auto exec =
         InternalPlanner::collectionScan(_opCtx, _collection->ns().ns(), _collection, yieldPolicy);
 

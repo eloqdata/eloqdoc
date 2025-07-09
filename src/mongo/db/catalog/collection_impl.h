@@ -84,6 +84,10 @@ public:
         return _uuid;
     }
 
+    const std::string& catalogVersion() const final {
+        return _catalogVersion;
+    }
+
     void refreshUUID(OperationContext* opCtx) final;
 
     const IndexCatalog* getIndexCatalog() const final {
@@ -421,6 +425,11 @@ private:
 
     const NamespaceString _ns;
     OptionalCollectionUUID _uuid;
+
+    // The version of the catalog entry for this collection. This is used to detect whether the
+    // catalog has changed.
+    std::string _catalogVersion;
+
     CollectionCatalogEntry* const _details;
     RecordStore* const _recordStore;
     DatabaseCatalogEntry* const _dbce;
