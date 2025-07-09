@@ -33,11 +33,20 @@
 namespace mongo {
 class MongoSystemHandler : public txservice::SystemHandler {
 public:
-    ~MongoSystemHandler() override = default;
+    MongoSystemHandler();
+    ~MongoSystemHandler() override;
 
-    void ReloadCache(std::function<void(bool)> done) override {
-        done(true);
-    }
+    void ReloadCache(std::function<void(bool)> done) override;
+
+private:
+    void SubmitWork(std::packaged_task<bool()> work);
+
+private:
+    std::thread thd_;
+    std::deque<std::packaged_task<bool()>> work_queue_;
+    std::condition_variable cv_;
+    std::mutex mux_;
+    std::atomic<bool> shutdown_{false};
 };
 
 class EloqKVEngine final : public KVEngine {
@@ -45,10 +54,11 @@ class EloqKVEngine final : public KVEngine {
 
 public:
     explicit EloqKVEngine(const std::string& path);
+    void initDataStoreService();
 
     ~EloqKVEngine() override;
 
-    void waitBootstrap();
+    // void waitBootstrap();
 
     // void notifyStartupComplete() override;
 
@@ -69,9 +79,14 @@ public:
     void listCollections(std::string_view dbName, std::vector<std::string>& out) const override;
     void listCollections(std::string_view dbName, std::set<std::string>& out) const override;
 
-    std::pair<bool, Status> lockCollection(OperationContext* opCtx,
-                                           StringData ns,
-                                           bool isForWrite) override;
+    Status lockCollection(OperationContext* opCtx,
+                          StringData ns,
+                          bool isForWrite,
+                          bool* exists,
+                          std::string* version) override;
+
+    void onAuthzDataChanged(OperationContext* opCtx) override;
+
     std::unique_ptr<RecordStore> getRecordStore(OperationContext* opCtx,
                                                 StringData ns,
                                                 StringData ident,
@@ -133,6 +148,9 @@ public:
 
     bool supportsDirectoryPerDB() const override;
 
+    bool supportsCappedCollections() const override {
+        return false;
+    }
     /*
      * retrieve Eloq catalog
      */
@@ -162,12 +180,15 @@ public:
     void haltOplogManager(EloqRecordStore* oplogRecordStore, bool shuttingDown);
 
 private:
+    bool InitMetricsRegistry();
+
     std::unique_ptr<txservice::TxService> _txService;
     std::unique_ptr<txlog::LogServer> _logServer;
     Eloq::MongoCatalogFactory _catalogFactory;
     MongoSystemHandler _mongoSystemHandler;
-    std::string _path;
+    std::string _dbPath;
     std::unique_ptr<Eloq::MongoLogAgent> _logAgent;
+    std::unique_ptr<metrics::MetricsRegistry> _metricsRegistry{nullptr};
 
     mutable std::mutex _identCollectionMapMutex;
     std::map<std::string, EloqRecordStore*, std::less<>> _identCollectionMap;

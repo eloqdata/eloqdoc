@@ -52,13 +52,13 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
                                bool start_inclusive,
                                const txservice::TxKey* end_key,
                                bool end_inclusive,
-                               txservice::ScanDirection direction) {
-    MONGO_LOG(1) << "EloqCursor::indexScanOpen";
+                               txservice::ScanDirection direction,
+                               bool is_for_write) {
+    MONGO_LOG(1) << "EloqCursor::indexScanOpen " << tableName->StringView();
     _txm = _ru->getTxm();
     auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
 
     bool is_ckpt = false;
-    bool is_for_write = false;
     bool is_for_share = false;
     bool is_covering_keys = false;
     bool is_require_keys = true;
@@ -89,14 +89,16 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
                  << ". start_key: " << _scanOpenTxReq.start_key_->ToString()
                  << ". start_inclusive: " << _scanOpenTxReq.start_inclusive_
                  << ". end_key: " << _scanOpenTxReq.end_key_->ToString()
-                 << ". end_inclusive: " << _scanOpenTxReq.end_inclusive_ << ". direction"
-                 << _scanOpenTxReq.direct_;
+                 << ". end_inclusive: " << _scanOpenTxReq.end_inclusive_
+                 << ". direction: " << (int)_scanOpenTxReq.direct_
+                 << ". is_for_write: " << _scanOpenTxReq.is_for_write_;
     _ru->registerCursor(this);
     _txm = _ru->getTxm();
     _scanAlias = _txm->OpenTxScan(_scanOpenTxReq);
     assert(_scanAlias != UINT64_MAX);
     _isLastScanBatch = false;
     _scanBatchIdx = UINT64_MAX;
+    _scanBatchCnt = 0;
     _scanBatchVector.clear();
 }
 
@@ -125,16 +127,16 @@ void EloqCursor::indexScanClose() {
     _scanBatchVector.clear();
 }
 
-const Eloq::MongoKey* EloqCursor::currentBatchKey() const {
-    return (_currentBatchTuple == nullptr) ? nullptr
-                                           : _currentBatchTuple->key_.GetKey<Eloq::MongoKey>();
+const txservice::ScanBatchTuple* EloqCursor::currentBatchTuple() const {
+    return _currentBatchTuple;
 }
 
-const txservice::ScanBatchTuple* EloqCursor::nextBatchTuple() {
+txservice::TxErrorCode EloqCursor::nextBatchTuple() {
     MONGO_LOG(1) << "EloqCursor::nextBatchTuple"
                  << ". _scanBatchIdx: " << _scanBatchIdx
                  << ". _isLastScanBatch: " << _isLastScanBatch
                  << ". _scanBatchVector.size(): " << _scanBatchVector.size();
+    txservice::TxErrorCode txErr = txservice::TxErrorCode::NO_ERROR;
 
     for (_currentBatchTuple = nullptr;
          !_currentBatchTuple || _currentBatchTuple->status_ != txservice::RecordStatus::Normal;) {
@@ -146,38 +148,53 @@ const txservice::ScanBatchTuple* EloqCursor::nextBatchTuple() {
 
         // no more data
         if (_isLastScanBatch) {
-            return nullptr;
+            invariant(txErr == txservice::TxErrorCode::NO_ERROR);
+            _currentBatchTuple = nullptr;
+            break;
         }
 
-        if (_fetchBatchTuples()) {
-            _currentBatchTuple = &_scanBatchVector[_scanBatchIdx++];
-            continue;
+        txErr = _fetchBatchTuples();
+        if (txErr != txservice::TxErrorCode::NO_ERROR) {
+            _currentBatchTuple = nullptr;
+            break;
         } else {
-            // reach the end
-            assert(_isLastScanBatch);
-            return nullptr;
+            if (!_scanBatchVector.empty()) {
+                _currentBatchTuple = &_scanBatchVector[_scanBatchIdx++];
+                continue;
+            } else {
+                // reach the end
+                assert(_isLastScanBatch);
+                _currentBatchTuple = nullptr;
+                break;
+            }
         }
     }
 
-    return _currentBatchTuple;
+    return txErr;
 }
 
-bool EloqCursor::_fetchBatchTuples() {
-    MONGO_LOG(1) << "EloqCursor::fetchBatchTuples";
+txservice::TxErrorCode EloqCursor::_fetchBatchTuples() {
+    MONGO_LOG(1) << "EloqCursor::fetchBatchTuples " << _scanOpenTxReq.tab_name_->StringView();
     _scanBatchIdx = 0;
     _scanBatchVector.clear();
     auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
     txservice::ScanBatchTxRequest scanBatchTxReq(
         _scanAlias, *_scanOpenTxReq.tab_name_, &_scanBatchVector, yieldFunc, resumeFunc, _txm);
+    scanBatchTxReq.prefetch_slice_cnt_ = PrefetchSize();
     _txm->Execute(&scanBatchTxReq);
     scanBatchTxReq.Wait();
     if (scanBatchTxReq.IsError()) {
         MONGO_LOG(1) << "EloqCursor::nextBatchTuple ScanBatchTxRequest fail"
                      << ". ErrorCode: " << scanBatchTxReq.ErrorCode()
                      << ". ErrorMsg: " << scanBatchTxReq.ErrorMsg();
+    } else {
+        MONGO_LOG(1) << "EloqCursor::nextBatchTuple ScanBatchTxRequest succeed. "
+                     << _scanOpenTxReq.tab_name_->StringView()
+                     << ", tuples: " << _scanBatchVector.size();
+        _isLastScanBatch = scanBatchTxReq.Result();
+        ++_scanBatchCnt;
     }
-    _isLastScanBatch = scanBatchTxReq.Result();
 
-    return !_scanBatchVector.empty();
+    return scanBatchTxReq.ErrorCode();
 }
 }  // namespace mongo

@@ -40,14 +40,29 @@ public:
                        bool start_inclusive,
                        const txservice::TxKey* end_key,
                        bool end_inclusive,
-                       txservice::ScanDirection direction);
+                       txservice::ScanDirection direction,
+                       bool is_for_write);
     void indexScanClose();
 
-    const txservice::ScanBatchTuple* nextBatchTuple();
-    const Eloq::MongoKey* currentBatchKey() const;
+    txservice::TxErrorCode nextBatchTuple();
+    const txservice::ScanBatchTuple* currentBatchTuple() const;
+
+
+    uint32_t PrefetchSize() {
+        std::array<uint32_t, 5> boundaries = {1, 4, 16, 64, 256};
+
+        size_t idx = 0;
+        for (; idx < boundaries.size(); ++idx) {
+            if (_scanBatchCnt < boundaries[idx]) {
+                break;
+            }
+        }
+
+        return idx < boundaries.size() ? boundaries[idx] - 1 : boundaries.back() - 1;
+    }
 
 private:
-    bool _fetchBatchTuples();
+    txservice::TxErrorCode _fetchBatchTuples();
 
     // state information used for txm
     OperationContext* _opCtx;                        // not owned
@@ -60,6 +75,7 @@ private:
     size_t _scanAlias{UINT64_MAX};
     std::vector<txservice::ScanBatchTuple> _scanBatchVector;
     size_t _scanBatchIdx{UINT64_MAX};
+    size_t _scanBatchCnt{0};
 };
 
 }  // namespace mongo

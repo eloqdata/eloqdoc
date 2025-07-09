@@ -78,34 +78,37 @@ public:
         return sizeof(MongoRecord) + encoded_blob_.capacity() + unpack_info_.capacity();
     }
 
+    /*
+     * Keep the same serialization format like the DataStoreServiceClient::SerializeTxRecord
+     */
     void Serialize(std::vector<char>& buf, size_t& offset) const override {
         buf.resize(offset + 2 * sizeof(size_t) + encoded_blob_.size() + unpack_info_.size());
 
-        size_t len = encoded_blob_.size();
+        size_t len = unpack_info_.size();
         auto len_ptr = reinterpret_cast<const char*>(&len);
-        std::copy(len_ptr, len_ptr + sizeof(size_t), buf.begin() + offset);
-        offset += sizeof(size_t);
-        std::copy(encoded_blob_.begin(), encoded_blob_.end(), buf.begin() + offset);
-        offset += encoded_blob_.size();
 
-        len = unpack_info_.size();
-        // len_ptr = reinterpret_cast<const unsigned char*>(&len);
         std::copy(len_ptr, len_ptr + sizeof(size_t), buf.begin() + offset);
         offset += sizeof(size_t);
         std::copy(unpack_info_.begin(), unpack_info_.end(), buf.begin() + offset);
         offset += unpack_info_.size();
+
+        len = encoded_blob_.size();
+        std::copy(len_ptr, len_ptr + sizeof(size_t), buf.begin() + offset);
+        offset += sizeof(size_t);
+        std::copy(encoded_blob_.begin(), encoded_blob_.end(), buf.begin() + offset);
+        offset += encoded_blob_.size();
     }
 
     void Serialize(std::string& str) const override {
-        size_t len = encoded_blob_.size();
+        size_t len = unpack_info_.size();
         auto len_ptr = reinterpret_cast<const char*>(&len);
 
         str.append(len_ptr, sizeof(size_t));
-        str.append(encoded_blob_.data(), encoded_blob_.size());
-
-        len = unpack_info_.size();
-        str.append(len_ptr, sizeof(size_t));
         str.append(unpack_info_.data(), unpack_info_.size());
+
+        len = encoded_blob_.size();
+        str.append(len_ptr, sizeof(size_t));
+        str.append(encoded_blob_.data(), encoded_blob_.size());
     }
 
     size_t SerializedLength() const override {
@@ -116,14 +119,14 @@ public:
     void Deserialize(const char* buf, size_t& offset) override {
         auto len = *reinterpret_cast<const size_t*>(buf + offset);
         offset += sizeof(size_t);
-        encoded_blob_.resize(len);
-        std::copy(buf + offset, buf + offset + len, encoded_blob_.begin());
+        unpack_info_.resize(len);
+        std::copy(buf + offset, buf + offset + len, unpack_info_.begin());
         offset += len;
 
         len = *reinterpret_cast<const size_t*>(buf + offset);
         offset += sizeof(size_t);
-        unpack_info_.resize(len);
-        std::copy(buf + offset, buf + offset + len, unpack_info_.begin());
+        encoded_blob_.resize(len);
+        std::copy(buf + offset, buf + offset + len, encoded_blob_.begin());
         offset += len;
     };
 

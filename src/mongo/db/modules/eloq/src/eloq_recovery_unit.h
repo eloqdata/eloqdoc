@@ -17,14 +17,17 @@
  */
 #pragma once
 
-#include "cc_protocol.h"
 #include <set>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "boost/optional/optional.hpp"
 
+#include "mongo/base/error_extra_info.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/storage/recovery_unit.h"
 
@@ -34,10 +37,10 @@
 #include "mongo/db/modules/eloq/src/eloq_cursor.h"
 
 #include "mongo/db/modules/eloq/tx_service/include/catalog_key_record.h"
+#include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
 #include "mongo/db/modules/eloq/tx_service/include/tx_execution.h"
 #include "mongo/db/modules/eloq/tx_service/include/tx_service.h"
 #include "mongo/db/modules/eloq/tx_service/include/type.h"
-
 namespace mongo {
 class EloqKVPair {
 public:
@@ -77,6 +80,17 @@ private:
 
 // The RecoveryUnit controls what snapshot a storage engine transaction uses for its reads.
 class EloqRecoveryUnit final : public RecoveryUnit {
+public:
+    using SecondaryIndex = std::pair<txservice::TableName, txservice::SecondaryKeySchema>;
+    struct DiscoveredTable {
+        DiscoveredTable(std::shared_ptr<const Eloq::MongoTableSchema> schema,
+                        std::shared_ptr<const Eloq::MongoTableSchema> dirtySchema);
+
+        std::shared_ptr<const Eloq::MongoTableSchema> _schema;
+        std::shared_ptr<const Eloq::MongoTableSchema> _dirtySchema;
+        std::vector<const SecondaryIndex*> _creatingIndexes;  // unordered
+    };
+
 public:
     explicit EloqRecoveryUnit(txservice::TxService* txService);
     void reset() override;
@@ -126,16 +140,15 @@ public:
         txservice::CatalogRecord& catalogRecord,
         bool isForWrite);
 
-    [[nodiscard]] std::pair<bool, txservice::TxErrorCode> setKV(
-        const txservice::TableName* tableName,
-        uint64_t keySchemaVersion,
-        std::unique_ptr<Eloq::MongoKey> key,
-        std::unique_ptr<Eloq::MongoRecord> record,
-        txservice::OperationType operationType,
-        bool checkUnique = false);
+    [[nodiscard]] txservice::TxErrorCode setKV(const txservice::TableName& tableName,
+                                               uint64_t keySchemaVersion,
+                                               std::unique_ptr<Eloq::MongoKey> key,
+                                               std::unique_ptr<Eloq::MongoRecord> record,
+                                               txservice::OperationType operationType,
+                                               bool checkUnique = false);
     [[nodiscard]] std::pair<bool, txservice::TxErrorCode> getKV(
         OperationContext* opCtx,
-        const txservice::TableName* tableName,
+        const txservice::TableName& tableName,
         uint64_t keySchemaVersion,
         const Eloq::MongoKey* key,
         Eloq::MongoRecord* record,
@@ -143,10 +156,12 @@ public:
     // store in the internal kvpair
     [[nodiscard]] std::pair<bool, txservice::TxErrorCode> getKVInternal(
         OperationContext* opCtx,
-        const txservice::TableName* tableName,
+        const txservice::TableName& tableName,
         uint64_t keySchemaVersion,
         bool isForWrite = false,
         bool readLocal = false);
+
+    void notifyReloadCache(OperationContext* opCtx);
 
     Status createTable(const txservice::TableName& tableName, std::string_view metadata);
     Status dropTable(const txservice::TableName& tableName,
@@ -154,17 +169,37 @@ public:
     Status updateTable(const txservice::TableName& tableName,
                        const txservice::CatalogRecord& catalogRecord,
                        std::string_view oldMetadata,
-                       std::string_view newMetadata);
+                       std::string_view newMetadata,
+                       std::string* newSchemaImage,
+                       bool* insideDmlTxn);
 
-    EloqKVPair& getKVPair();
+    EloqKVPair& getKVPair() {
+        return _kvPair;
+    }
 
-    const Eloq::MongoTableSchema* getTableSchema(const txservice::TableName& tableName) const;
+    bool unreadyIsEmpty() {
+        return _unreadyTableMap.empty();
+    }
+    void eraseUnreadyTable(const txservice::TableName& tableName);
+    BSONObj getUnreadyTable(const txservice::TableName& tableName);
+    void putUnreadyTable(const txservice::TableName& tableName, const BSONObj& obj);
 
-    const txservice::KeySchema* getIndexSchema(const txservice::TableName& tableName) const;
-    const txservice::KeySchema* getIndexSchema(const txservice::TableName& tableName,
+    std::pair<const DiscoveredTable*, txservice::TxErrorCode> discoverTable(
+        const txservice::TableName& tableName);
+
+    const DiscoveredTable& discoveredTable(const txservice::TableName& tableName) const;
+
+    const Eloq::MongoKeySchema* getIndexSchema(const txservice::TableName& tableName) const;
+    const Eloq::MongoKeySchema* getIndexSchema(const txservice::TableName& tableName,
                                                const txservice::TableName& indexName) const;
 
-    void deleteTableSchema(const txservice::TableName& tableName);
+    bool tryInsertDiscoveredTable(const txservice::TableName& tableName,
+                                  std::shared_ptr<const Eloq::MongoTableSchema> schema,
+                                  std::shared_ptr<const Eloq::MongoTableSchema> dirty_schema);
+    void deleteDiscoveredTable(const txservice::TableName& tableName);
+    void updateDiscoveredTable(const txservice::TableName& tableName,
+                               const std::string& newSchemaImage,
+                               uint64_t version);
 
 private:
     void _abort();
@@ -184,7 +219,7 @@ private:
     bool _isTimestamped{false};
     bool _inMultiDocumentTransation{false};
 
-    std::set<EloqCursor*> _cursors;
+    absl::flat_hash_set<EloqCursor*> _cursors;
 
     EloqKVPair _kvPair;
 
@@ -196,8 +231,8 @@ private:
     using Changes = std::vector<std::unique_ptr<Change>>;
     Changes _changes;
 
-    mutable std::unordered_map<txservice::TableName, std::shared_ptr<const Eloq::MongoTableSchema>>
-        _discoveredTableSchemaMap;
+    absl::flat_hash_map<txservice::TableName, DiscoveredTable> _discoveredTableMap;
+    std::unordered_map<txservice::TableName, BSONObj> _unreadyTableMap;
     // butil::Timer _timer;
 };
 

@@ -30,12 +30,18 @@
 #include "mongo/db/modules/eloq/tx_service/include/cc/range_cc_map.h"
 #include "mongo/db/modules/eloq/tx_service/include/cc/scan.h"
 #include "mongo/db/modules/eloq/tx_service/include/cc/template_cc_map.h"
+#include "mongo/db/modules/eloq/tx_service/include/sequences/sequences.h"
 #include "mongo/db/modules/eloq/tx_service/include/table_statistics.h"
 #include "mongo/db/modules/eloq/tx_service/include/type.h"
 
 namespace Eloq {
 txservice::TableSchema::uptr MongoCatalogFactory::CreateTableSchema(
     const txservice::TableName& table_name, const std::string& catalog_image, uint64_t version) {
+    if (table_name == txservice::Sequences::table_name_) {
+        DLOG(INFO) << "===create sequence table schema";
+        return std::make_unique<txservice::SequenceTableSchema>(table_name, catalog_image, version);
+    }
+
     return std::make_unique<MongoTableSchema>(table_name, catalog_image, version);
 }
 
@@ -45,8 +51,19 @@ txservice::CcMap::uptr MongoCatalogFactory::CreatePkCcMap(
     bool ccm_has_full_entries,
     txservice::CcShard* shard,
     txservice::NodeGroupId cc_ng_id) {
+    if (table_name == txservice::Sequences::table_name_) {
+        return std::make_unique<txservice::TemplateCcMap<MongoKey, MongoRecord, true, true>>(
+            shard,
+            cc_ng_id,
+            table_name,
+            table_schema->Version(),
+            table_schema,
+            ccm_has_full_entries);
+    }
+
+
     uint64_t key_version = table_schema->KeySchema()->SchemaTs();
-    return std::make_unique<txservice::TemplateCcMap<MongoKey, MongoRecord>>(
+    return std::make_unique<txservice::TemplateCcMap<MongoKey, MongoRecord, true, true>>(
         shard, cc_ng_id, table_name, key_version, table_schema, ccm_has_full_entries);
 }
 
@@ -58,7 +75,7 @@ txservice::CcMap::uptr MongoCatalogFactory::CreateSkCcMap(
     const auto* mongo_table_schema = static_cast<const MongoTableSchema*>(table_schema);
     if (mongo_table_schema != nullptr) {
         uint64_t key_version = table_schema->IndexKeySchema(table_name)->SchemaTs();
-        return std::make_unique<txservice::TemplateCcMap<MongoKey, MongoRecord>>(
+        return std::make_unique<txservice::TemplateCcMap<MongoKey, MongoRecord, true, true>>(
             shard, cc_ng_id, table_name, key_version, table_schema, false);
     }
     return nullptr;

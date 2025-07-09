@@ -78,18 +78,10 @@ std::string MongoKey::ToString() const {
 }
 
 void MongoKey::SetPackedKey(const mongo::RecordId& rid) {
-    if (rid.isLong()) {
-        assert(false);
-        int64_t native = rid.getLong();
-        int64_t bigEndian = mongo::endian::nativeToBig(native);
-        const char* valPtr = reinterpret_cast<const char*>(&bigEndian);
-        packed_key_.resize(sizeof(int64_t));
-        std::copy(valPtr, valPtr + sizeof(int64_t), packed_key_.begin());
-    } else {
-        auto str = rid.getStringView();
-        packed_key_.resize(str.size());
-        std::copy(str.begin(), str.end(), packed_key_.begin());
-    }
+    invariant(!rid.isLong());
+    std::string_view sv = rid.getStringView();
+    packed_key_.resize(sv.size());
+    std::copy(sv.begin(), sv.end(), packed_key_.begin());
 }
 
 };  // namespace Eloq

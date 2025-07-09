@@ -15,10 +15,13 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
+
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
 #include <atomic>
+#include <chrono>
 #include <exception>
+#include <thread>
 #include <utility>
 
 #include "mongo/base/status.h"
@@ -33,11 +36,13 @@
 #include "mongo/db/modules/eloq/src/base/eloq_record.h"
 #include "mongo/db/modules/eloq/src/base/eloq_table_schema.h"
 #include "mongo/db/modules/eloq/src/base/eloq_util.h"
+#include "mongo/db/modules/eloq/src/eloq_global_options.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
-#include "mongo/db/modules/eloq/src/store_handler/kv_store.h"
+#include "mongo/db/modules/eloq/store_handler/kv_store.h"
 
 #include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
 #include "mongo/db/modules/eloq/tx_service/include/tx_util.h"
+#include "mongo/db/modules/eloq/tx_service/include/type.h"
 
 #include <butil/time.h>
 #include <bvar/latency_recorder.h>
@@ -45,6 +50,8 @@
 namespace recorder {
 bvar::LatencyRecorder kCommitLatency{"mongo_commit"};
 bvar::LatencyRecorder kDBRequestHandleLatency{"mongo_dbrequest_handle"};
+bvar::Adder<int64_t> kConflictCounter("mongo_transaction_conflict_total");
+
 }  // namespace recorder
 
 
@@ -99,6 +106,30 @@ txservice::AlterTableInfo getAlterTableInfo(std::string_view oldMetadata,
     return alterTableInfo;
 }
 
+EloqRecoveryUnit::DiscoveredTable::DiscoveredTable(
+    std::shared_ptr<const Eloq::MongoTableSchema> schema,
+    std::shared_ptr<const Eloq::MongoTableSchema> dirtySchema)
+    : _schema(std::move(schema)), _dirtySchema(std::move(dirtySchema)) {
+    const std::unordered_map<uint16_t, SecondaryIndex>& schemaIndexes = *_schema->GetIndexes();
+    if (_dirtySchema) {
+        const std::unordered_map<uint16_t, SecondaryIndex>& dirtySchemaIndexes =
+            *_dirtySchema->GetIndexes();
+
+        for (const auto& [kid, dindex] : dirtySchemaIndexes) {
+            bool exists = false;
+            for (const auto& [kid, index] : schemaIndexes) {
+                if (dindex.first == index.first) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                _creatingIndexes.push_back(&dindex);
+            }
+        }
+    }
+}
+
 EloqRecoveryUnit::EloqRecoveryUnit(txservice::TxService* txService)
     : _txService(txService), _mySnapshotId(nextSnapshotId.fetch_add(1)) {
     // _timer.start();
@@ -107,9 +138,10 @@ EloqRecoveryUnit::EloqRecoveryUnit(txservice::TxService* txService)
 
 void EloqRecoveryUnit::reset() {
     MONGO_LOG(1) << "EloqRecoveryUnit::reset";
+    invariant(!_inUnitOfWork);
+    _abort();
     _mySnapshotId = nextSnapshotId.fetch_add(1);
     // _timer.start();
-    closeAllCursors();
 
     _opCtx = nullptr;
     _txm = nullptr;
@@ -123,7 +155,8 @@ void EloqRecoveryUnit::reset() {
     _prepareTimestamp.reset();
     _lastTimestampSet.reset();
     _changes.clear();
-    _discoveredTableSchemaMap.clear();
+    _discoveredTableMap.clear();
+    _unreadyTableMap.clear();
 }
 
 EloqRecoveryUnit::~EloqRecoveryUnit() {
@@ -261,7 +294,6 @@ txservice::TransactionExecution* EloqRecoveryUnit::getTxm() {
 }
 
 bool EloqRecoveryUnit::inActiveTxn() const {
-    MONGO_LOG(1) << "EloqRecoveryUnit::inActiveTxn";
     return _active;
 }
 
@@ -315,18 +347,16 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
     return {exists, errorCode};
 }
 
-std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::setKV(
-    const txservice::TableName* tableName,
-    uint64_t keySchemaVersion,
-    std::unique_ptr<Eloq::MongoKey> key,
-    std::unique_ptr<Eloq::MongoRecord> record,
-    txservice::OperationType operationType,
-    bool checkUnique) {
+txservice::TxErrorCode EloqRecoveryUnit::setKV(const txservice::TableName& tableName,
+                                               uint64_t keySchemaVersion,
+                                               std::unique_ptr<Eloq::MongoKey> key,
+                                               std::unique_ptr<Eloq::MongoRecord> record,
+                                               txservice::OperationType operationType,
+                                               bool checkUnique) {
     MONGO_LOG(1) << "EloqRecoveryUnit::setKV. "
-                 << "tableName: " << tableName->StringView() << ". mongoKey: " << key->ToString()
-                 << ". mongoRecord: " << record->ToString() << ". OperationType: " << operationType;
+                 << "tableName: " << tableName.StringView() << ". mongoKey: " << key->ToString();
     getTxm();
-    auto err = _txm->TxUpsert(*tableName,
+    auto err = _txm->TxUpsert(tableName,
                               keySchemaVersion,
                               txservice::TxKey(std::move(key)),
                               std::move(record),
@@ -334,27 +364,26 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::setKV(
     if (err != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "txservice TxUpsert failed"
                      << "ErrorCode" << err;
-        return {false, err};
     }
 
-    return {true, txservice::TxErrorCode::NO_ERROR};
+    return err;
 }
 
 std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     OperationContext* opCtx,
-    const txservice::TableName* tableName,
+    const txservice::TableName& tableName,
     uint64_t keySchemaVersion,
     const Eloq::MongoKey* key,
     Eloq::MongoRecord* record,
     bool isForWrite) {
     MONGO_LOG(1) << "EloqRecoveryUnit::getKV"
-                 << ". tableName: " << tableName->StringView() << ". mongoKey: " << key->ToString();
+                 << ". tableName: " << tableName.StringView() << ". mongoKey: " << key->ToString();
     getTxm();
     txservice::TxKey txKey(key);
     auto [yieldFunc, resumeFunc] = opCtx->getCoroutineFunctors();
 
     while (true) {
-        txservice::ReadTxRequest readTxReq(tableName,
+        txservice::ReadTxRequest readTxReq(&tableName,
                                            keySchemaVersion,
                                            &txKey,
                                            record,
@@ -371,10 +400,14 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
         _txm->Execute(&readTxReq);
         readTxReq.Wait();
         MONGO_LOG(1) << "result"
-                     << ". tableName: " << tableName->StringView()
-                     << ". mongoKey: " << key->ToString()
-                     << ". mongoRecord: " << record->ToString();
-        if (readTxReq.IsError()) {
+                     << ". tableName: " << tableName.StringView()
+                     << ". mongoKey: " << key->ToString();
+        auto err = readTxReq.ErrorCode();
+        if (err == txservice::TxErrorCode::READ_WRITE_CONFLICT ||
+            err == txservice::TxErrorCode::WRITE_WRITE_CONFLICT) {
+            recorder::kConflictCounter << 1;
+            continue;
+        } else if (err != txservice::TxErrorCode::NO_ERROR) {
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV fail"
                          << ". ErrorCode: " << readTxReq.ErrorCode() << ". ErrorMsg"
                          << readTxReq.ErrorMsg();
@@ -385,7 +418,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
             return {true, txservice::TxErrorCode::NO_ERROR};
         } else {
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV. RecordStatus::Non-Normal. "
-                         << readTxReq.Result().first << " " << readTxReq.Result().second;
+                         << (int)readTxReq.Result().first << " " << readTxReq.Result().second;
             if (readTxReq.Result().first == txservice::RecordStatus::Unknown) {
                 MONGO_LOG(0) << "retry readtxrequest";
                 continue;
@@ -398,7 +431,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
 
 std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKVInternal(
     OperationContext* opCtx,
-    const txservice::TableName* tableName,
+    const txservice::TableName& tableName,
     uint64_t keySchemaVersion,
     bool isForWrite,
     bool readLocal) {
@@ -408,17 +441,32 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKVInternal(
         opCtx, tableName, keySchemaVersion, &_kvPair.keyRef(), _kvPair.getValuePtr(), isForWrite);
 }
 
+void EloqRecoveryUnit::notifyReloadCache(OperationContext* opCtx) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::notifyReloadCache";
+
+    getTxm();
+
+    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    txservice::ReloadCacheTxRequest reloadTxReq(yieldFunc, resumeFunc, _txm);
+    _txm->Execute(&reloadTxReq);
+    reloadTxReq.Wait();
+    if (reloadTxReq.IsError()) {
+        error() << "eloq notify all node reload failed, " << reloadTxReq.ErrorMsg();
+    }
+}
+
 Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
                                      std::string_view metadata) {
     MONGO_LOG(1) << "EloqRecoveryUnit::createTable"
-                 << ". tableName: " << tableName.StringView() << ". metadata: " << metadata;
+                 << ". tableName: " << tableName.StringView()
+                 << ". metadata: " << BSONObj(metadata.data());
     getTxm();
 
-    std::string schemaImage{Eloq::SerializeSchemaImage(std::string{metadata}, "", "")};
+    std::string schemaImage{EloqDS::SerializeSchemaImage(std::string{metadata}, "", "")};
     Eloq::MongoTableSchema tempSchema(tableName, schemaImage, 0);
     std::string kvInfo = Eloq::storeHandler->CreateKVCatalogInfo(&tempSchema);
     std::string emptyImage{""};
-    std::string newImage = Eloq::SerializeSchemaImage(std::string{metadata}, kvInfo, "");
+    std::string newImage = EloqDS::SerializeSchemaImage(std::string{metadata}, kvInfo, "");
     auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
 
     txservice::UpsertTableTxRequest upsertTableTxReq{&tableName,
@@ -503,7 +551,9 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
 Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
                                      const txservice::CatalogRecord& catalogRecord,
                                      std::string_view oldMetadata,
-                                     std::string_view newMetadata) {
+                                     std::string_view newMetadata,
+                                     std::string* newSchemaImage,
+                                     bool* insideDmlTxn) {
     MONGO_LOG(1) << "EloqRecoveryUnit::updateTable"
                  << ". tableName: " << tableName.StringView();
     getTxm();
@@ -519,12 +569,16 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
     auto currentTableSchema = static_cast<const Eloq::MongoTableSchema*>(catalogRecord.Schema());
 
     // Get current key schemas ts, excluding the key to be dropped.
-    txservice::TableKeySchemaTs key_schemas_ts;
+    txservice::TableKeySchemaTs key_schemas_ts{txservice::TableEngine::EloqDoc};
     // The pk schema ts.
     key_schemas_ts.pk_schema_ts_ = currentTableSchema->KeySchema()->SchemaTs();
-    auto sk_schemas = currentTableSchema->GetIndexes();
-    for (const auto& sk_schema : *sk_schemas) {
-        if (alterTableInfo.index_drop_names_.find(sk_schema.second.first) !=
+    const std::unordered_map<uint16_t,
+                             std::pair<txservice::TableName, txservice::SecondaryKeySchema>>&
+        sk_schemas = *currentTableSchema->GetIndexes();
+    for (const auto& [offset, index] : sk_schemas) {
+        const txservice::TableName& index_name = index.first;
+        const txservice::SecondaryKeySchema& index_schema = index.second;
+        if (alterTableInfo.index_drop_names_.find(index_name) !=
             alterTableInfo.index_drop_names_.end()) {
             // This index will be dropped in the new table schema, so there is no
             // need to get its key schema ts.
@@ -533,9 +587,8 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
         // The old sk schema ts.
         key_schemas_ts.sk_schemas_ts_.emplace(
             std::piecewise_construct,
-            std::forward_as_tuple(sk_schema.second.first.StringView(),
-                                  sk_schema.second.first.Type()),
-            std::forward_as_tuple(sk_schema.second.second.SchemaTs()));
+            std::forward_as_tuple(index_name.StringView(), index_name.Type(), index_name.Engine()),
+            std::forward_as_tuple(index_schema.SchemaTs()));
     }
     std::string schemas_ts_str = key_schemas_ts.Serialize();
 
@@ -551,11 +604,11 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
     // NOTE: At this stage, the key schema ts of the new index are unknown, the
     // value of which is the `commit_ts_` of the UpsertTable Transaction. So,
     // there is no new key's schema ts in the `schemas_ts_str`.
-    std::string new_schema_image =
-        Eloq::SerializeSchemaImage(std::string{newMetadata}, new_kv_info, schemas_ts_str);
+    *newSchemaImage =
+        EloqDS::SerializeSchemaImage(std::string{newMetadata}, new_kv_info, schemas_ts_str);
 
 
-    txservice::OperationType opType{txservice::OperationType::Update};
+    txservice::OperationType opType = txservice::OperationType::Update;
     if (alterTableInfo.index_add_count_ > 0) {
         opType = txservice::OperationType::AddIndex;
         MONGO_LOG(1) << "OperationType::AddIndex";
@@ -568,114 +621,182 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
 
     auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
 
-    txservice::UpsertTableTxRequest upsertTableTxReq{&tableName,
-                                                     &catalogRecord.Schema()->SchemaImage(),
-                                                     catalogRecord.SchemaTs(),
-                                                     &new_schema_image,
-                                                     opType,
-                                                     &alterTableInfoImage,
-                                                     yieldFunc,
-                                                     resumeFunc,
-                                                     _txm};
-    _txm->Execute(&upsertTableTxReq);
-    upsertTableTxReq.Wait();
-    MONGO_LOG(1) << "txNumber: " << _txm->TxNumber();
-    switch (upsertTableTxReq.Result()) {
-        case txservice::UpsertResult::Succeeded:
-            MONGO_LOG(1) << "UpsertTableTxRequest success";
-            return Status::OK();
-            break;
-        case txservice::UpsertResult::Failed: {
-            txservice::TxErrorCode tx_err = upsertTableTxReq.ErrorCode();
-            if (tx_err == txservice::TxErrorCode::UNIQUE_CONSTRAINT) {
-                invariant(opType == txservice::OperationType::AddIndex);
-                return {ErrorCodes::Error::DuplicateKey, upsertTableTxReq.ErrorMsg()};
-            } else if (tx_err == txservice::TxErrorCode::CAL_ENGINE_DEFINED_CONSTRAINT) {
-                invariant(opType == txservice::OperationType::AddIndex);
-                const txservice::PackSkError& pack_sk_err = *upsertTableTxReq.pack_sk_err_;
-                invariant(pack_sk_err.code_ > ErrorCodes::OK &&
-                          pack_sk_err.code_ < ErrorCodes::MaxError);
-                return {static_cast<ErrorCodes::Error>(pack_sk_err.code_), pack_sk_err.message_};
-            } else {
-                MONGO_LOG(1)
-                    << "UpsertTableTxRequest error. UpsertTableOp on multiple nodes at the "
-                       "same time may conflict and then backoff.";
-                return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
+    if (_txm->DataWriteSetSize() > 0) {
+        *insideDmlTxn = true;
+        assert(opType == txservice::OperationType::Update);
+        auto catalogKey = std::make_unique<txservice::CatalogKey>(
+            txservice::TableName{tableName.String(), tableName.Type(), tableName.Engine()});
+        auto newCatalogRecord =
+            static_cast<txservice::CatalogRecord*>(catalogRecord.Clone().release());
+        newCatalogRecord->SetDirtySchemaImage(*newSchemaImage);
+
+        _txm->TxUpsert(txservice::catalog_ccm_name,
+                       1,
+                       txservice::TxKey(std::move(catalogKey)),
+                       txservice::TxRecord::Uptr(newCatalogRecord),
+                       txservice::OperationType::Update,
+                       false);
+        return Status::OK();
+    } else {
+        *insideDmlTxn = false;
+        txservice::UpsertTableTxRequest upsertTableTxReq{&tableName,
+                                                         &catalogRecord.Schema()->SchemaImage(),
+                                                         catalogRecord.SchemaTs(),
+                                                         newSchemaImage,
+                                                         opType,
+                                                         &alterTableInfoImage,
+                                                         yieldFunc,
+                                                         resumeFunc,
+                                                         _txm};
+        _txm->Execute(&upsertTableTxReq);
+        upsertTableTxReq.Wait();
+        MONGO_LOG(1) << "txNumber: " << _txm->TxNumber();
+        switch (upsertTableTxReq.Result()) {
+            case txservice::UpsertResult::Succeeded:
+                MONGO_LOG(1) << "UpsertTableTxRequest success";
+                return Status::OK();
+                break;
+            case txservice::UpsertResult::Failed: {
+                txservice::TxErrorCode txErr = upsertTableTxReq.ErrorCode();
+                if (txErr == txservice::TxErrorCode::UNIQUE_CONSTRAINT) {
+                    invariant(opType == txservice::OperationType::AddIndex);
+                    return {ErrorCodes::Error::DuplicateKey, upsertTableTxReq.ErrorMsg()};
+                } else if (txErr == txservice::TxErrorCode::CAL_ENGINE_DEFINED_CONSTRAINT) {
+                    invariant(opType == txservice::OperationType::AddIndex);
+                    const txservice::PackSkError& pack_sk_err = *upsertTableTxReq.pack_sk_err_;
+                    invariant(pack_sk_err.code_ > ErrorCodes::OK &&
+                              pack_sk_err.code_ < ErrorCodes::MaxError);
+                    return {static_cast<ErrorCodes::Error>(pack_sk_err.code_),
+                            pack_sk_err.message_};
+                } else {
+                    MONGO_LOG(1)
+                        << "UpsertTableTxRequest error. UpsertTableOp on multiple nodes at the "
+                           "same time may conflict and then backoff.";
+                    return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
+                }
+                break;
             }
-            break;
+            case txservice::UpsertResult::Unverified:
+                MONGO_LOG(1)
+                    << "UpsertTableTxRequest error. Current transaction coordinator is no longer "
+                       "the leader node. The alter table statement will be processed in a "
+                       "failover node. Please recheck the result of alter table statement later.";
+                return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
+                break;
+            default:
+                dassert(false);
+                return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
         }
-        case txservice::UpsertResult::Unverified:
-            MONGO_LOG(1)
-                << "UpsertTableTxRequest error. Current transaction coordinator is no longer "
-                   "the leader node. The alter table statement will be processed in a "
-                   "failover node. Please recheck the result of alter table statement later.";
-            return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
-            break;
-        default:
-            dassert(false);
-            return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
     }
 }
+void EloqRecoveryUnit::eraseUnreadyTable(const txservice::TableName& tableName) {
+    _unreadyTableMap.erase(tableName);
+}
+BSONObj EloqRecoveryUnit::getUnreadyTable(const txservice::TableName& tableName) {
+    auto iter = _unreadyTableMap.find(tableName);
 
-EloqKVPair& EloqRecoveryUnit::getKVPair() {
-    return _kvPair;
+    if (iter != _unreadyTableMap.end()) {
+        return iter->second;
+    }
+    return {};
+}
+void EloqRecoveryUnit::putUnreadyTable(const txservice::TableName& tableName, const BSONObj& obj) {
+
+    _unreadyTableMap.insert_or_assign(tableName, obj.getOwned());
 }
 
-const Eloq::MongoTableSchema* EloqRecoveryUnit::getTableSchema(
-    const txservice::TableName& tableName) const {
-    MONGO_LOG(1) << "EloqRecoveryUnit::getTableSchema. tableName: " << tableName.StringView();
+std::pair<const EloqRecoveryUnit::DiscoveredTable*, txservice::TxErrorCode>
+EloqRecoveryUnit::discoverTable(const txservice::TableName& tableName) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::discoverTable. tableName: " << tableName.StringView();
 
-    if (auto iter = _discoveredTableSchemaMap.find(tableName);
-        iter != _discoveredTableSchemaMap.end()) {
-        return iter->second.get();
+    if (auto iter = _discoveredTableMap.find(tableName); iter != _discoveredTableMap.end()) {
+        const DiscoveredTable& table = iter->second;
+        return {&table, txservice::TxErrorCode::NO_ERROR};
     }
 
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
-    auto [exist, errorCode] =
-        const_cast<EloqRecoveryUnit*>(this)->readCatalog(catalogKey, catalogRecord, false);
+    auto [exist, errorCode] = readCatalog(catalogKey, catalogRecord, false);
     if (errorCode != txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "ReadCatalog Error. [ErrorCode]: " << errorCode;
-        return nullptr;
+        MONGO_LOG(1) << "ReadCatalog Error. [ErrorCode]: " << errorCode << ". "
+                     << tableName.StringView();
+        return {nullptr, errorCode};
     }
 
     if (!exist) {
-        MONGO_LOG(1) << "ReadCatalog no exists.";
-        return nullptr;
+        MONGO_LOG(1) << "ReadCatalog no exists. " << tableName.StringView();
+        return {nullptr, txservice::TxErrorCode::NO_ERROR};
     }
 
-    std::shared_ptr<const Eloq::MongoTableSchema> tableSchema =
+    auto schema =
         std::static_pointer_cast<const Eloq::MongoTableSchema>(catalogRecord.CopySchema());
-    auto [iter, inserted] = _discoveredTableSchemaMap.try_emplace(tableName, tableSchema);
+    auto dirtySchema =
+        std::static_pointer_cast<const Eloq::MongoTableSchema>(catalogRecord.CopyDirtySchema());
+
+    auto [iter, inserted] =
+        _discoveredTableMap.try_emplace(tableName, std::move(schema), std::move(dirtySchema));
     invariant(inserted);
-    return iter->second.get();
+    const DiscoveredTable& table = iter->second;
+    return {&table, txservice::TxErrorCode::NO_ERROR};
 }
 
-const txservice::KeySchema* EloqRecoveryUnit::getIndexSchema(
+const EloqRecoveryUnit::DiscoveredTable& EloqRecoveryUnit::discoveredTable(
+    const txservice::TableName& tableName) const {
+    invariant(inActiveTxn());
+    return _discoveredTableMap.at(tableName);
+}
+
+const Eloq::MongoKeySchema* EloqRecoveryUnit::getIndexSchema(
     const txservice::TableName& tableName) const {
     invariant(tableName.Type() == txservice::TableType::Primary);
-    const Eloq::MongoTableSchema* tableSchema = getTableSchema(tableName);
-    return tableSchema->KeySchema();
+
+    const DiscoveredTable& table = discoveredTable(tableName);
+    const auto* tableSchema = static_cast<const Eloq::MongoTableSchema*>(table._schema.get());
+    return static_cast<const Eloq::MongoKeySchema*>(tableSchema->KeySchema());
 }
 
-const txservice::KeySchema* EloqRecoveryUnit::getIndexSchema(
+const Eloq::MongoKeySchema* EloqRecoveryUnit::getIndexSchema(
     const txservice::TableName& tableName, const txservice::TableName& indexName) const {
     invariant(tableName.Type() == txservice::TableType::Primary);
 
-    const Eloq::MongoTableSchema* tableSchema = getTableSchema(tableName);
+    const DiscoveredTable& table = discoveredTable(tableName);
+    const auto* tableSchema = static_cast<const Eloq::MongoTableSchema*>(table._schema.get());
     if (indexName.Type() == txservice::TableType::Primary) {
         invariant(tableName == indexName);
-        return tableSchema->KeySchema();
+        return static_cast<const Eloq::MongoKeySchema*>(tableSchema->KeySchema());
     } else {
         invariant(indexName.Type() == txservice::TableType::Secondary ||
                   indexName.Type() == txservice::TableType::UniqueSecondary);
-        return tableSchema->IndexKeySchema(indexName);
+        return static_cast<const Eloq::MongoKeySchema*>(
+            tableSchema->IndexKeySchema(indexName)->sk_schema_.get());
     }
 }
 
-void EloqRecoveryUnit::deleteTableSchema(const txservice::TableName& tableName) {
-    MONGO_LOG(1) << "EloqRecoveryUnit::deleteTableSchema. tableName: " << tableName.StringView();
-    _discoveredTableSchemaMap.erase(tableName);
+bool EloqRecoveryUnit::tryInsertDiscoveredTable(
+    const txservice::TableName& tableName,
+    std::shared_ptr<const Eloq::MongoTableSchema> schema,
+    std::shared_ptr<const Eloq::MongoTableSchema> dirty_schema) {
+    auto [iter, inserted] =
+        _discoveredTableMap.try_emplace(tableName, std::move(schema), std::move(dirty_schema));
+    return inserted;
+}
+
+void EloqRecoveryUnit::deleteDiscoveredTable(const txservice::TableName& tableName) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::deleteDiscoveredTable. tableName: "
+                 << tableName.StringView();
+    _discoveredTableMap.erase(tableName);
+}
+
+void EloqRecoveryUnit::updateDiscoveredTable(const txservice::TableName& tableName,
+                                             const std::string& newSchemaImage,
+                                             uint64_t version) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::updateDiscoveredTable. tableName: "
+                 << tableName.StringView();
+    DiscoveredTable& discoveredTable = _discoveredTableMap.at(tableName);
+    assert(discoveredTable._dirtySchema == nullptr);
+    assert(discoveredTable._creatingIndexes.empty());
+    discoveredTable._schema =
+        std::make_shared<Eloq::MongoTableSchema>(tableName, newSchemaImage, version);
 }
 
 void EloqRecoveryUnit::_abort() {
@@ -706,20 +827,40 @@ void EloqRecoveryUnit::_commit() {
     // Since we cannot have both a _lastTimestampSet and a _commitTimestamp, we set the
     // commit time as whichever is non-empty. If both are empty, then _lastTimestampSet will
     // be boost::none and we'll set the commit time to that.
-    auto commitTime = _commitTimestamp.isNull() ? _lastTimestampSet : _commitTimestamp;
     try {
+        auto commitTime = _commitTimestamp.isNull() ? _lastTimestampSet : _commitTimestamp;
         if (_active) {
-            _txnClose(true);
+            _txnClose(true);  // Throw an exception if commit failed.
         }
 
-        for (Changes::const_iterator it = _changes.begin(), end = _changes.end(); it != end; ++it) {
-            (*it)->commit(commitTime);
-        }
-        _changes.clear();
+        try {
+            for (Changes::const_iterator it = _changes.begin(), end = _changes.end(); it != end;
+                 ++it) {
+                (*it)->commit(commitTime);
+            }
+            _changes.clear();
 
-        invariant(!_active);
-    } catch (...) {
-        std::terminate();
+            invariant(!_active);
+        } catch (...) {
+            std::terminate();
+        }
+    } catch (const mongo::DBException& ex) {
+        try {
+            for (Changes::const_reverse_iterator it = _changes.rbegin(), end = _changes.rend();
+                 it != end;
+                 ++it) {
+                Change* change = it->get();
+                MONGO_LOG(1) << "CUSTOM ROLLBACK " << redact(demangleName(typeid(*change)));
+                change->rollback();
+            }
+            _changes.clear();
+
+            invariant(!_active);
+        } catch (...) {
+            std::terminate();
+        }
+
+        throw;
     }
 }
 
@@ -731,7 +872,7 @@ void EloqRecoveryUnit::_txnOpen(txservice::IsolationLevel isolationLevel) {
     }
     MONGO_LOG(1) << "Opening transaction with isolation level: " << isolationLevel;
     _txm = txservice::NewTxInit(
-        _txService, isolationLevel, txservice::CcProtocol::OCC, UINT32_MAX, localThreadId);
+        _txService, isolationLevel, eloqGlobalOptions.ccProtocol, UINT32_MAX, localThreadId);
     _active = true;
 }
 
@@ -743,14 +884,16 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
 
     auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
 
+    bool succeed = true;
+    txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;
     if (commit) {
         MONGO_LOG(1) << "EloqRecoveryUnit::_txnClose. "
-                     << "txm commit";
+                     << "txm commit " << _txm->TxNumber();
 
-        auto [success, commitErr] = txservice::CommitTx(_txm, yieldFunc, resumeFunc);
-        if (!success) {
+        std::tie(succeed, err) = txservice::CommitTx(_txm, yieldFunc, resumeFunc);
+        if (!succeed) {
             MONGO_LOG(1) << "txm commit fail. "
-                         << "errorCode:" << commitErr;
+                         << "errorCode:" << err;
         }
     } else {
         MONGO_LOG(1) << "EloqRecoveryUnit::_txnClose. "
@@ -767,6 +910,11 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
     _active = false;
     _inMultiDocumentTransation = false;
     _mySnapshotId = nextSnapshotId.fetch_add(1);
+    _kvPair.reset();
+    _discoveredTableMap.clear();
+    // _unreadyTableMap.clear();
+
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
 }
 
 }  // namespace mongo

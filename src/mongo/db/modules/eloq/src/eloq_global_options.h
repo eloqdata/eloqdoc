@@ -17,10 +17,13 @@
  */
 #pragma once
 
+#include <cstdint>
+
 #include "mongo/util/net/hostandport.h"
 #include "mongo/util/options_parser/startup_option_init.h"
 #include "mongo/util/options_parser/startup_options.h"
-#include <cstdint>
+
+#include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
 
 namespace mongo {
 
@@ -32,21 +35,20 @@ public:
     Status add(moe::OptionSection* options);
     Status store(const moe::Environment& params, const std::vector<std::string>& args);
 
-    std::vector<mongo::HostAndPort> NodeGroupAddrs() const;
-
     std::vector<std::string> TxlogIPs() const;
     std::vector<uint16_t> TxlogPorts() const;
 
+    // basic options
+    // bool bootstrap{false};
     // tx_service
     mongo::HostAndPort localAddr;
-    std::vector<mongo::HostAndPort> nodeGroupAddrs;
-    std::vector<mongo::HostAndPort> txlogServiceAddrs;
+    std::string ipList;
+    bool forkHostManager{false};
     mongo::HostAndPort hostManagerAddr;
     std::string hostManagerBinPath;
-    uint16_t coreNum{0};
+    // uint16_t coreNum{0};
     uint16_t rangeSplitWorkerNum{0};
     uint32_t nodeMemoryLimitMB{0};
-    uint32_t nodeLogLimitMB{0};
     uint32_t checkpointerIntervalSec{0};
     uint32_t checkpointerDelaySec{0};
     uint32_t collectActiveTxTsIntervalSec{0};
@@ -54,12 +56,18 @@ public:
     uint32_t txlogGroupReplicaNum{0};
     uint32_t nodeGroupReplicaNum{0};
     uint16_t bthreadWorkerNum{0};
-    uint16_t logserverRocksDBScanThreadNum{0};
     bool useKeyCache{false};
-    bool enableMVCC{false};
+    bool enableMVCC{true};
+    txservice::CcProtocol ccProtocol{txservice::CcProtocol::OccRead};
     bool skipRedoLog{false};
-    bool realtimeSampling{false};
+    bool kickoutDataForTest{false};
+    bool realtimeSampling{true};
     bool enableHeapDefragment{false};
+
+    // txlog
+    std::string txlogRocksDBStoragePath;
+    uint16_t txlogRocksDBScanThreads{1};
+    std::vector<mongo::HostAndPort> txlogServiceAddrs;
 
     // storage
     std::string keyspaceName;
@@ -72,6 +80,40 @@ public:
     bool cassHighCompressionRatio{false};
     std::string cassUser;
     std::string cassPassword;
+
+    // Eloq Data Store Service
+    std::string dataStoreServiceConfigFilePath;
+    std::string dssPeerNode;
+
+    // rocksdb cloud
+    std::string rocksdbCloudStoragePath;
+    std::string awsAccessKeyId;
+    std::string awsSecretKey;
+    std::string rocksdbCloudBucketName;
+    std::string rocksdbCloudBucketPrefix;
+    std::string rocksdbCloudRegion;
+    std::string rocksdbCloudEndpointUrl;
+    std::string rocksdbCloudSstFileCacheSize;
+    int rocksdbCloudSstFileCacheNumShardBits{5};  // default 1 shard
+    std::string rocksdbTargetFileSizeBase;
+    std::string rocksdbSstFilesSizeLimit;
+    uint32_t rocksdbCloudReadyTimeout{0};
+    uint32_t rocksdbCloudFileDeletionDelay{0};
+    uint32_t rocksdbMaxBackgroundJobs{4};
+    uint32_t rocksdbMaxSubCompactions{1};  // no subcompactions
+
+    // metrics
+    bool enableMetrics{false};
+    uint16_t metricsPort{18081};
+    std::string metricsPortString;
+    bool enableMemoryUsage{true};
+    uint32_t collectMemoryUsageRound{10000};
+    bool enableCacheHitRate{true};
+    bool enableTxMetrics{true};
+    uint32_t collectTxDurationRound{100};
+    bool enableBusyRoundMetrics{true};
+    uint32_t busyRoundThreshold{10};
+    bool enableRemoteRequestMetrics{true};
 };
 
 extern EloqGlobalOptions eloqGlobalOptions;

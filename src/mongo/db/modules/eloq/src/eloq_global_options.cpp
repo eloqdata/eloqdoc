@@ -17,6 +17,10 @@
  */
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
+#include <cstdint>
+#include <limits>
+#include <string>
+
 #include "mongo/platform/basic.h"
 
 #include "mongo/base/status.h"
@@ -41,15 +45,19 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
     eloqOptions
         .addOptionChaining("storage.eloq.txService.ipList",
                            "eloqIPList",
-                           moe::StringVector,
+                           moe::String,
                            "IP addresses of the nodes in the cluster")
-        .setDefault(moe::Value(std::vector<std::string>(1, "127.0.0.1:8000")));
+        .setDefault(moe::Value(""));
+    eloqOptions.addOptionChaining("storage.eloq.txService.txlogServiceList",
+                                  "eloqTxlogServiceList",
+                                  moe::StringVector,
+                                  "IP address of the tx log service node");
     eloqOptions
-        .addOptionChaining("storage.eloq.txService.txlogServiceList",
-                           "eloqTxlogServiceList",
-                           moe::StringVector,
-                           "IP address of the tx log service node")
-        .setDefault(moe::Value(std::vector<std::string>()));
+        .addOptionChaining("storage.eloq.txService.forkHostManager",
+                           "eloqForkHostManager",
+                           moe::Bool,
+                           "Fork host manager process")
+        .setDefault(moe::Value(true));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.hmIP",
                            "eloqHMIP",
@@ -57,16 +65,16 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "IP addresses of the host manager")
         .setDefault(moe::Value(""));
     eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.hmPort", "eloqHMPort", moe::Int, "Port of the host manager")
+        .validRange(1, std::numeric_limits<uint16_t>::max());
+    eloqOptions
         .addOptionChaining("storage.eloq.txService.hmBinPath",
                            "eloqHMBinPath",
                            moe::String,
                            "Path to host manager binary path.")
         .setDefault(moe::Value(""));
-    eloqOptions
-        .addOptionChaining(
-            "storage.eloq.txService.coreNum", "eloqCoreNum", moe::Int, "Number of CPU cores")
-        .validRange(1, 1024)
-        .setDefault(moe::Value(1));
+
     eloqOptions
         .addOptionChaining("storage.eloq.txService.rangeSplitWorkerNum",
                            "eloqRangeSplitWorkerNum",
@@ -81,13 +89,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "memory limit per node (MB)")
         .validRange(1, 1000000)
         .setDefault(moe::Value(8000));
-    eloqOptions
-        .addOptionChaining("storage.eloq.txService.nodeLogLimitMB",
-                           "eloqNodeLogLimitMB",
-                           moe::Int,
-                           "log limit per node (MB)")
-        .validRange(1, 1000000)
-        .setDefault(moe::Value(16000));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.checkpointerIntervalSec",
                            "eloqCheckpointerIntervalSec",
@@ -118,7 +119,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .setDefault(moe::Value(300));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.txlogGroupReplicaNum",
-                           "eloq.TxlogGroupReplicaNum",
+                           "eloqTxlogGroupReplicaNum",
                            moe::Int,
                            "Replicate number of tx log group")
         .validRange(1, 10)
@@ -138,10 +139,22 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "Snapshot isolation level")
         .setDefault(moe::Value(true));
     eloqOptions
+        .addOptionChaining("storage.eloq.txService.ccProtocol",
+                           "eloqCcProtocol",
+                           moe::String,
+                           "Concurrency control protocol.(OCC|OccRead|Locking)")
+        .setDefault(moe::Value("OccRead"));
+    eloqOptions
         .addOptionChaining("storage.eloq.txService.skipRedoLog",
                            "eloqSkipRedoLog",
                            moe::Bool,
                            "Skip write redo log in tx_service")
+        .setDefault(moe::Value(false));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.kickoutDataForTest",
+                           "eloqKickoutDataForTest",
+                           moe::Bool,
+                           "Kickout data after checkpoint")
         .setDefault(moe::Value(false));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.realtimeSampling",
@@ -149,7 +162,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::Bool,
                            "Whether enable realtime sampling. If disable it, user may need execute "
                            "analyze command at some time.")
-        .setDefault(moe::Value(false));
+        .setDefault(moe::Value(true));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.enableHeapDefragment",
                            "eloqEnableHeapDefragment",
@@ -168,12 +181,21 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::Int,
                            "Number of bthread worker threads")
         .setDefault(moe::Value(0));
+
+    // txlog
     eloqOptions
-        .addOptionChaining("storage.eloq.txService.logserverRocksDBScanThreadNum",
-                           "eloqLogServerRocksDBScanThreadNum",
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBStoragePath",
+                           "eloqTxlogRocksDBStoragePath",
+                           moe::String,
+                           "The path for tx log service rocksdb storage")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBScanThreadNum",
+                           "eloqTxlogRocksDBScanThreadNum",
                            moe::Int,
                            "Number of rocksdb scan threads")
         .setDefault(moe::Value(1));
+
 
     // Eloq Storage Options
     eloqOptions
@@ -228,12 +250,195 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::String,
                            "Cassandra password")
         .setDefault(moe::Value("cassandra"));
+    // Eloq DataStoreService Options
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.dataStoreServiceConfigFilePath",
+                           "eloqDataStoreServiceConfigFilePath",
+                           moe::String,
+                           "Eloq DataStoreService config file path")
+        .setDefault(moe::Value(""));
+    // add option dssPeerNode
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.dssPeerNode",
+                           "eloqDssPeerNode",
+                           moe::String,
+                           "Eloq DataStoreService peer node endpoint")
+        .setDefault(moe::Value(""));
+    // RocksDB Cloud
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudStoragePath",
+                           "eloqRocksdbCloudStoragePath",
+                           moe::String,
+                           "RocksDB Cloud storage path")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.awsAccessKeyId",
+                           "eloqAwsAccessKeyId",
+                           moe::String,
+                           "AWS SDK access key id")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.awsSecretKey",
+                           "eloqAwsSecretKey",
+                           moe::String,
+                           "AWS SDK secret key")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudBucketName",
+                           "eloqRocksdbCloudBucketName",
+                           moe::String,
+                           "RocksDB cloud bucket name")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudBucketPrefix",
+                           "eloqRocksdbCloudBucketPrefix",
+                           moe::String,
+                           "RocksDB cloud bucket prefix")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudRegion",
+                           "eloqRocksdbCloudRegion",
+                           moe::String,
+                           "RocksDB cloud region")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudEndpointUrl",
+                           "eloqRocksdbCloudEndpointUrl",
+                           moe::String,
+                           "RocksDB Cloud endpoint URL")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudSstFileCacheSize",
+                           "eloqRocksdbCloudSstFileCacheSize",
+                           moe::String,
+                           "RocksDB Cloud SST file cache size")
+        .setDefault(moe::Value("3GB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudSstFileCacheNumShardBits",
+                           "eloqRocksdbCloudSstFileCacheNumShardBits",
+                           moe::Int,
+                           "RocksDB Cloud SST file cache num shard bits")
+        .setDefault(moe::Value(5));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbTargetFileSizeBase",
+                           "eloqRocksdbTargetFileSizeBase",
+                           moe::String,
+                           "RocksDB target file size")
+        .setDefault(moe::Value("64MB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbSstFilesSizeLimit",
+                           "eloqRocksdbSstFilesSizeLimit",
+                           moe::String,
+                           "RocksDB sst files size limit")
+        .setDefault(moe::Value("500MB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudReadyTimeout",
+                           "eloqRocksdbCloudReadyTimeout",
+                           moe::Int,
+                           "RocksDB Cloud becomes ready timeout(seconds)")
+        .validRange(1, 120)
+        .setDefault(moe::Value(10));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbCloudFileDeletionDelay",
+                           "eloqRocksdbCloudFileDeletionDelay",
+                           moe::Int,
+                           "RocksDB Cloud file deletion delay")
+        .validRange(1, 3600)
+        .setDefault(moe::Value(60));
+
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbMaxBackgroundJobs",
+                           "eloqrocksdbMaxBackgroundJobs",
+                           moe::Int,
+                           "RocksDB Cloud Max Background Jobs")
+        .validRange(1, 1024)
+        .setDefault(moe::Value(4));
+
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbMaxSubCompactions",
+                           "eloqrocksdbMaxSubCompactions",
+                           moe::Int,
+                           "RocksDB Cloud Max SubCompactions")
+        .validRange(1, 1024)
+        .setDefault(moe::Value(1));
+
+
+    // Options for metrics
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableMetrics",
+                           "eloqEnableMetrics",
+                           moe::Bool,
+                           "Enable metrics collection. When this option is set to false, all other "
+                           "fine-grained control options for metrics will be disabled.")
+        .setDefault(moe::Value(false));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.metricsPort",
+                           "eloqMetricsPort",
+                           moe::Int,
+                           "Port for metrics collection")
+        .validRange(1, UINT16_MAX)
+        .setDefault(moe::Value(18081));
+
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableMemoryUsage",
+                           "eloqEnableMemoryUsage",
+                           moe::Bool,
+                           "Enable memory usage metrics.")
+        .setDefault(moe::Value(true));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.collectMemoryUsageRound",
+                           "eloqCollectMemoryUsageRound",
+                           moe::Int,
+                           "Rounds interval for memory usage collection")
+        .validRange(1, std::numeric_limits<int32_t>::max())
+        .setDefault(moe::Value(10000));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableCacheHitRate",
+                           "eloqEnableCacheHitRate",
+                           moe::Bool,
+                           "Enable cache hit rate metrics.")
+        .setDefault(moe::Value(true));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableTxMetrics",
+                           "eloqEnableTxMetrics",
+                           moe::Bool,
+                           "Enable transaction service metrics.")
+        .setDefault(moe::Value(true));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.collectTxDurationRound",
+                           "eloqCollectTxDurationRound",
+                           moe::Int,
+                           "Round interval for transaction duration collection")
+        .validRange(1, std::numeric_limits<int32_t>::max())
+        .setDefault(moe::Value(100));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableBusyRoundMetrics",
+                           "eloqEnableBusyRoundMetrics",
+                           moe::Bool,
+                           "Enable busy round metrics when reaching the busy round threshold")
+        .setDefault(moe::Value(true));
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.busyRoundThreshold",
+                           "eloqBusyRoundThreshold",
+                           moe::Int,
+                           "Threshold for busy round metrics collection")
+        .validRange(1, std::numeric_limits<int32_t>::max())
+        .setDefault(moe::Value(10));
+
+
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableRemoteRequestMetrics",
+                           "eloqEnableRemoteRequestMetrics",
+                           moe::Bool,
+                           "Enable remote request metrics.")
+        .setDefault(moe::Value(true));
 
     return options->addSection(eloqOptions);
 }
 
 Status EloqGlobalOptions::store(const moe::Environment& params,
                                 const std::vector<std::string>& args) {
+
     // Eloq TxService Options
     if (params.count("storage.eloq.txService.localIP")) {
         auto localIP = params["storage.eloq.txService.localIP"].as<std::string>();
@@ -249,19 +454,10 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         }
     }
     if (params.count("storage.eloq.txService.ipList")) {
-        auto ipList = params["storage.eloq.txService.ipList"].as<std::vector<std::string>>();
-        for (std::string& ip : ipList) {
-            if (ip.find_first_of(':') == std::string::npos) {
-                ip.append(":8000");
-            }
-            auto hostAndPort = mongo::HostAndPort::parse(ip);
-            if (hostAndPort.isOK()) {
-                invariant(hostAndPort.getValue().hasPort());
-                eloqGlobalOptions.nodeGroupAddrs.push_back(std::move(hostAndPort.getValue()));
-            } else {
-                return hostAndPort.getStatus();
-            }
-        }
+        ipList = params["storage.eloq.txService.ipList"].as<std::string>();
+    }
+    if (ipList.empty()) {
+        ipList = eloqGlobalOptions.localAddr.toString();
     }
     if (params.count("storage.eloq.txService.txlogServiceList")) {
         auto txlogServiceList =
@@ -281,28 +477,27 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
             }
         }
     }
-#ifdef FORK_HM_PROCESS
-    if (params.count("storage.eloq.txService.hmIP")) {
-        auto hmIP = params["storage.eloq.txService.hmIP"].as<std::string>();
 
-        auto hmAddr = [&hmIP]() -> StatusWith<mongo::HostAndPort> {
-            if (hmIP.find_first_of(':') != std::string::npos) {
-                return mongo::HostAndPort::parse(hmIP);
-            } else {
-                return mongo::HostAndPort(eloqGlobalOptions.localAddr.host(),
-                                          eloqGlobalOptions.localAddr.port() + 4);
-            }
-        }();
-
-        if (hmAddr.isOK()) {
-            invariant(hmAddr.getValue().hasPort());
-            eloqGlobalOptions.hostManagerAddr = std::move(hmAddr.getValue());
-        } else {
-            return hmAddr.getStatus();
-        }
+    if (params.count("storage.eloq.txService.forkHostManager")) {
+        eloqGlobalOptions.forkHostManager =
+            params["storage.eloq.txService.forkHostManager"].as<bool>();
+    } else {
+        eloqGlobalOptions.forkHostManager = true;
     }
-    if (params.count("storage.eloq.txService.hmBinPath")) {
+    log() << "Fork host manager: " << eloqGlobalOptions.forkHostManager;
+    if (params.count("storage.eloq.txService.hmIP") &&
+        params.count("storage.eloq.txService.hmPort")) {
+        auto hmIP = params["storage.eloq.txService.hmIP"].as<std::string>();
+        auto hmPort = params["storage.eloq.txService.hmPort"].as<int>();
 
+        if (hmIP.empty()) {
+            return Status{ErrorCodes::InvalidOptions, "Host manager IP cannot be empty"};
+        }
+
+        eloqGlobalOptions.hostManagerAddr = mongo::HostAndPort(hmIP, hmPort);
+    }
+    log() << "Host manager address: " << eloqGlobalOptions.hostManagerAddr.toString();
+    if (params.count("storage.eloq.txService.hmBinPath")) {
         auto hmBinPath = params["storage.eloq.txService.hmBinPath"].as<std::string>();
         if (hmBinPath.empty()) {
             char pathBuf[PATH_MAX];
@@ -312,13 +507,9 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
             hmBinPath = std::string(pathBuf, len);
             hmBinPath.append("/host_manager");
         }
-
         eloqGlobalOptions.hostManagerBinPath = std::move(hmBinPath);
     }
-#endif
-    if (params.count("storage.eloq.txService.coreNum")) {
-        eloqGlobalOptions.coreNum = params["storage.eloq.txService.coreNum"].as<int>();
-    }
+    log() << "Host manager binary path: " << eloqGlobalOptions.hostManagerBinPath;
     if (params.count("storage.eloq.txService.rangeSplitWorkerNum")) {
         eloqGlobalOptions.rangeSplitWorkerNum =
             params["storage.eloq.txService.rangeSplitWorkerNum"].as<int>();
@@ -326,10 +517,6 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.nodeMemoryLimitMB")) {
         eloqGlobalOptions.nodeMemoryLimitMB =
             params["storage.eloq.txService.nodeMemoryLimitMB"].as<int>();
-    }
-    if (params.count("storage.eloq.txService.nodeLogLimitMB")) {
-        eloqGlobalOptions.nodeLogLimitMB =
-            params["storage.eloq.txService.nodeLogLimitMB"].as<int>();
     }
     if (params.count("storage.eloq.txService.checkpointerIntervalSec")) {
         eloqGlobalOptions.checkpointerIntervalSec =
@@ -351,14 +538,35 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.txlogGroupReplicaNum =
             params["storage.eloq.txService.txlogGroupReplicaNum"].as<int>();
     }
+    if (params.count("storage.eloq.txService.txlogRocksDBScanThreadNum")) {
+        eloqGlobalOptions.txlogRocksDBScanThreads =
+            params["storage.eloq.txService.txlogRocksDBScanThreadNum"].as<int>();
+    }
     if (params.count("storage.eloq.txService.useKeyCache")) {
         eloqGlobalOptions.useKeyCache = params["storage.eloq.txService.useKeyCache"].as<bool>();
     }
     if (params.count("storage.eloq.txService.enableMVCC")) {
         eloqGlobalOptions.enableMVCC = params["storage.eloq.txService.enableMVCC"].as<bool>();
     }
+    if (params.count("storage.eloq.txService.ccProtocol")) {
+        const std::string& s = params["storage.eloq.txService.ccProtocol"].as<std::string>();
+        if (s == "OCC") {
+            ccProtocol = txservice::CcProtocol::OCC;
+        } else if (s == "OccRead") {
+            ccProtocol = txservice::CcProtocol::OccRead;
+        } else if (s == "Locking") {
+            ccProtocol = txservice::CcProtocol::Locking;
+        } else {
+            return Status{ErrorCodes::InvalidOptions,
+                          str::stream() << s << " is not a valid CcProtocol"};
+        }
+    }
     if (params.count("storage.eloq.txService.skipRedoLog")) {
         eloqGlobalOptions.skipRedoLog = params["storage.eloq.txService.skipRedoLog"].as<bool>();
+    }
+    if (params.count("storage.eloq.txService.kickoutDataForTest")) {
+        eloqGlobalOptions.kickoutDataForTest =
+            params["storage.eloq.txService.kickoutDataForTest"].as<bool>();
     }
     if (params.count("storage.eloq.txService.realtimeSampling")) {
         eloqGlobalOptions.realtimeSampling =
@@ -376,12 +584,19 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.bthreadWorkerNum =
             params["storage.eloq.txService.bthreadWorkerNum"].as<int>();
     }
-    if (params.count("storage.eloq.txService.logserverRocksDBScanThreadNum")) {
-        eloqGlobalOptions.logserverRocksDBScanThreadNum =
-            params["storage.eloq.txService.logserverRocksDBScanThreadNum"].as<int>();
+
+    // txlog
+    if (params.count("storage.eloq.txService.txlogRocksDBStoragePath")) {
+        eloqGlobalOptions.txlogRocksDBStoragePath =
+            params["storage.eloq.txService.txlogRocksDBStoragePath"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBScanThreadNum")) {
+        eloqGlobalOptions.txlogRocksDBScanThreads =
+            params["storage.eloq.txService.txlogRocksDBScanThreadNum"].as<int>();
     }
 
     // Eloq Storage Options
+
     if (params.count("storage.eloq.storage.keyspaceName")) {
         eloqGlobalOptions.keyspaceName =
             params["storage.eloq.storage.keyspaceName"].as<std::string>();
@@ -416,16 +631,132 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
             params["storage.eloq.storage.cassPassword"].as<std::string>();
     }
 
-    return Status::OK();
-}
+    // Eloq DataStoreService Options
 
-std::vector<mongo::HostAndPort> EloqGlobalOptions::NodeGroupAddrs() const {
-    std::vector<mongo::HostAndPort> addrs;
-    addrs.reserve(nodeGroupAddrs.size());
-    for (const mongo::HostAndPort& addr : nodeGroupAddrs) {
-        addrs.push_back(addr);
+    if (params.count("storage.eloq.storage.dataStoreServiceConfigFilePath")) {
+        eloqGlobalOptions.dataStoreServiceConfigFilePath =
+            params["storage.eloq.storage.dataStoreServiceConfigFilePath"].as<std::string>();
     }
-    return addrs;
+    if (params.count("storage.eloq.storage.dssPeerNode")) {
+        eloqGlobalOptions.dssPeerNode =
+            params["storage.eloq.storage.dssPeerNode"].as<std::string>();
+    }
+
+    // RocksDB Cloud Options Parse
+    if (params.count("storage.eloq.storage.rocksdbCloudStoragePath")) {
+        eloqGlobalOptions.rocksdbCloudStoragePath =
+            params["storage.eloq.storage.rocksdbCloudStoragePath"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.awsAccessKeyId")) {
+        eloqGlobalOptions.awsAccessKeyId =
+            params["storage.eloq.storage.awsAccessKeyId"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.awsSecretKey")) {
+        eloqGlobalOptions.awsSecretKey =
+            params["storage.eloq.storage.awsSecretKey"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudBucketName")) {
+        eloqGlobalOptions.rocksdbCloudBucketName =
+            params["storage.eloq.storage.rocksdbCloudBucketName"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudBucketPrefix")) {
+        eloqGlobalOptions.rocksdbCloudBucketPrefix =
+            params["storage.eloq.storage.rocksdbCloudBucketPrefix"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudRegion")) {
+        eloqGlobalOptions.rocksdbCloudRegion =
+            params["storage.eloq.storage.rocksdbCloudRegion"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudEndpointUrl")) {
+        eloqGlobalOptions.rocksdbCloudEndpointUrl =
+            params["storage.eloq.storage.rocksdbCloudEndpointUrl"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudSstFileCacheSize")) {
+        eloqGlobalOptions.rocksdbCloudSstFileCacheSize =
+            params["storage.eloq.storage.rocksdbCloudSstFileCacheSize"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudSstFileCacheNumShardBits")) {
+        eloqGlobalOptions.rocksdbCloudSstFileCacheNumShardBits =
+            params["storage.eloq.storage.rocksdbCloudSstFileCacheNumShardBits"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbTargetFileSizeBase")) {
+        eloqGlobalOptions.rocksdbTargetFileSizeBase =
+            params["storage.eloq.storage.rocksdbTargetFileSizeBase"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbSstFilesSizeLimit")) {
+        eloqGlobalOptions.rocksdbSstFilesSizeLimit =
+            params["storage.eloq.storage.rocksdbSstFilesSizeLimit"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudReadyTimeout")) {
+        eloqGlobalOptions.rocksdbCloudReadyTimeout =
+            params["storage.eloq.storage.rocksdbCloudReadyTimeout"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbCloudFileDeletionDelay")) {
+        eloqGlobalOptions.rocksdbCloudFileDeletionDelay =
+            params["storage.eloq.storage.rocksdbCloudFileDeletionDelay"].as<int>();
+    }
+
+    if (params.count("storage.eloq.storage.rocksdbMaxBackgroundJobs")) {
+        eloqGlobalOptions.rocksdbMaxBackgroundJobs =
+            params["storage.eloq.storage.rocksdbMaxBackgroundJobs"].as<int>();
+    }
+
+    if (params.count("storage.eloq.storage.rocksdbMaxSubCompactions")) {
+        eloqGlobalOptions.rocksdbMaxSubCompactions =
+            params["storage.eloq.storage.rocksdbMaxSubCompactions"].as<int>();
+    }
+
+
+    // Parse metrics options
+
+    if (params.count("storage.eloq.metrics.enableMetrics")) {
+        enableMetrics = params["storage.eloq.metrics.enableMetrics"].as<bool>();
+    }
+
+    if (params.count("storage.eloq.metrics.metricsPort")) {
+        metricsPort = static_cast<uint16_t>(params["storage.eloq.metrics.metricsPort"].as<int>());
+        metricsPortString = std::to_string(metricsPort);
+    }
+
+    if (params.count("storage.eloq.metrics.enableMemoryUsage")) {
+        enableMemoryUsage =
+            enableMetrics && params["storage.eloq.metrics.enableMemoryUsage"].as<bool>();
+    }
+
+    if (params.count("storage.eloq.metrics.collectMemoryUsageRound")) {
+        collectMemoryUsageRound = params["storage.eloq.metrics.collectMemoryUsageRound"].as<int>();
+    }
+
+    if (params.count("storage.eloq.metrics.enableCacheHitRate")) {
+        enableCacheHitRate =
+            enableMetrics && params["storage.eloq.metrics.enableCacheHitRate"].as<bool>();
+    }
+
+    if (params.count("storage.eloq.metrics.enableTxMetrics")) {
+        enableTxMetrics =
+            enableMetrics && params["storage.eloq.metrics.enableTxMetrics"].as<bool>();
+    }
+
+    if (params.count("storage.eloq.metrics.collectTxDurationRound")) {
+        collectTxDurationRound = params["storage.eloq.metrics.collectTxDurationRound"].as<int>();
+    }
+
+    if (params.count("storage.eloq.metrics.enableBusyRoundMetrics")) {
+        enableBusyRoundMetrics =
+            enableMetrics && params["storage.eloq.metrics.enableBusyRoundMetrics"].as<bool>();
+    }
+
+    if (params.count("storage.eloq.metrics.busyRoundThreshold")) {
+        busyRoundThreshold = params["storage.eloq.metrics.busyRoundThreshold"].as<int>();
+    }
+
+    if (params.count("storage.eloq.metrics.enableRemoteRequestMetrics")) {
+        enableRemoteRequestMetrics =
+            enableMetrics && params["storage.eloq.metrics.enableRemoteRequestMetrics"].as<bool>();
+    }
+
+
+    return Status::OK();
 }
 
 std::vector<std::string> EloqGlobalOptions::TxlogIPs() const {

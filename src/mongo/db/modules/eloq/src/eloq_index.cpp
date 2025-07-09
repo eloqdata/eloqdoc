@@ -65,7 +65,7 @@ public:
           _query{_idx->keyStringVersion()},
           _kvPair{&_ru->getKVPair()} {
         // _timer.start();
-        MONGO_LOG(1) << "EloqIndexCursor::EloqIndexCursor";
+        MONGO_LOG(1) << "EloqIndexCursor::EloqIndexCursor " << _indexName->StringView();
     }
 
     ~EloqIndexCursor() override {
@@ -108,7 +108,7 @@ public:
     }
 
     void setEndPosition(const BSONObj& key, bool inclusive) override {
-        MONGO_LOG(1) << "EloqIndexCursor::setEndPosition"
+        MONGO_LOG(1) << "EloqIndexCursor::setEndPosition " << _indexName->StringView()
                      << ". endKey: " << key << ". inclusive: " << inclusive;
         if (key.isEmpty()) {
             // This means scan to end of index.
@@ -128,8 +128,8 @@ public:
     boost::optional<IndexKeyEntry> seek(const BSONObj& key,
                                         bool inclusive,
                                         RequestedInfo parts = kKeyAndLoc) override {
-        MONGO_LOG(1) << "EloqIndexCursor::seek"
-                     << ". key: " << key << ". inclusive: " << inclusive;
+        MONGO_LOG(1) << "EloqIndexCursor::seek " << _indexName->StringView() << ". key: " << key
+                     << ". inclusive: " << inclusive;
         // dassert(_opCtx->lockState()->isReadLocked());
 
         // if ((!_endPosition) && (inclusive) && (_indexType == IndexCursorType::ID)) {
@@ -150,7 +150,7 @@ public:
 
     boost::optional<IndexKeyEntry> seek(const IndexSeekPoint& seekPoint,
                                         RequestedInfo parts = kKeyAndLoc) override {
-        MONGO_LOG(1) << "EloqIndexCursor::seek. with seekPoint";
+        MONGO_LOG(1) << "EloqIndexCursor::seek with seekPoint. " << _indexName->StringView();
 
         // dassert(_opCtx->lockState()->isReadLocked());
         // TODO(starrysky): don't go to a bson obj then to a KeyString, go straight
@@ -171,13 +171,13 @@ public:
     boost::optional<IndexKeyEntry> seekExact(const BSONObj& key,
                                              RequestedInfo parts = kKeyAndLoc) override {
 
-        MONGO_LOG(1) << "EloqIndexCursor::seekExact"
+        MONGO_LOG(1) << "EloqIndexCursor::seekExact " << _indexName->StringView()
                      << ". key: " << key;
         return _idRead(key, parts);
     }
 
     boost::optional<IndexKeyEntry> next(RequestedInfo parts = kKeyAndLoc) override {
-        MONGO_LOG(1) << "EloqIndexCursor::next";
+        MONGO_LOG(1) << "EloqIndexCursor::next " << _indexName->StringView();
         if (_eof) {
             return {};
         }
@@ -186,18 +186,18 @@ public:
     }
 
     void save() override {
-        MONGO_LOG(1) << "EloqIndexCursor::save";
+        MONGO_LOG(1) << "EloqIndexCursor::save " << _indexName->StringView();
         _cursor.reset();
     }
 
     void saveUnpositioned() override {
-        MONGO_LOG(1) << "EloqIndexCursor::saveUnpositioned";
+        MONGO_LOG(1) << "EloqIndexCursor::saveUnpositioned " << _indexName->StringView();
 
         _cursor.reset();
     }
 
     void restore() override {
-        MONGO_LOG(1) << "EloqIndexCursor::restore";
+        MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView();
         if (_eof) {
             return;
         }
@@ -224,7 +224,7 @@ public:
 private:
     butil::Timer _timer;
     boost::optional<IndexKeyEntry> _idRead(const BSONObj& key, RequestedInfo parts) {
-        MONGO_LOG(1) << "EloqIndexCursor::_idRead"
+        MONGO_LOG(1) << "EloqIndexCursor::_idRead " << _indexName->StringView()
                      << ". key: " << key.jsonString();
 
         _eof = false;
@@ -235,14 +235,11 @@ private:
         _key.resetToKey(finalKey, _idx->ordering());
         _kvPair->keyRef().SetPackedKey(_key.getBuffer(), _key.getSize());
         std::string_view sv{_key.getBuffer(), _key.getSize()};
-        auto [success, err] = _ru->getKVInternal(_opCtx, _indexName, _indexSchema->SchemaTs());
-        // if (sv.find("user") == sv.npos) {
-        //     success = _ru->getKVInternal(_opCtx, _indexName, _indexSchema->SchemaTs());
-        // } else {
-        //     success = false;
-        // }
-
-        if (success) {
+        bool isForWrite = _opCtx->isUpsert();
+        auto [exists, err] =
+            _ru->getKVInternal(_opCtx, *_indexName, _indexSchema->SchemaTs(), isForWrite);
+        uassertStatusOK(TxErrorCodeToMongoStatus(err));
+        if (exists) {
             // valid
             _id = RecordId{_key.getBuffer(), _key.getSize()};
             _typeBits.reset();
@@ -256,7 +253,7 @@ private:
 
     // Seeks to query. Returns true on exact match.
     bool _seekCursor(const KeyString& query, bool startInclusive) {
-        MONGO_LOG(1) << "EloqIndexCursor::_seekCursor";
+        MONGO_LOG(1) << "EloqIndexCursor::_seekCursor " << _indexName->StringView();
 
         _cursor.emplace(_opCtx);
 
@@ -277,6 +274,7 @@ private:
             }
         }
 
+        bool isForWrite = _opCtx->isUpsert();
         // end_inclusive semantics has been handled by _endPosition
         _cursor->indexScanOpen(_indexName,
                                _indexSchema->SchemaTs(),
@@ -285,21 +283,25 @@ private:
                                startInclusive,
                                &_endKey,
                                false,
-                               direction);
+                               direction,
+                               isForWrite);
 
         return true;
     }
 
     void _updatePosition(bool inNext = true) {
-        MONGO_LOG(1) << "EloqIndexCursor::_updatePosition"
+        MONGO_LOG(1) << "EloqIndexCursor::_updatePosition " << _indexName->StringView()
                      << ". inNext" << inNext;
         _eof = false;
 
         if (inNext) {
             _scanTupleKey = nullptr;
             _scanTupleRecord = nullptr;
-            // _cursor->nextBatchTuple();
-            const txservice::ScanBatchTuple* scanTuple = _cursor->nextBatchTuple();
+
+            txservice::TxErrorCode err = _cursor->nextBatchTuple();
+            uassertStatusOK(TxErrorCodeToMongoStatus(err));
+
+            const txservice::ScanBatchTuple* scanTuple = _cursor->currentBatchTuple();
             if (scanTuple != nullptr) {
                 _scanTupleKey = scanTuple->key_.GetKey<Eloq::MongoKey>();
                 _scanTupleRecord = static_cast<const Eloq::MongoRecord*>(scanTuple->record_);
@@ -322,7 +324,7 @@ private:
     }
 
     void _updateIdAndTypeBits() {
-        MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits";
+        MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits " << _indexName->StringView();
 
         switch (_indexType) {
             case IndexCursorType::ID: {
@@ -350,12 +352,12 @@ private:
             } break;
         };
 
-        MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits"
+        MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits " << _indexName->StringView()
                      << ". _id: " << _id.toString();
     }
 
     boost::optional<IndexKeyEntry> _curr(RequestedInfo parts) const {
-        MONGO_LOG(1) << "EloqIndexCursor::_curr";
+        MONGO_LOG(1) << "EloqIndexCursor::_curr " << _indexName->StringView();
         if (_eof) {
             return {};
         }
@@ -371,7 +373,8 @@ private:
     }
 
     bool _atOrPastEndPointAfterSeeking() const {
-        MONGO_LOG(1) << "EloqIndexCursor::_atOrPastEndPointAfterSeeking";
+        MONGO_LOG(1) << "EloqIndexCursor::_atOrPastEndPointAfterSeeking "
+                     << _indexName->StringView();
         if (_eof) {
             return true;
         }
@@ -404,7 +407,6 @@ private:
     IndexCursorType _indexType;
     txservice::ScanIndexType _scanType;
     bool _forward;
-    boost::optional<EloqCursor> _cursor;
 
     // query related
     KeyString _key;
@@ -423,6 +425,8 @@ private:
 
     Eloq::MongoKey _currentKey;
     Eloq::MongoRecord _currentRecord;
+
+    boost::optional<EloqCursor> _cursor;
 };
 
 class EloqIndex::BulkBuilder : public SortedDataBuilderInterface {
@@ -512,7 +516,7 @@ EloqIndex::EloqIndex(OperationContext* ctx,
 }
 
 EloqIndex::~EloqIndex() {
-    MONGO_LOG(1) << "EloqIndex::~EloqIndex";
+    MONGO_LOG(1) << "EloqIndex::~EloqIndex " << _indexName.StringView();
 }
 
 Status EloqIndex::dupKeyCheck(OperationContext* opCtx, const BSONObj& key, const RecordId& id) {
@@ -584,7 +588,7 @@ Status EloqIdIndex::insert(OperationContext* opCtx,
     MONGO_LOG(1) << "EloqIdIndex::insert"
                  << ". key:" << key << ". id:" << id;
     assert(!dupsAllowed);
-    Status s = checkKeySize(key, "id index");
+    Status s = checkKeySize(key, _indexName.StringView());
     if (!s.isOK()) {
         return s;
     }
@@ -632,9 +636,9 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
                                const BSONObj& key,
                                const RecordId& id,
                                bool dupsAllowed) {
-    MONGO_LOG(1) << "EloqUniqueIndex::";
+    MONGO_LOG(1) << "EloqUniqueIndex::insert";
     assert(!dupsAllowed);
-    Status s = checkKeySize(key, "unique index");
+    Status s = checkKeySize(key, _indexName.StringView());
     if (!s.isOK()) {
         return s;
     }
@@ -649,22 +653,26 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
     auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
     uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
 
-    auto [success, err] =
-        ru->getKV(opCtx, &_indexName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
-    if (success) {
-        return {ErrorCodes::Error::DuplicateKey, "Duplicate Key: " + key.toString()};
+    auto [exists, err] =
+        ru->getKV(opCtx, _indexName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
+    if (err != txservice::TxErrorCode::NO_ERROR) {
+        return TxErrorCodeToMongoStatus(err);
+    }
+
+    if (exists) {
+        return {ErrorCodes::Error::DuplicateKey, "Duplicate Key: " + _indexName.String()};
     }
 
     mongoRecord->SetEncodedBlob(valueItem);
     if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
         mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
     }
-    std::tie(success, err) = ru->setKV(&_indexName,
-                                       keySchemaVersion,
-                                       std::move(mongoKey),
-                                       std::move(mongoRecord),
-                                       txservice::OperationType::Insert,
-                                       true);
+    err = ru->setKV(_indexName,
+                    keySchemaVersion,
+                    std::move(mongoKey),
+                    std::move(mongoRecord),
+                    txservice::OperationType::Insert,
+                    true);
 
     return TxErrorCodeToMongoStatus(err);
 }
@@ -673,23 +681,43 @@ void EloqUniqueIndex::unindex(OperationContext* opCtx,
                               const BSONObj& key,
                               const RecordId& id,
                               bool dupsAllowed) {
-    MONGO_LOG(1) << "EloqUniqueIndex::_unindex";
+    MONGO_LOG(1) << "EloqUniqueIndex::unindex";
     assert(!dupsAllowed);
 
     auto ru = EloqRecoveryUnit::get(opCtx);
 
-    // key as MongoKey
+    const Eloq::MongoKeySchema* keySchema = ru->getIndexSchema(_tableName, _indexName);
+    uint64_t keySchemaVersion = keySchema->SchemaTs();
+
+    // key as MongoKey. Unlike WiredTiger, whose unique key encodes(key, id), Eloq puts id in
+    // MongoRecord.
     KeyString keyString{keyStringVersion(), key, _ordering};
-
     auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-    auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
 
-    auto [success, err] = ru->setKV(&_indexName,
-                                    keySchemaVersion,
-                                    std::move(mongoKey),
-                                    std::move(mongoRecord),
-                                    txservice::OperationType::Delete);
+    if (keySchema->IndexDescriptor()->isPartial()) {
+        Eloq::MongoRecord mongoRecord;
+        auto [exists, err] =
+            ru->getKV(opCtx, _indexName, keySchemaVersion, mongoKey.get(), &mongoRecord, true);
+        if (err != txservice::TxErrorCode::NO_ERROR) {
+            uassertStatusOK(TxErrorCodeToMongoStatus(err));
+        }
+        if (exists) {
+            std::string_view encodedBlob(mongoRecord.EncodedBlobData(),
+                                         mongoRecord.EncodedBlobSize());
+            if (encodedBlob != id.getStringView()) {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+
+    txservice::TxErrorCode err = ru->setKV(_indexName,
+                                           keySchemaVersion,
+                                           std::move(mongoKey),
+                                           nullptr,
+                                           txservice::OperationType::Delete);
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
 }
 
 std::unique_ptr<SortedDataInterface::Cursor> EloqStandardIndex::newCursor(OperationContext* opCtx,
@@ -721,7 +749,7 @@ Status EloqStandardIndex::insert(OperationContext* opCtx,
     MONGO_LOG(1) << "EloqStandardIndex::insert"
                  << ". key: " << key << ". RecordId: " << id;
     assert(dupsAllowed);
-    Status s = checkKeySize(key, "standard index");
+    Status s = checkKeySize(key, _indexName.StringView());
     if (!s.isOK()) {
         return s;
     }
@@ -737,11 +765,11 @@ Status EloqStandardIndex::insert(OperationContext* opCtx,
     }
     uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
 
-    auto [success, err] = ru->setKV(&_indexName,
-                                    keySchemaVersion,
-                                    std::move(mongoKey),
-                                    std::move(mongoRecord),
-                                    txservice::OperationType::Insert);
+    txservice::TxErrorCode err = ru->setKV(_indexName,
+                                           keySchemaVersion,
+                                           std::move(mongoKey),
+                                           std::move(mongoRecord),
+                                           txservice::OperationType::Insert);
     return TxErrorCodeToMongoStatus(err);
 }
 
@@ -756,14 +784,14 @@ void EloqStandardIndex::unindex(OperationContext* opCtx,
     KeyString keyString{keyStringVersion(), key, _ordering, id};
 
     auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-    auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
     uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
 
-    auto [success, err] = ru->setKV(&_indexName,
-                                    keySchemaVersion,
-                                    std::move(mongoKey),
-                                    std::move(mongoRecord),
-                                    txservice::OperationType::Delete);
+    txservice::TxErrorCode err = ru->setKV(_indexName,
+                                           keySchemaVersion,
+                                           std::move(mongoKey),
+                                           nullptr,
+                                           txservice::OperationType::Delete);
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
 }
 
 }  // namespace mongo

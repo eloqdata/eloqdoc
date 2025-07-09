@@ -15,15 +15,26 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
+
+
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
 #include <cassert>
+#include <chrono>
+#include <thread>
 #include <utility>
 
 #include "boost/optional/optional.hpp"
+
+#include "mongo/base/error_codes.h"
+#include "mongo/base/status.h"
 #include "mongo/bson/bsonobj.h"
+#include "mongo/bson/simple_bsonobj_comparator.h"
+#include "mongo/db/index/multikey_paths.h"
+#include "mongo/db/query/get_executor.h"
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
+#include "mongo/util/assert_util.h"
 #include "mongo/util/log.h"
 
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
@@ -31,7 +42,7 @@
 #include "mongo/db/modules/eloq/src/base/eloq_util.h"
 #include "mongo/db/modules/eloq/src/eloq_record_store.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
-#include "mongo/db/modules/eloq/src/store_handler/kv_store.h"
+#include "mongo/db/modules/eloq/store_handler/kv_store.h"
 
 #include "mongo/db/modules/eloq/tx_service/include/catalog_key_record.h"
 #include "mongo/db/modules/eloq/tx_service/include/tx_key.h"
@@ -43,7 +54,8 @@
 
 namespace recorder {
 bvar::LatencyRecorder kCatalogReadLatency{"mongo_catalog_read"};
-}
+bvar::LatencyRecorder bVarUpdateRecord("update_record");
+}  // namespace recorder
 
 namespace Eloq {
 extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
@@ -59,7 +71,8 @@ public:
         : _ru{EloqRecoveryUnit::get(opCtx)} {
         MONGO_LOG(1) << "EloqCatalogRecordStoreCursor::EloqCatalogRecordStoreCursor";
         // always do full table scan
-        Eloq::storeHandler->DiscoverAllTableNames(_tableNameVector);
+        // Eloq::storeHandler->DiscoverAllTableNames(_tableNameVector);
+        Eloq::GetAllTables(_tableNameVector);
         std::string output;
         for (const auto& name : _tableNameVector) {
             output.append(name).append("|");
@@ -82,12 +95,15 @@ public:
         // Traverse the _tableNamevector until find a exist table and then return the metadata
         while (_iter != _tableNameVector.end()) {
             RecordId id{*_iter};
-            txservice::TableName tableName{std::move(*_iter), txservice::TableType::Primary};
+            txservice::TableName tableName{
+                std::move(*_iter), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
             ++_iter;
 
             txservice::CatalogKey catalogKey{tableName};
             txservice::CatalogRecord catalogRecord;
             auto [exists, errorCode] = _ru->readCatalog(catalogKey, catalogRecord, false);
+            uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
+
             if (!exists) {
                 continue;
             }
@@ -165,18 +181,32 @@ bool EloqCatalogRecordStore::findRecord(OperationContext* opCtx,
     MONGO_LOG(1) << "EloqCatalogRecordStore::findRecord"
                  << ". id: " << id.toString();
 
-    txservice::TableName tableName{id.getStringView(), txservice::TableType::Primary};
+    txservice::TableName tableName{
+        id.getStringView(), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
     MONGO_LOG(1) << "tableName: " << tableName.StringView();
 
     auto ru = EloqRecoveryUnit::get(opCtx);
-    const Eloq::MongoTableSchema* tableSchema = ru->getTableSchema(tableName);
-    if (tableSchema == nullptr) {
+    const auto [table, err] = ru->discoverTable(tableName);
+    if (err != txservice::TxErrorCode::NO_ERROR) {
+        uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    }
+
+    if (table == nullptr) {
         return false;
     }
 
-    const std::string& metadata = tableSchema->MetaData();
+    if (MONGO_unlikely(!ru->unreadyIsEmpty())) {
+        auto bsonObj = ru->getUnreadyTable(tableName);
+        if (!bsonObj.isEmpty()) {
+            MONGO_LOG(1) << "Fetch metadata from unready table cache.";
+            *out = RecordData{bsonObj.objdata(), static_cast<int>(bsonObj.objsize())};
+            return true;
+        }
+    }
 
-    MONGO_LOG(1) << "id: " << id.toString() << " record: " << BSONObj(metadata.data()).jsonString();
+    auto tableSchema = static_cast<const Eloq::MongoTableSchema*>(table->_schema.get());
+
+    const std::string& metadata = tableSchema->MetaDataStr();
     *out = RecordData{metadata.data(), static_cast<int>(metadata.size())};
     return true;
 }
@@ -185,7 +215,8 @@ void EloqCatalogRecordStore::deleteRecord(OperationContext* opCtx, const RecordI
     MONGO_LOG(1) << "EloqCatalogRecordStore::deleteRecord"
                  << ". id: " << id;
 
-    txservice::TableName tableName{id.getStringView(), txservice::TableType::Primary};
+    txservice::TableName tableName{
+        id.getStringView(), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
     MONGO_LOG(1) << "tableName: " << tableName.StringView();
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
@@ -203,7 +234,7 @@ void EloqCatalogRecordStore::deleteRecord(OperationContext* opCtx, const RecordI
 
             auto status = ru->dropTable(tableName, catalogRecord);
             if (status.isOK()) {
-                ru->deleteTableSchema(tableName);
+                ru->deleteDiscoveredTable(tableName);
                 return;
             }
         }
@@ -224,6 +255,7 @@ StatusWith<RecordId> EloqCatalogRecordStore::insertRecord(
     OperationContext* opCtx, const char* data, int len, Timestamp timestamp, bool enforceQuota) {
     MONGO_LOG(1) << "EloqCatalogRecordStore::insertRecord. Insert into txservice catalog_cc_map";
 
+    auto ru = EloqRecoveryUnit::get(opCtx);
     RecordId recordId;
     BSONObj obj{data};
     if (auto nsElem = obj["ns"]; nsElem.ok() && !nsElem.isNull()) {
@@ -234,12 +266,23 @@ StatusWith<RecordId> EloqCatalogRecordStore::insertRecord(
     }
     MONGO_LOG(1) << "record id: " << recordId.toString() << ". data: " << obj.jsonString();
 
+    txservice::TableName tableName{
+        recordId.getStringView(), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
+    if (Eloq::ContainsUnreadyIndex(obj)) {
+        ru->putUnreadyTable(tableName, obj);
+        MONGO_LOG(1) << "Put unready table into cache. TableName: " << tableName.StringView();
+        return {recordId};
+    } else {
+        if (!ru->unreadyIsEmpty()) {
+            ru->eraseUnreadyTable(tableName);
+            MONGO_LOG(1) << "Erase unready table for tableName: " << tableName.StringView();
+        }
+    }
+
     std::string_view metadata{data, static_cast<size_t>(len)};
-    txservice::TableName tableName{recordId.getStringView(), txservice::TableType::Primary};
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
 
-    auto ru = EloqRecoveryUnit::get(opCtx);
     for (uint16_t i = 1; i < kMaxRetryLimit; ++i) {
         auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
         if (errorCode != txservice::TxErrorCode::NO_ERROR) {
@@ -274,15 +317,33 @@ Status EloqCatalogRecordStore::updateRecord(OperationContext* opCtx,
                                             int len,
                                             bool enforceQuota,
                                             UpdateNotifier* notifier) {
-    MONGO_LOG(1) << "EloqCatalogRecordStore::updateRecord"
-                 << ". id: " << id << ". data: " << BSONObj{data}.jsonString();
-    std::string_view newMetadata{data, static_cast<size_t>(len)};
-    txservice::TableName tableName{id.getStringView(), txservice::TableType::Primary};
+    MONGO_LOG(1) << "EloqCatalogRecordStore::updateRecord";
+
+    BSONObj obj{data};
+    MONGO_LOG(1) << ". id: " << id << ". data: " << obj.jsonString();
+
+    txservice::TableName tableName{
+        id.getStringView(), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
     MONGO_LOG(1) << "tableName: " << tableName.StringView();
+
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    if (Eloq::ContainsUnreadyIndex(obj)) {
+        ru->putUnreadyTable(tableName, obj);
+        MONGO_LOG(1) << "Put unready table into cache. TableName: " << tableName.StringView();
+        return Status::OK();
+    } else {
+        if (!ru->unreadyIsEmpty()) {
+            ru->eraseUnreadyTable(tableName);
+            MONGO_LOG(1) << "Erase unready table for tableName: " << tableName.StringView();
+        }
+    }
+
+    std::string_view newMetadata{data, static_cast<size_t>(len)};
+
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
 
-    auto ru = EloqRecoveryUnit::get(opCtx);
+
     for (uint16_t i = 1; i < kMaxRetryLimit; ++i) {
         auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
         if (errorCode != txservice::TxErrorCode::NO_ERROR) {
@@ -293,13 +354,25 @@ Status EloqCatalogRecordStore::updateRecord(OperationContext* opCtx,
                 return {ErrorCodes::InternalError, "Try to Update a non-exist table"};
             }
             std::string oldMetadata, kvInfo, keySchemaTsString;
-            Eloq::DeserializeSchemaImage(
+            EloqDS::DeserializeSchemaImage(
                 catalogRecord.Schema()->SchemaImage(), oldMetadata, kvInfo, keySchemaTsString);
 
-            auto status = ru->updateTable(tableName, catalogRecord, oldMetadata, newMetadata);
+            bool insideDmlTxn = false;
+            std::string newSchemaImage;
+            Status status = ru->updateTable(
+                tableName, catalogRecord, oldMetadata, newMetadata, &newSchemaImage, &insideDmlTxn);
             if (status.isOK()) {
-                ru->deleteTableSchema(tableName);
-                return Status::OK();
+                // If the transaction is a pure DDL transaction, it will commit immediatelly.
+                // If the transaction is a DML transaction which triggers a DDL transaction, it will
+                // commit until EloqRecoveryUnit::commitUnitOfWork().
+                if (insideDmlTxn) {
+                    uint64_t pendingVersion = catalogRecord.SchemaTs() + 1;
+                    ru->updateDiscoveredTable(tableName, newSchemaImage, pendingVersion);
+                    return Status::OK();
+                } else {
+                    ru->deleteDiscoveredTable(tableName);
+                    return Status::OK();
+                }
             } else {
                 return status;
             }
@@ -325,7 +398,8 @@ std::unique_ptr<SeekableRecordCursor> EloqCatalogRecordStore::getCursor(Operatio
 
 void EloqCatalogRecordStore::getAllCollections(std::vector<std::string>& collections) const {
     MONGO_LOG(1) << "EloqCatalogRecordStore::getAllCollections";
-    Eloq::storeHandler->DiscoverAllTableNames(collections);
+    // Eloq::storeHandler->DiscoverAllTableNames(collections);
+    Eloq::GetAllTables(collections);
     std::string output;
     for (const auto& name : collections) {
         output.append(name).append("|");
@@ -339,7 +413,7 @@ public:
         : _opCtx{opCtx},
           _ru{EloqRecoveryUnit::get(opCtx)},
           _tableName{rs->tableName()},
-          _keySchema(_ru->getIndexSchema(*_tableName)),
+          _keySchema(_ru->getIndexSchema(*rs->tableName())),
           _forward{forward} {
         MONGO_LOG(1) << "EloqRecordStoreCursor::EloqRecordStoreCursor";
     }
@@ -357,7 +431,7 @@ public:
         _opCtx = opCtx;
         _ru = EloqRecoveryUnit::get(opCtx);
         _tableName = rs->tableName();
-        _keySchema = _ru->getIndexSchema(*_tableName);
+        _keySchema = _ru->getIndexSchema(*rs->tableName());
         _forward = forward;
         _eof = false;
         _lastMongoKey.reset();
@@ -376,7 +450,10 @@ public:
         }
         assert(_cursor);
 
-        const txservice::ScanBatchTuple* scanTuple = _cursor->nextBatchTuple();
+        txservice::TxErrorCode txErr = _cursor->nextBatchTuple();
+        uassertStatusOK(TxErrorCodeToMongoStatus(txErr));
+
+        const txservice::ScanBatchTuple* scanTuple = _cursor->currentBatchTuple();
         if (scanTuple == nullptr) {
             MONGO_LOG(1) << "reach the end";
             _eof = true;
@@ -399,36 +476,41 @@ public:
     }
 
     boost::optional<Record> seekExact(const RecordId& id) override {
-        MONGO_LOG(1) << "EloqRecordStoreCursor::seekExact";
+        MONGO_LOG(1) << "EloqRecordStoreCursor::seekExact. table: " << _tableName->StringView()
+                     << ", id: " << id;
 
         if (_cursor) {
             _cursor.reset();
         }
 
-        MONGO_LOG(1) << "id: " << id;
-        auto& kvPair = _ru->getKVPair();
+        EloqKVPair& kvPair = _ru->getKVPair();
+        Eloq::MongoKey& store_pkey = kvPair.keyRef();
+        const Eloq::MongoRecord* store_record = kvPair.getValuePtr();
+
         // _id don't need getKV if it has been stored in KVPair
-        if (!kvPair.getValuePtr()) {
-            kvPair.keyRef().SetPackedKey(id);
-            auto [success, err] = _ru->getKVInternal(_opCtx, _tableName, _keySchema->SchemaTs());
-            if (!success) {
+        if (store_record == nullptr || store_pkey.PackedKeyStringView() != id.getStringView()) {
+            store_pkey.SetPackedKey(id);
+            bool isForWrite = _opCtx->isUpsert();
+            auto [exists, err] =
+                _ru->getKVInternal(_opCtx, *_tableName, _keySchema->SchemaTs(), isForWrite);
+            uassertStatusOK(TxErrorCodeToMongoStatus(err));
+            if (!exists) {
                 MONGO_LOG(1) << "no found. id: " << id << ". Txservice error code: " << err;
                 return {};
             }
-            MONGO_LOG(1) << "keyStore:" << kvPair.keyRef().ToString()
-                         << ". recordStore: " << kvPair.getValuePtr()->ToString();
+            store_record = kvPair.getValuePtr();
+            MONGO_LOG(1) << "keyStore:" << store_pkey.ToString();
         }
-        MONGO_LOG(1) << "record: " << BSONObj{kvPair.getValuePtr()->EncodedBlobData()}.jsonString();
 
         if (_lastMongoKey) {
-            _lastMongoKey->Copy(kvPair.keyRef());
+            _lastMongoKey->Copy(store_pkey);
         } else {
-            _lastMongoKey.emplace(kvPair.keyRef());
+            _lastMongoKey.emplace(store_pkey);
         }
 
-        return {{id,
-                 {kvPair.getValuePtr()->EncodedBlobData(),
-                  static_cast<int>(kvPair.getValuePtr()->EncodedBlobSize())}}};
+        return {
+            {id,
+             {store_record->EncodedBlobData(), static_cast<int>(store_record->EncodedBlobSize())}}};
     }
 
     void saveUnpositioned() override {
@@ -439,8 +521,8 @@ public:
 
     void save() override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::save";
-        if (!_eof && _cursor && _cursor->currentBatchKey() != nullptr) {
-            _lastMongoKey.emplace(*_cursor->currentBatchKey());
+        if (!_eof && _cursor && _cursor->currentBatchTuple() != nullptr) {
+            _lastMongoKey.emplace(*_cursor->currentBatchTuple()->key_.GetKey<Eloq::MongoKey>());
         }
         _cursor.reset();
     }
@@ -487,6 +569,7 @@ private:
             _endKey = Eloq::MongoKey::GetNegInfTxKey();
         }
 
+        bool isForWrite = _opCtx->isUpsert();
         _cursor->indexScanOpen(_tableName,
                                _keySchema->SchemaTs(),
                                txservice::ScanIndexType::Primary,
@@ -495,7 +578,8 @@ private:
                                &_endKey,
                                false,
                                _forward ? txservice::ScanDirection::Forward
-                                        : txservice::ScanDirection::Backward);
+                                        : txservice::ScanDirection::Backward,
+                               isForWrite);
     }
 
     OperationContext* _opCtx;                         // not owned
@@ -567,14 +651,21 @@ long long EloqRecordStore::numRecords(OperationContext* opCtx) const {
     MONGO_LOG(1) << "EloqRecordStore::numRecords";
 
     auto ru = EloqRecoveryUnit::get(opCtx);
-    const Eloq::MongoTableSchema* tableSchema = ru->getTableSchema(_tableName);
-    if (tableSchema == nullptr || tableSchema->StatisticsObject() == nullptr) {
+    const auto [table, err] = ru->discoverTable(_tableName);
+    if (err != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "EloqRecordStore::numRecords"
-                     << ". Fail to get TableSchema or StatisticsObject.";
-        return 0;
+                     << ". Fail to discover table";
+        return -1;
     }
 
-    auto distribution = tableSchema->StatisticsObject()->GetDistribution(_tableName);
+    if (table == nullptr || table->_schema->StatisticsObject() == nullptr) {
+        MONGO_LOG(1) << "EloqRecordStore::numRecords"
+                     << ". table or table statistics not exists.";
+        return -1;
+    }
+
+    const txservice::Distribution* distribution =
+        table->_schema->StatisticsObject()->GetDistribution(_tableName);
     if (distribution != nullptr) {
         // Currently, the accuracy of the record count is guaranteed only for single-core
         // single-machine setups and for up to 1000 entries in multi-core single-machine setups.
@@ -631,9 +722,11 @@ bool EloqRecordStore::findRecord(OperationContext* opCtx,
     Eloq::MongoRecord mongoRecord;
     uint64_t keySchemaVersion = ru->getIndexSchema(_tableName)->SchemaTs();
 
-    auto [success, err] =
-        ru->getKV(opCtx, &_tableName, keySchemaVersion, &mongoKey, &mongoRecord, false);
-    if (!success) {
+    bool isForWrite = opCtx->isUpsert();
+    auto [exists, err] =
+        ru->getKV(opCtx, _tableName, keySchemaVersion, &mongoKey, &mongoRecord, isForWrite);
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    if (!exists) {
         MONGO_LOG(1) << "not exists";
         return false;
     }
@@ -651,22 +744,53 @@ bool EloqRecordStore::findRecord(OperationContext* opCtx,
 void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) {
     MONGO_LOG(1) << "EloqRecordStore::deleteRecord"
                  << ". id: " << id;
-    int64_t oldLength{0};
     auto ru = EloqRecoveryUnit::get(opCtx);
 
+    const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
+
+    // For primary index.
     auto mongoKey = std::make_unique<Eloq::MongoKey>(id);
     auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName)->SchemaTs();
+    uint64_t keySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
-    auto [success, err] =
-        ru->getKV(opCtx, &_tableName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
-    oldLength = static_cast<int64_t>(mongoRecord->EncodedBlobSize());
+    // read the record if the table is creating indexes.
+    if (table._creatingIndexes.size() > 0) {
+        auto [exists, err] =
+            ru->getKV(opCtx, _tableName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
+        uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    }
 
-    std::tie(success, err) = ru->setKV(&_tableName,
-                                       keySchemaVersion,
-                                       std::move(mongoKey),
-                                       std::move(mongoRecord),
-                                       txservice::OperationType::Delete);
+    auto err = ru->setKV(_tableName,
+                         keySchemaVersion,
+                         std::move(mongoKey),
+                         nullptr,
+                         txservice::OperationType::Delete);
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
+
+    // remove record from creating index.
+    if (table._creatingIndexes.size() > 0) {
+        BSONObj recordObj(mongoRecord->EncodedBlobData());
+        for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
+            const txservice::TableName& indexName = index->first;
+            const auto* keySchema =
+                static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
+
+            BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+            MultikeyPaths multikeyPaths;
+            keySchema->GetKeys(recordObj, &keys, &multikeyPaths);
+            for (const BSONObj& bsonKey : keys) {
+                KeyString keyString(KeyString::kLatestVersion, bsonKey, keySchema->Ordering(), id);
+                auto mongoKey =
+                    std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
+                err = ru->setKV(indexName,
+                                keySchema->SchemaTs(),
+                                std::move(mongoKey),
+                                nullptr,
+                                txservice::OperationType::Delete);
+                uassertStatusOK(TxErrorCodeToMongoStatus(err));
+            }
+        }
+    }
 }
 
 StatusWith<RecordId> EloqRecordStore::insertRecord(
@@ -704,39 +828,83 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
                                      int len,
                                      bool enforceQuota,
                                      UpdateNotifier* notifier) {
+    butil::Timer timer;
+    timer.start();
+    auto recordLatency = [&timer]() {
+        timer.stop();
+        recorder::bVarUpdateRecord << timer.u_elapsed();
+    };
+    auto guard = MakeGuard(recordLatency);
+
+    mongo::BSONObj recordObj(data);
     MONGO_LOG(1) << "EloqRecordStore::updateRecord"
-                 << ". id: " << id << ". data: " << BSONObj{data}.jsonString();
+                 << ". id: " << id;
 
     auto ru = EloqRecoveryUnit::get(opCtx);
 
-    int64_t oldLength{0};
+    const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
 
+    // For primary index
     auto mongoKey = std::make_unique<Eloq::MongoKey>(id);
     auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName)->SchemaTs();
-
-
-    // don't need getKV
-    // if ( auto valuePtr = ru->getKVPair()->getValuePtr(); valuePtr) {
-    //     oldLength = static_cast<int64_t>(valuePtr->EncodedBlobSize());
-    // } else {
-
-    auto [success, err] =
-        ru->getKV(opCtx, &_tableName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
-    if (err != txservice::TxErrorCode::NO_ERROR) {
-        return {ErrorCodes::OperationFailed, "acquire write lock failed"};
-    }
-    oldLength = static_cast<int64_t>(mongoRecord->EncodedBlobSize());
-    // }
+    uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
     mongoRecord->SetEncodedBlob(reinterpret_cast<const unsigned char*>(data), len);
-    std::tie(success, err) = ru->setKV(&_tableName,
-                                       keySchemaVersion,
-                                       std::move(mongoKey),
-                                       std::move(mongoRecord),
-                                       txservice::OperationType::Update);
-    if (!success) {
+    auto err = ru->setKV(_tableName,
+                         pkeySchemaVersion,
+                         std::move(mongoKey),
+                         std::move(mongoRecord),
+                         txservice::OperationType::Update);
+    if (err != txservice::TxErrorCode::NO_ERROR) {
         return TxErrorCodeToMongoStatus(err);
+    }
+
+    // For creating index
+    try {
+        for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
+            const txservice::TableName& indexName = index->first;
+            const auto* keySchema =
+                static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
+            if (keySchema->Unique()) {
+                uasserted(ErrorCodes::ConflictingOperationInProgress,
+                          str::stream()
+                              << "A conflict create-unique-index transaction is running.");
+            }
+
+            BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+            MultikeyPaths multikeyPaths;
+            keySchema->GetKeys(recordObj, &keys, &multikeyPaths);
+            if (keys.size() > 1 || Eloq::MongoKeySchema::IsMultiKeyFromPaths(multikeyPaths)) {
+                if (!keySchema->IsMultiKey() ||
+                    !std::includes(keySchema->MongoMultiKeyPaths().cbegin(),
+                                   keySchema->MongoMultiKeyPaths().cend(),
+                                   multikeyPaths.cbegin(),
+                                   multikeyPaths.cend())) {
+                    uasserted(ErrorCodes::ConflictingOperationInProgress,
+                              str::stream() << "A conflict create-index transaction is running.");
+                }
+            }
+
+            const BSONObj& skObj = *keys.cbegin();
+            KeyString keyString(KeyString::kLatestVersion, skObj, keySchema->Ordering(), id);
+            auto mongoKey =
+                std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
+            auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
+            if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
+                mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
+            }
+            err = ru->setKV(indexName,
+                            keySchema->SchemaTs(),
+                            std::move(mongoKey),
+                            std::move(mongoRecord),
+                            txservice::OperationType::Update);
+            uassertStatusOK(TxErrorCodeToMongoStatus(err));
+        }
+    } catch (const mongo::DBException& e) {
+        MONGO_LOG(1)
+            << "EloqRecordStore::udpateRecord update record for dirty indexes raise DBException "
+            << e.what();
+        return e.toStatus();
     }
 
     return Status::OK();
@@ -769,13 +937,13 @@ std::unique_ptr<SeekableRecordCursor> EloqRecordStore::getCursor(OperationContex
 
 std::unique_ptr<RecordCursor> EloqRecordStore::getCursorForRepair(OperationContext* opCtx) const {
     MONGO_LOG(1) << "EloqRecordStore::getCursorForRepair";
-    MONGO_UNREACHABLE;
+    uassertStatusOK(Status(ErrorCodes::BadValue, "Not supported feature"));
     return {};
 }
 
 std::unique_ptr<RecordCursor> EloqRecordStore::getRandomCursor(OperationContext* opCtx) const {
     MONGO_LOG(1) << "EloqRecordStore::getRandomCursor";
-    MONGO_UNREACHABLE;
+    uassertStatusOK(Status(ErrorCodes::BadValue, "Not supported feature"));
     return {};
 }
 
@@ -788,18 +956,16 @@ std::vector<std::unique_ptr<RecordCursor>> EloqRecordStore::getManyCursors(
 
 Status EloqRecordStore::truncate(OperationContext* opCtx) {
     MONGO_LOG(1) << "EloqRecordStore::truncate";
-    MONGO_UNREACHABLE;
-    return Status::OK();
+    return Status(ErrorCodes::BadValue, "Not supported feature");
 }
 
 void EloqRecordStore::cappedTruncateAfter(OperationContext* opCtx, RecordId end, bool inclusive) {
     MONGO_LOG(1) << "EloqRecordStore::cappedTruncateAfter";
-    MONGO_UNREACHABLE;
+    uassertStatusOK(Status(ErrorCodes::BadValue, "Not supported feature"));
 }
 
 bool EloqRecordStore::compactSupported() const {
     MONGO_LOG(1) << "EloqRecordStore::compactSupported";
-    MONGO_UNREACHABLE;
     return false;
 }
 
@@ -814,38 +980,45 @@ Status EloqRecordStore::validate(OperationContext* opCtx,
     long long nInvalid{0};
 
     results->valid = true;
-    auto cursor = getCursor(opCtx, true);
-    // int interruptInterval {4096};
 
-    while (auto record = cursor->next()) {
-        // if (!(nrecords % interruptInterval))
-        //     opCtx->checkForInterrupt();
-        ++nrecords;
-        auto dataSize = record->data.size();
-        dataSizeTotal += dataSize;
-        size_t validatedSize{0};
-        Status status = adaptor->validate(record->id, record->data, &validatedSize);
+    try {
+        auto cursor = getCursor(opCtx, true);
+        // int interruptInterval {4096};
 
-        // The validatedSize equals dataSize below is not a general requirement, but must be
-        // true for WT today because we never pad records.
-        if (!status.isOK() || validatedSize != static_cast<size_t>(dataSize)) {
-            if (results->valid) {
-                // Only log once.
-                results->errors.emplace_back("detected one or more invalid documents (see logs)");
+        while (auto record = cursor->next()) {
+            // if (!(nrecords % interruptInterval))
+            //     opCtx->checkForInterrupt();
+            ++nrecords;
+            auto dataSize = record->data.size();
+            dataSizeTotal += dataSize;
+            size_t validatedSize{0};
+            Status status = adaptor->validate(record->id, record->data, &validatedSize);
+
+            // The validatedSize equals dataSize below is not a general requirement, but must be
+            // true for WT today because we never pad records.
+            if (!status.isOK() || validatedSize != static_cast<size_t>(dataSize)) {
+                if (results->valid) {
+                    // Only log once.
+                    results->errors.emplace_back(
+                        "detected one or more invalid documents (see logs)");
+                }
+                nInvalid++;
+                results->valid = false;
+                log() << "document at location: " << record->id << " is corrupted";
             }
-            nInvalid++;
-            results->valid = false;
-            log() << "document at location: " << record->id << " is corrupted";
         }
-    }
 
-    if (results->valid) {
-        updateStatsAfterRepair(opCtx, nrecords, dataSizeTotal);
-    }
+        if (results->valid) {
+            updateStatsAfterRepair(opCtx, nrecords, dataSizeTotal);
+        }
 
-    output->append("nInvalidDocuments", nInvalid);
-    output->appendNumber("nrecords", nrecords);
-    return Status::OK();
+        output->append("nInvalidDocuments", nInvalid);
+        output->appendNumber("nrecords", nrecords);
+        return Status::OK();
+    } catch (const mongo::DBException& e) {
+        results->valid = false;
+        return e.toStatus();
+    }
 }
 
 /**
@@ -895,10 +1068,11 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     auto ru = EloqRecoveryUnit::get(opCtx);
     MONGO_LOG(1) << "Insert into a Data Table.";
 
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName)->SchemaTs();
+    const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
+    uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
     for (size_t i = 0; i < nRecords; i++) {
-        auto& record = records[i];
+        Record& record = records[i];
         BSONObj obj{record.data.data()};
 
         const auto idObj = getIdBSONObjWithoutFieldName(obj);
@@ -911,12 +1085,16 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         const KeyString ks{KeyString::kLatestVersion, idObj, kIdOrdering};
         record.id = RecordId{ks.getBuffer(), ks.getSize()};
         MONGO_LOG(1) << "record id: " << record.id.toString() << ". data: " << obj.jsonString();
-
         auto mongoKey = std::make_unique<Eloq::MongoKey>(ks);
         auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-        auto [success, err] = ru->getKV(
-            opCtx, &_tableName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
-        if (success) {
+
+        auto [exists, err] = ru->getKV(
+            opCtx, _tableName, pkeySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
+        if (err != txservice::TxErrorCode::NO_ERROR) {
+            return TxErrorCodeToMongoStatus(err);
+        }
+
+        if (exists) {
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         }
 
@@ -926,13 +1104,65 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
             mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
         }
 
-        std::tie(success, err) = ru->setKV(&_tableName,
-                                           keySchemaVersion,
-                                           std::move(mongoKey),
-                                           std::move(mongoRecord),
-                                           txservice::OperationType::Insert);
-        if (!success) {
+        err = ru->setKV(_tableName,
+                        pkeySchemaVersion,
+                        std::move(mongoKey),
+                        std::move(mongoRecord),
+                        txservice::OperationType::Insert);
+        if (err != txservice::TxErrorCode::NO_ERROR) {
             return TxErrorCodeToMongoStatus(err);
+        }
+
+        // For creating index.
+        try {
+            for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
+                const txservice::TableName& indexName = index->first;
+                const auto* keySchema =
+                    static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
+
+                if (keySchema->Unique()) {
+                    uasserted(ErrorCodes::ConflictingOperationInProgress,
+                              str::stream()
+                                  << "A conflict create-unique-index transaction is running.");
+                }
+
+                BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+                MultikeyPaths multikeyPaths;
+                keySchema->GetKeys(obj, &keys, &multikeyPaths);
+                invariant(keys.size() > 0 && multikeyPaths.size() > 0);
+                if (keys.size() > 1 || Eloq::MongoKeySchema::IsMultiKeyFromPaths(multikeyPaths)) {
+                    if (!keySchema->IsMultiKey() ||
+                        !std::includes(keySchema->MongoMultiKeyPaths().cbegin(),
+                                       keySchema->MongoMultiKeyPaths().cend(),
+                                       multikeyPaths.cbegin(),
+                                       multikeyPaths.cend())) {
+                        uasserted(ErrorCodes::ConflictingOperationInProgress,
+                                  str::stream()
+                                      << "A conflict create-index transaction is running.");
+                    }
+                }
+
+                const BSONObj& skObj = *keys.cbegin();
+                KeyString keyString(
+                    KeyString::kLatestVersion, skObj, keySchema->Ordering(), record.id);
+                auto mongoKey =
+                    std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
+                auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
+                if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
+                    mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
+                }
+                err = ru->setKV(indexName,
+                                keySchema->SchemaTs(),
+                                std::move(mongoKey),
+                                std::move(mongoRecord),
+                                txservice::OperationType::Insert);
+                uassertStatusOK(TxErrorCodeToMongoStatus(err));
+            }
+        } catch (const mongo::DBException& e) {
+            MONGO_LOG(1) << "EloqRecordStore::_insertRecords insert record for dirty indexes raise "
+                            "DBException "
+                         << e.what();
+            return e.toStatus();
         }
     }
 

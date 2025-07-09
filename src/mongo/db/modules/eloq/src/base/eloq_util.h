@@ -35,11 +35,24 @@
 
 #include "mongo/db/modules/eloq/tx_service/include/constants.h"
 #include "mongo/db/modules/eloq/tx_service/include/error_messages.h"
+#include "mongo/db/modules/eloq/tx_service/include/store/data_store_handler.h"
 #include "mongo/db/modules/eloq/tx_service/include/type.h"
 
 namespace txservice {}  // namespace txservice
-
 namespace Eloq {
+extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
+
+inline bool GetAllTables(std::vector<std::string>& tables) {
+    bool success = Eloq::storeHandler->DiscoverAllTableNames(tables);
+    if (!success) {
+        return false;
+    }
+
+    tables.erase(std::remove(tables.begin(), tables.end(), txservice::sequence_table_name_sv),
+                 tables.end());
+    return true;
+}
+
 /*
  * If you only need metadata
  */
@@ -62,8 +75,12 @@ inline void DeserializeSchemaImage(const std::string& image, std::string& metada
 }
 
 inline txservice::TableName MongoTableToTxServiceTableName(std::string_view ns, bool own_string) {
-    return own_string ? txservice::TableName{ns.data(), ns.size(), txservice::TableType::Primary}
-                      : txservice::TableName{ns, txservice::TableType::Primary};
+    return own_string
+        ? txservice::TableName{ns.data(),
+                               ns.size(),
+                               txservice::TableType::Primary,
+                               txservice::TableEngine::EloqDoc}
+        : txservice::TableName{ns, txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
 }
 
 inline txservice::TableName MongoIndexToTxServiceTableName(std::string_view ns,
@@ -82,7 +99,25 @@ inline txservice::TableName MongoIndexToTxServiceTableName(std::string_view ns,
 
     return txservice::TableName{std::move(table_name),
                                 is_unique ? txservice::TableType::UniqueSecondary
-                                          : txservice::TableType::Secondary};
+                                          : txservice::TableType::Secondary,
+                                txservice::TableEngine::EloqDoc};
+}
+
+inline bool ContainsUnreadyIndex(const mongo::BSONObj& obj) {
+    // a special bson
+    if (mongo::KVCatalog::FeatureTracker::isFeatureDocument(obj)) {
+        return false;
+    }
+
+    mongo::BSONCollectionCatalogEntry::MetaData md;
+    md.parse(obj.getObjectField("md"));
+
+    for (const auto& index : md.indexes) {
+        if (!index.ready) {
+            return true;
+        }
+    }
+    return false;
 }
 
 inline std::pair<std::string, std::set<txservice::TableName>> ExtractReadyIndexesSet(
@@ -106,33 +141,12 @@ inline std::pair<std::string, std::set<txservice::TableName>> ExtractReadyIndexe
 
     return {std::move(md.ns), std::move(ready_indexes)};
 }
-
-inline std::pair<std::string, std::vector<txservice::TableName>> ExtractReadyIndexesVector(
-    const mongo::BSONObj& obj) {
-    std::vector<txservice::TableName> ready_indexes;
-    // a special bson
-    if (mongo::KVCatalog::FeatureTracker::isFeatureDocument(obj)) {
-        return {"", std::move(ready_indexes)};
-    }
-
-    mongo::BSONCollectionCatalogEntry::MetaData md;
-    md.parse(obj.getObjectField("md"));
-
-    for (const auto& index : md.indexes) {
-        if (auto name = index.name(); name != "_id_" && index.ready) {
-            bool is_unique = index.spec["unique"].booleanSafe();
-            auto table_name = MongoIndexToTxServiceTableName(md.ns, name, is_unique);
-            ready_indexes.push_back(std::move(table_name));
-        }
-    }
-
-    return {std::move(md.ns), std::move(ready_indexes)};
-}
-
 }  // namespace Eloq
 
 
 namespace mongo {
+Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr);
+
 inline constexpr std::string_view kMongoCatalogTableNameSV{"_mdb_catalog"};
 inline bool isMongoCatalog(std::string_view sv) {
     return sv == kMongoCatalogTableNameSV;
@@ -140,13 +154,6 @@ inline bool isMongoCatalog(std::string_view sv) {
 
 inline constexpr std::string_view kFeatureDocumentSV{"featureDocument"};
 inline constexpr StringData kEloqEngineName = "eloq"_sd;
-inline constexpr StringData kGeneralEloqErrorMessage = "error in eloq storage engine"_sd;
-inline Status TxErrorCodeToMongoStatus(txservice::TxErrorCode error) {
-    return (error == txservice::TxErrorCode::NO_ERROR)
-        ? Status::OK()
-        : Status{ErrorCodes::InternalError, kGeneralEloqErrorMessage};
-}
-
 
 inline bool hasFieldNames(const BSONObj& obj) {
     for (const auto& e : obj) {
@@ -182,10 +189,10 @@ inline BSONObj getIdBSONObjWithoutFieldName(const BSONObj& obj) {
 }
 
 inline constexpr int MaxKeySize = 1024;
-inline Status checkKeySize(const BSONObj& key, std::string_view indexType) {
+inline Status checkKeySize(const BSONObj& key, std::string_view indexName) {
     if (key.objsize() >= MaxKeySize) {
         std::stringstream ss;
-        ss << "Insert " << indexType
+        ss << "Insert " << indexName
            << " fail: key too large to index, key size: " << key.objsize();
         return {ErrorCodes::KeyTooLong, ss.str()};
     }

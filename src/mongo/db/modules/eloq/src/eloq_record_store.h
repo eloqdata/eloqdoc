@@ -292,10 +292,6 @@ private:
                           Record* records,
                           const Timestamp* timestamps,
                           size_t nRecords);
-    txservice::AlterTableInfo _getAlterTableInfo(std::string_view oldMetadata,
-                                                 std::string_view newMetadata);
-
-    std::pair<std::string, std::set<txservice::TableName>> _extractReadyIndexes(const BSONObj& obj);
 
     // Mongo use this as the identity for storage engine.
     // For Eloq, _ident equals to _tableName

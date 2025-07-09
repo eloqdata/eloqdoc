@@ -2,56 +2,141 @@ Import("env")
 Import("get_option")
 
 import os
-
-def FindPath(file_name):
+import sys
+link_model = get_option('link-model')
+SYSTEM_INCLUDE_PATH = ['/usr/include', '/usr/local/include', '/opt/include']
+def FindIncludePath(file_name):
     """Search for a file in a list of directories."""
-    search_paths = ['/usr/include', '/usr/local/include', '/opt/include']
-    for path in search_paths:
+    for path in SYSTEM_INCLUDE_PATH:
         candidate = os.path.join(path, file_name)
         if os.path.exists(candidate):
-            return os.path.dirname(candidate)
+            if os.path.isdir(candidate):
+                return candidate
+            else:
+                return os.path.dirname(candidate)
     return None
 
+SYSTEM_LIBRARY_PATH = ['/usr/lib','/usr/lib/x86_64-linux-gnu', '/usr/local/lib', '/opt/lib', '/usr/lib64', '/usr/local/lib64', '/opt/lib64']
+def FindLibPath(lib_name):
+    """Search for a static or dynamic library in a list of directories."""
+    prefixes = ['lib']
+    static_ext = '.a'
+    
+    if sys.platform == "darwin":
+        dynamic_ext = '.dylib'
+    else: # Assuming Linux or other Unix-like
+        dynamic_ext = '.so'
+        
+    # Prefer dynamic link
+    extensions = [dynamic_ext, static_ext]
+    for ext in extensions:
+        for path in SYSTEM_LIBRARY_PATH:
+            for prefix in prefixes:
+                base_name = prefix + lib_name + ext
+                candidate = os.path.join(path, base_name)
+                print("candidate:",candidate)
+                if os.path.exists(candidate):
+                    return candidate
+    return None
+
+
 env = env.Clone()
-# conf = Configure(env)
-# conf.Finish()
 env.InjectMongoIncludePaths()
+
+env["ELOQ_ENGINE_ROOT"]="#src/mongo/db/modules/eloq"
+
+
+DATA_STORE_TYPE_CASSANDRA     = 0
+DATA_STORE_TYPE_DYNAMODB      = 1
+DATA_STORE_TYPE_BIGTABLE      = 2
+DATA_STORE_TYPE_ROCKSDB_CLOUD = 3
+ROCKSDB_CLOUD_FS_TYPE_S3  = 1
+ROCKSDB_CLOUD_FS_TYPE_GCS = 2
+
+data_store_type = DATA_STORE_TYPE_ROCKSDB_CLOUD
+if data_store_type == DATA_STORE_TYPE_CASSANDRA:
+    pass
+elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
+    env.Append(CPPDEFINES=[
+        "DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3", 
+        ("ROCKSDB_CLOUD_FS_TYPE", ROCKSDB_CLOUD_FS_TYPE_S3)
+    ])
 
 env.Append(CPPDEFINES=[
     "OVERRIDE_GFLAGS_NAMESPACE",
     "RANGE_PARTITION_ENABLED",
     "BRPC_WITH_GLOG",
     "USE_ROCKSDB_LOG_STATE",
+    ("WITH_ROCKSDB_CLOUD", 1),
     # "BRPC_ENABLE_CPU_PROFILER",
     "EXT_TX_PROC_ENABLED",
-    "STATISTICS"
+    "FORK_HM_PROCESS",
+    "STATISTICS",
+    ("GFLAGS_NAMESPACE", "gflags")
 ])
-# env.Append(LIBPATH=["#src/mongo/db/modules/eloq/build"])
+env["CPPPATH"].extend(SYSTEM_INCLUDE_PATH)
 env["CPPPATH"].extend(
     [
-        ".",
-        "src/base",
-        "src/store_handler",
-        "tx_service/include",
-        "tx_service/include/cc",
-        "tx_service/include/fault",
-        "tx_service/include/proto",
-        "tx_service/include/remote",
-        "tx_service/include/store",
-        "tx_service/tx-log-protos",
-        "tx_service/abseil-cpp",
-        "log_service/include",
-        "eloq_metrics/include",
-        FindPath("mimalloc-2.1/mimalloc.h"),
+        "$ELOQ_ENGINE_ROOT",
+        "$ELOQ_ENGINE_ROOT/src",
+        "$ELOQ_ENGINE_ROOT/src/base",
+        "$ELOQ_ENGINE_ROOT/src/eloq_data_store_service",
+        "$ELOQ_ENGINE_ROOT/tx_service/include",
+        "$ELOQ_ENGINE_ROOT/tx_service/include/cc",
+        "$ELOQ_ENGINE_ROOT/tx_service/include/fault",
+        "$ELOQ_ENGINE_ROOT/tx_service/include/proto",
+        "$ELOQ_ENGINE_ROOT/tx_service/include/remote",
+        "$ELOQ_ENGINE_ROOT/tx_service/include/store",
+        "$ELOQ_ENGINE_ROOT/tx_service/include/sequences",
+        "$ELOQ_ENGINE_ROOT/tx_service/tx-log-protos",
+        "$ELOQ_ENGINE_ROOT/tx_service/abseil-cpp",
+        "$ELOQ_ENGINE_ROOT/log_service/include",
+        "$ELOQ_ENGINE_ROOT/store_handler",
+        "$ELOQ_ENGINE_ROOT/eloq_metrics/include",
+        FindIncludePath("mimalloc-2.1"),
+        FindIncludePath("aws/core"),
+        FindIncludePath("aws/kinesis"),
+        FindIncludePath("aws/s3"),
+        # FindIncludePath("google/cloud/storage"),
+        FindIncludePath("rocksdb_cloud_header/"),
+        FindIncludePath("rocksdb_cloud_header/rocksdb"),
+        FindIncludePath("rocksdb_cloud_header/rocksdb/cloud"),
+        # FindIncludePath("gperftools/heap-profiler.h")
     ]
 )
+
+eloq_dependencies = [
+    # FindLibPath("absl_bad_variant_access"),
+    # FindLibPath("absl_bad_optional_access"),
+    # FindLibPath("absl_str_format_internal"),
+    FindLibPath("mimalloc"),
+    FindLibPath("gflags"),
+    FindLibPath("protobuf"),
+    FindLibPath("glog"),
+    FindLibPath("brpc"),
+    FindLibPath("braft"),
+    # FindLibPath("rocksdb"),
+    FindLibPath("aws-cpp-sdk-core"),
+    FindLibPath("aws-cpp-sdk-kinesis"),
+    FindLibPath("aws-cpp-sdk-s3"),
+    # FindLibPath("google_cloud_cpp_common"),
+    # FindLibPath("google_cloud_cpp_storage"),
+    FindLibPath("rocksdb-cloud-aws"),
+    # FindLibPath("rocksdb-cloud-gcp"),
+    # FindLibPath("tcmalloc_and_profiler"),
+]
+
+env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build/tx_service/abseil-cpp/absl/base"])
+env.Append(LIBS=["absl_log_severity", "absl_raw_logging_internal"])
+
 print("CPPDEFINES: ", env["CPPDEFINES"])
 print("CPPPATH: ", env["CPPPATH"])
+print("LIBPATH: ", env["LIBPATH"])
+print("LIBS: ", env["LIBS"])
 print("LINKFLAGS: ", env["LINKFLAGS"])
+print("eloq_dependencies: ", eloq_dependencies)
+print("MALLOC:", env['MONGO_ALLOCATOR'])
 
-# print("LIBPATH: ", env["LIBPATH"])
-# print("LD_LIBRARY_PATH: ", env["LD_LIBRARY_PATH"])
-# print("LINKFLAGS", env["LINKFLAGS"])
 
 env.Library(
     target="storage_eloq_core",
@@ -67,8 +152,8 @@ env.Library(
         "src/base/eloq_record.cpp",
         "src/base/eloq_table_schema.cpp",
         "src/base/eloq_catalog_factory.cpp",
-        "src/store_handler/cass_handler.cpp",
-        "src/store_handler/cass_scanner.cpp",
+        "src/base/eloq_util.cpp",
+        "src/base/metrics_registry_impl.cpp",
     ],
     LIBDEPS=[
         "$BUILD_DIR/mongo/base",
@@ -80,22 +165,13 @@ env.Library(
         "$BUILD_DIR/mongo/db/storage/index_entry_comparison",
         "$BUILD_DIR/mongo/db/storage/oplog_hack",
         "$BUILD_DIR/mongo/db/storage/kv/kv_engine",
-        "#src/mongo/db/modules/eloq/build/txservice",
-        "#src/mongo/db/modules/eloq/build/logservice",
-        "#src/mongo/db/modules/eloq/build/eloq_metrics",
-        "#src/mongo/db/modules/eloq/build/cassandra_static" \
-            if get_option('link-model') == 'static' \
-            else "#src/mongo/db/modules/eloq/build/cassandra",
+        "$ELOQ_ENGINE_ROOT/build/txservice",
+        "$ELOQ_ENGINE_ROOT/build/logservice",
+        "$ELOQ_ENGINE_ROOT/build/datastore",
+        "$ELOQ_ENGINE_ROOT/build/eloq_metrics",
     ],
     LIBDEPS_PRIVATE=[],
-    SYSLIBDEPS=[
-        "mimalloc",
-        "protobuf",
-        "glog",
-        "brpc",
-        "braft",
-        "rocksdb", # logservice
-    ],
+    SYSLIBDEPS=eloq_dependencies,
 )
 
 env.Library(
