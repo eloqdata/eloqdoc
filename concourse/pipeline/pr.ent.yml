@@ -5,29 +5,35 @@ resource_types:
       repository: teliaoss/github-pr-resource
 
 resources:
-  - name: eloqdoc_pr
-    type: pull-request
-    check_every: 3m
-    source:
-      repository: eloqdata/eloqdoc
-      base_branch: "main"
-      access_token: ((git-token))
-      ignore_drafts: true
+- name: eloqdoc_pr
+  type: pull-request
+  check_every: 3m
+  source:
+    repository: eloqdata/eloqdoc
+    base_branch: "main"
+    access_token: ((git-token))
+    ignore_drafts: true
 
-  - name: logservice_src
-    type: git
-    source:
-      branch: main
-      uri: git@github.com:eloqdata/log_service.git
-      private_key: ((git-key))
+- name: logservice_src
+  type: git
+  source:
+    branch: main
+    uri: git@github.com:eloqdata/eloq_log_service.git
+    private_key: ((git-key))
 
-  - name: mono_ubuntu_2404
-    type: registry-image
-    source:
-      repository: monographdb/monograph-dev-ci-ubuntu2404
-      tag: latest
-      username: monographdb
-      password: ((docker_hub_pass))
+- name: raft_host_manager_src
+  type: git
+  source:
+    branch: main
+    uri: git@github.com:eloqdata/raft_host_manager.git
+    private_key: ((git-key))
+
+- name: mono_ubuntu_2404
+  type: registry-image
+  source:
+    repository: monographdb/monograph-dev-ci-ubuntu2404
+    username: monographdb
+    password: ((docker_hub_pass))
 
 jobs:
   - name: compile-test
@@ -41,6 +47,7 @@ jobs:
               trigger: true
               version: every
             - get: logservice_src
+            - get: raft_host_manager_src
             - get: mono_ubuntu_2404
       - put: eloqdoc_pr
         params:
@@ -48,7 +55,7 @@ jobs:
           status: pending
       - task: compile-test-task
         image: mono_ubuntu_2404
-        file: eloqdoc_pr/concourse/tasks/compile_test_pr.yml
+        file: eloqdoc_pr/concourse/tasks/pr_ent.yml
         vars:
           cass-host: ((cassandra-host))
         privileged: true

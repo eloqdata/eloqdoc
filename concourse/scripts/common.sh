@@ -66,7 +66,7 @@ compile_and_install() {
             -DWITH_ROCKSDB_CLOUD=OFF \
             -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3
 
-      cmake --build src/mongo/db/modules/eloq/build -j6
+      cmake --build src/mongo/db/modules/eloq/build
       cmake --install src/mongo/db/modules/eloq/build
 
       echo "scons compile and install mongo."
@@ -74,6 +74,57 @@ compile_and_install() {
       # Detect CPU cores for optimal parallel builds
       CPU_CORE_SIZE=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
       OPEN_LOG_SERVICE=ON python2 buildscripts/scons.py MONGO_VERSION=4.0.3 \
+            VARIANT_DIR=Debug \
+            LIBPATH=/usr/local/lib \
+            CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+            --build-dir=#build \
+            --prefix="$PREFIX" \
+            --dbg=on \
+            --opt=off \
+            --allocator=system \
+            --link-model=dynamic \
+            --install-mode=hygienic \
+            --disable-warnings-as-errors \
+            -j"${CPU_CORE_SIZE}" \
+            install-core
+}
+
+compile_and_install_ent() {
+      cmake_version=$(cmake --version 2>&1)
+      if [[ $? -eq 0 ]]; then
+            echo "cmake version: $cmake_version"
+      else
+            echo "fail to get cmake version"
+      fi
+
+      export ASAN_OPTIONS=abort_on_error=1:leak_check_at_exit=0
+      echo "cmake compile and install eloq."
+      cmake -G "Ninja" \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+            -S src/mongo/db/modules/eloq \
+            -B src/mongo/db/modules/eloq/build \
+            -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+            -DCMAKE_CXX_STANDARD=17 \
+            -DCMAKE_CXX_FLAGS_DEBUG_INIT="-Wno-error -fPIC" \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DRANGE_PARTITION_ENABLED=ON \
+            -DEXT_TX_PROC_ENABLED=ON \
+            -DSTATISTICS=ON \
+            -DUSE_ASAN=OFF \
+            -DWITH_ROCKSDB_CLOUD=OFF \
+            -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 \
+            -DFORK_HM_PROCESS=ON \
+            -DWITH_ROCKSDB_CLOUD=S3 \
+            -DOPEN_LOG_SERVICE=OFF
+
+      cmake --build src/mongo/db/modules/eloq/build
+      cmake --install src/mongo/db/modules/eloq/build
+
+      echo "scons compile and install mongo."
+
+      # Detect CPU cores for optimal parallel builds
+      CPU_CORE_SIZE=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
+      python2 buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
             LIBPATH=/usr/local/lib \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \

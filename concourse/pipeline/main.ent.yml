@@ -11,7 +11,14 @@ resources:
   type: git
   source:
     branch: main
-    uri: git@github.com:eloqdata/log_service.git
+    uri: git@github.com:eloqdata/eloq_log_service.git
+    private_key: ((git-key))
+
+- name: raft_host_manager_src
+  type: git
+  source:
+    branch: main
+    uri: git@github.com:eloqdata/raft_host_manager.git
     private_key: ((git-key))
 
 - name: mono_ubuntu_2404
@@ -32,10 +39,11 @@ jobs:
       - get: eloqdoc_src
         trigger: true
       - get: logservice_src
+      - get: raft_host_manager_src
       - get: mono_ubuntu_2404
   - task: compile-test-task
     image: mono_ubuntu_2404
-    file: eloqdoc_src/concourse/tasks/main.yml
+    file: eloqdoc_src/concourse/tasks/main.ent.yml
     vars:
       cass-host: ((cassandra-host))
     privileged: true

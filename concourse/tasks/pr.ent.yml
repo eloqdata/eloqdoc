@@ -3,7 +3,8 @@ image_resource:
   type: registry-image
 inputs:
   - name: logservice_src
-  - name: eloqdoc_src
+  - name: eloqdoc_pr
+  - name: raft_host_manager_src
 run:
-  path: eloqdoc_src/concourse/scripts/compile_test_main.bash
+  path: eloqdoc_pr/concourse/scripts/pr.ent.bash
   args: ["((cass-host))"]

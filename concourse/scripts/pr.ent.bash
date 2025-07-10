@@ -13,9 +13,6 @@ pwd
 ls
 sudo chown -R mono $PWD
 
-cp -r $WORKSPACE/eloq_engine_src/concourse/dockerfile/sshkey ~/.ssh
-chmod 600 ~/.ssh/*
-
 # make coredump dir writable.
 if [ ! -d "/var/crash" ]; then sudo mkdir -p /var/crash; fi
 sudo chmod 777 /var/crash
@@ -31,17 +28,20 @@ git config remote.origin.fetch "+refs/heads/${pr_branch_name}:refs/remotes/origi
 git submodule sync
 git submodule update --init --recursive
 
-cd ./src/mongo/db/modules/eloq
-
+cd src/mongo/db/modules/eloq
 ln -s $WORKSPACE/logservice_src log_service
+
+pushd tx_service
+ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
+popd
 
 cd /home/mono/workspace/mongo
 
-# Generate unique bucket names for eloqdoc test
-BUCKET_NAME="eloqdoc-test"
+# Generate unique bucket names for pr test
+BUCKET_NAME="pr-test"
 BUCKET_PREFIX="rocksdb-cloud-"
 
-compile_and_install
+compile_and_install_ent
 cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod_fast "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect

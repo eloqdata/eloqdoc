@@ -1,0 +1,10 @@
+platform: linux
+image_resource:
+  type: registry-image
+inputs:
+  - name: logservice_src
+  - name: eloqdoc_src
+  - name: raft_host_manager_src
+run:
+  path: eloqdoc_src/concourse/scripts/main.ent.bash
+  args: ["((cass-host))"]

@@ -2,8 +2,8 @@ platform: linux
 image_resource:
   type: registry-image
 inputs:
-  - name: eloqdoc_pr
   - name: logservice_src
+  - name: eloqdoc_src
 run:
-  path: eloqdoc_pr/concourse/scripts/compile_test_pr.bash
+  path: eloqdoc_src/concourse/scripts/main.bash
   args: ["((cass-host))"]
