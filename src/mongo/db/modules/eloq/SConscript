@@ -62,7 +62,7 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
         ("ROCKSDB_CLOUD_FS_TYPE", ROCKSDB_CLOUD_FS_TYPE_S3)
     ])
 
-if os.environ.get("OPEN_LOG_SERVICE", "0") in ("1", "ON", "on", "true", "True"):
+if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["OPEN_LOG_SERVICE"])
 if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("S3"):
     env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 1)])

@@ -1,6 +1,3 @@
-[submodule "src/mongo/db/modules/eloq/cass"]
-	path = src/mongo/db/modules/eloq/cass
-	url = https://github.com/eloqdata/cpp-driver.git
 [submodule "src/mongo/db/modules/eloq/eloq_metrics"]
 	path = src/mongo/db/modules/eloq/eloq_metrics
 	url = https://github.com/eloqdata/eloq-metrics.git
