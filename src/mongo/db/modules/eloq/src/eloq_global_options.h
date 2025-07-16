@@ -43,7 +43,6 @@ public:
     // tx_service
     mongo::HostAndPort localAddr;
     std::string ipList;
-    bool forkHostManager{false};
     mongo::HostAndPort hostManagerAddr;
     std::string hostManagerBinPath;
     // uint16_t coreNum{0};

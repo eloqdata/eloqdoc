@@ -68,6 +68,8 @@ if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("S3"):
     env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 1)])
 if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("GCS"):
     env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 2)])
+if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
+    env.Append(CPPDEFINES=["FORK_HM_PROCESS"])
 
 env.Append(CPPDEFINES=[
     "OVERRIDE_GFLAGS_NAMESPACE",
@@ -76,7 +78,6 @@ env.Append(CPPDEFINES=[
     "USE_ROCKSDB_LOG_STATE",
     # "BRPC_ENABLE_CPU_PROFILER",
     "EXT_TX_PROC_ENABLED",
-    "FORK_HM_PROCESS",
     "STATISTICS",
     ("GFLAGS_NAMESPACE", "gflags")
 ])

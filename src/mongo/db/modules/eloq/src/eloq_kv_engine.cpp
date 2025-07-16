@@ -185,12 +185,14 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         {"kickout_data_for_test", eloqGlobalOptions.kickoutDataForTest},
     };
 
-#ifndef FORK_HM_PROCESS
-    invariant(false);
-#endif
     const std::string& hmIP = eloqGlobalOptions.hostManagerAddr.host();
     uint16_t hmPort = eloqGlobalOptions.hostManagerAddr.port();
     const std::string& hmBinPath = eloqGlobalOptions.hostManagerBinPath;
+#ifdef FORK_HM_PROCESS
+    bool forkHostManager = !bootstrap;
+#else
+    bool forkHostManager = false;
+#endif
 
     initDataStoreService();
 
@@ -304,7 +306,8 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
             eloqGlobalOptions.rocksdbCloudFileDeletionDelay;
 
 #if defined(OPEN_LOG_SERVICE)
-	        _logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1, rocksdb_cloud_config);
+        _logServer = std::make_unique<txlog::LogServer>(
+            nodeId, logServerPort, txlogPath, 1, rocksdb_cloud_config);
 #else
         _logServer = std::make_unique<txlog::LogServer>(
             nodeId,
@@ -328,7 +331,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
 
 #else  // rocksdb
 #if defined(OPEN_LOG_SERVICE)
-	_logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1);
+        _logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1);
 #else
         size_t rocksdb_sst_files_size_limit_val =
             txlog::parse_size(eloq_rocksdb_sst_files_size_limit);
@@ -413,15 +416,15 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                           clusterConfigVersion,
                           &txlogIPs,
                           &txlogPorts,
-                          bootstrap ? nullptr : &hmIP,
-                          bootstrap ? nullptr : &hmPort,
-                          bootstrap ? nullptr : &hmBinPath,
+                          forkHostManager ? nullptr : &hmIP,
+                          forkHostManager ? nullptr : &hmPort,
+                          forkHostManager ? nullptr : &hmBinPath,
                           txServiceConf,
                           std::move(_logAgent),
                           localPath,
                           clusterConfigPath,
                           true,
-                          eloqGlobalOptions.forkHostManager) < 0) {
+                          forkHostManager) < 0) {
         error() << "Fail to start tx service. Terminated!";
         uasserted(ErrorCodes::InternalError, "Failed to start tx service.");
     }
