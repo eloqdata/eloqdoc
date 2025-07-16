@@ -7,6 +7,6 @@
 [submodule "src/mongo/db/modules/eloq/store_handler"]
 	path = src/mongo/db/modules/eloq/store_handler
 	url = https://github.com/eloqdata/store_handler.git
-[submodule "src/mongo/db/modules/eloq/open_log_service"]
-	path = src/mongo/db/modules/eloq/open_log_service
-	url = https://github.com/eloqdata/log_service.git
+[submodule "src/mongo/db/modules/eloq/log_service"]
+	path = src/mongo/db/modules/eloq/log_service
+	url = https://github.com/eloqdata/log_service

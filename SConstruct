@@ -98,7 +98,7 @@ add_option('prefix',
 
 add_option('install-mode',
     choices=['legacy', 'hygienic'],
-    default='legacy',
+    default='hygienic',
     help='select type of installation',
     nargs=1,
     type='choice',
@@ -260,7 +260,7 @@ add_option('durableDefaultOn',
 
 add_option('allocator',
     choices=["auto", "system", "tcmalloc"],
-    default="auto",
+    default="system",
     help='allocator to use (use "auto" for best choice for current platform)',
     type='choice',
 )
@@ -465,7 +465,7 @@ add_option('variables-files',
 link_model_choices = ['auto', 'object', 'static', 'dynamic', 'dynamic-strict', 'dynamic-sdk']
 add_option('link-model',
     choices=link_model_choices,
-    default='auto',
+    default='dynamic',
     help='Select the linking model for the project',
     type='choice'
 )

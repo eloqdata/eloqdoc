@@ -104,11 +104,7 @@ Then, compile Eloq dependencies.
 cd eloqdoc
 cmake -S src/mongo/db/modules/eloq \
       -B src/mongo/db/modules/eloq/build \
-      -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
-      -DCMAKE_CXX_STANDARD=17 \
-      -DCMAKE_CXX_FLAGS_RELWITHDEBINFO_INIT="-Wno-error -fPIC" \
-      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+      -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX
 cmake --build src/mongo/db/modules/eloq/build -j8
 cmake --install src/mongo/db/modules/eloq/build
 ```
@@ -123,34 +119,9 @@ python buildscripts/scons.py MONGO_VERSION=4.0.3 \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$INSTALL_PREFIX \
-    --dbg=off \
-    --opt=on \
-    --release \
-    --allocator=system \
-    --link-model=dynamic \
-    --install-mode=hygienic \
     --disable-warnings-as-errors \
     -j8 \
     install-core
-```
-
-(Optional) Generate compile_commands.json for code completion. Edit eloqdoc with any editor that supports clangd.
-
-```bash
-python buildscripts/scons.py \
-    MONGO_VERSION=4.0.3 \
-    VARIANT_DIR=RelWithDebInfo \
-    LIBPATH="/usr/local/lib" \
-    CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
-    --build-dir=#build \
-    --dbg=off \
-    --opt=on \
-    --release \
-    --allocator=system \
-    --link-model=dynamic \
-    --install-mode=hygienic \
-    --disable-warnings-as-errors \
-    compiledb && mv compile_commands.json build
 ```
 
 ### 4. Set Up Storage Backend
@@ -166,13 +137,18 @@ chmod +x minio
 ### 5. Config EloqDoc
 
 Create a configuration file `mongod.conf` according to `config/example.conf`. Modify `/home/mono` with your home path.
+The configuration file specifies `$HOME/eloqdoc-cloud` as deploy directory.
+
+```bash
+mkdir ~/eloqdoc-cloud && cd ~/eloqdoc-cloud
+mkdir etc db logs
+mv ~/mongod.conf etc/
+
+```
 
 ### 6. Start EloqDoc Node
 
 ```bash
-mkdir ~/test_eloqdoc && cd ~/test_eloqdoc
-mkdir etc db logs
-mv ~/mongod.conf etc/
 export LD_PRELOAD=/usr/local/lib/libmimalloc.so:/usr/lib/libbrpc.so
 export PATH=$INSTALL_PREFIX/bin:$PATH
 mongod --config etc/mongod.conf
