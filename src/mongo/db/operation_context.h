@@ -455,7 +455,11 @@ public:
     }
 
     const CoroutineFunctors& getCoroutineFunctors() const {
-        return _coroFunctors;
+        if (localThreadId != -1) {
+            return _coroFunctors;
+        } else {
+            return CoroutineFunctors::Unavailable;
+        }
     }
 
     int getIsolationLevel() const {
