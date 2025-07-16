@@ -134,11 +134,11 @@ ScopedCheckedOutSession SessionCatalog::checkOutSession(OperationContext* opCtx)
 #ifndef D_USE_CORO_SYNC
     stdx::unique_lock<stdx::mutex> ul(_mutex);
 #else
-    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
     stdx::unique_lock<stdx::mutex> ul(_mutex, std::defer_lock);
     while (!ul.try_lock()) {
-        (*coroResumePtr)();
-        (*coroYieldPtr)();
+        (*coro.longResumeFuncPtr)();
+        (*coro.yieldFuncPtr)();
     }
 #endif
 
@@ -146,17 +146,27 @@ ScopedCheckedOutSession SessionCatalog::checkOutSession(OperationContext* opCtx)
     uint16_t threadGroupId = localThreadId;
     auto sri = _getOrCreateSessionRuntimeInfo(ul, opCtx, lsid, threadGroupId);
 
-    // TODO: Migrate to target thread group.
-    // if (uint16_t orig = sri->txnState.ThreadGroupId(); orig != threadGroupId) {
-    //     Client::getCurrent()->getServiceStateMachine()->setThreadGroupId(orig);
-    // }
-
     // Wait until the session is no longer checked out
     opCtx->waitForConditionOrInterrupt(
         sri->availableCondVar, ul, [&sri]() { return !sri->checkedOut; });
 
     invariant(!sri->checkedOut);
     sri->checkedOut = true;
+
+    invariant(ul.owns_lock());
+
+    const Session& session = sri->txnState;
+    invariant(session.getSessionId() == lsid);
+    if (uint16_t orig = session.ThreadGroupId();
+        orig != threadGroupId && session.inMultiDocumentTransaction()) {
+        log() << "Migrate session " << session.getSessionId().getId() << ". Current ThreadGroup "
+              << threadGroupId << ". Original ThreadGroup " << orig;
+        Client* client = Client::getCurrent();
+        ServiceStateMachine* ssm = client->getServiceStateMachine();
+        ssm->migrateThreadGroup(orig);
+        log() << "Migrate session " << session.getSessionId().getId() << " done.";
+        invariant(Client::getCurrent() == client);
+    }
 
     return ScopedCheckedOutSession(opCtx, ScopedSession(std::move(sri)));
 }
@@ -171,11 +181,11 @@ ScopedSession SessionCatalog::getOrCreateSession(OperationContext* opCtx,
 #ifndef D_USE_CORO_SYNC
         stdx::unique_lock<stdx::mutex> ul(_mutex);
 #else
-        auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+        const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
         stdx::unique_lock<stdx::mutex> ul(_mutex, std::defer_lock);
         while (!ul.try_lock()) {
-            (*coroResumePtr)();
-            (*coroYieldPtr)();
+            (*coro.longResumeFuncPtr)();
+            (*coro.yieldFuncPtr)();
         }
 #endif
         invariant(localThreadId >= 0);
@@ -215,11 +225,11 @@ void SessionCatalog::invalidateSessions(OperationContext* opCtx,
 #ifndef D_USE_CORO_SYNC
     stdx::lock_guard<stdx::mutex> lg(_mutex);
 #else
-    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
     stdx::unique_lock<stdx::mutex> lg(_mutex, std::defer_lock);
     while (!lg.try_lock()) {
-        (*coroResumePtr)();
-        (*coroYieldPtr)();
+        (*coro.longResumeFuncPtr)();
+        (*coro.yieldFuncPtr)();
     }
 #endif
 
@@ -273,11 +283,11 @@ void SessionCatalog::_releaseSession(OperationContext* opCtx, const LogicalSessi
 #ifndef D_USE_CORO_SYNC
     stdx::lock_guard<stdx::mutex> lg(_mutex);
 #else
-    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
     stdx::unique_lock<stdx::mutex> lg(_mutex, std::defer_lock);
     while (!lg.try_lock()) {
-        (*coroResumePtr)();
-        (*coroYieldPtr)();
+        (*coro.longResumeFuncPtr)();
+        (*coro.yieldFuncPtr)();
     }
 #endif
 

@@ -86,7 +86,9 @@ public:
     Mode transportMode() const override {
         return Mode::kAsynchronous;
     }
-    std::function<void()> coroutineResumeFunctor(uint16_t threadGroupId, Task task) override;
+    std::function<void()> coroutineResumeFunctor(uint16_t threadGroupId, const Task& task) override;
+    std::function<void()> coroutineLongResumeFunctor(uint16_t threadGroupId,
+                                                     const Task& task) override;
     void ongoingCoroutineCountUpdate(uint16_t threadGroupId, int delta) override;
     void appendStats(BSONObjBuilder* bob) const override;
 

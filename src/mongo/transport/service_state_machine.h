@@ -170,6 +170,8 @@ public:
         _sessionHandle = nullptr;
     }
 
+    void migrateThreadGroup(uint16_t threadGroupId);
+
 private:
     /*
      * A class that wraps up lifetime management of the _dbClient and _threadName for runNext();
@@ -320,7 +322,10 @@ private:
     CoroStatus _coroStatus{CoroStatus::Empty};
     std::function<void()> _coroYield;
     std::function<void()> _coroResume;
-    uint16_t _threadGroupId{0};
+    std::function<void()> _coroLongResume;
+    std::function<void()> _resumeTask;
+    std::atomic<bool> _migrating{false};
+    std::atomic<uint16_t> _threadGroupId{0};
 };
 
 template <typename T>

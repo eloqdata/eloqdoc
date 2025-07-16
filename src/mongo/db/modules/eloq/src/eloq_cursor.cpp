@@ -56,7 +56,7 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
                                bool is_for_write) {
     MONGO_LOG(1) << "EloqCursor::indexScanOpen " << tableName->StringView();
     _txm = _ru->getTxm();
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
 
     bool is_ckpt = false;
     bool is_for_share = false;
@@ -82,8 +82,8 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
                          is_require_recs,
                          is_require_sort,
                          is_read_local,
-                         yieldFunc,
-                         resumeFunc,
+                         coro.yieldFuncPtr,
+                         coro.resumeFuncPtr,
                          _txm);
     MONGO_LOG(1) << "table_name: " << _scanOpenTxReq.tab_name_->StringView()
                  << ". start_key: " << _scanOpenTxReq.start_key_->ToString()
@@ -177,9 +177,13 @@ txservice::TxErrorCode EloqCursor::_fetchBatchTuples() {
     MONGO_LOG(1) << "EloqCursor::fetchBatchTuples " << _scanOpenTxReq.tab_name_->StringView();
     _scanBatchIdx = 0;
     _scanBatchVector.clear();
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
-    txservice::ScanBatchTxRequest scanBatchTxReq(
-        _scanAlias, *_scanOpenTxReq.tab_name_, &_scanBatchVector, yieldFunc, resumeFunc, _txm);
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    txservice::ScanBatchTxRequest scanBatchTxReq(_scanAlias,
+                                                 *_scanOpenTxReq.tab_name_,
+                                                 &_scanBatchVector,
+                                                 coro.yieldFuncPtr,
+                                                 coro.resumeFuncPtr,
+                                                 _txm);
     scanBatchTxReq.prefetch_slice_cnt_ = PrefetchSize();
     _txm->Execute(&scanBatchTxReq);
     scanBatchTxReq.Wait();

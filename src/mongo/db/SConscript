@@ -646,6 +646,7 @@ env.Library(
         's/sharding_api_d',
         "stats/top",
         'views/views',
+        '$BUILD_DIR/mongo/transport/service_entry_point',
         '$BUILD_DIR/mongo/db/commands/test_commands_enabled',
     ],
     LIBDEPS_PRIVATE=[

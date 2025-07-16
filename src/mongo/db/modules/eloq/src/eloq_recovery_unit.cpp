@@ -325,7 +325,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
     getTxm();
 
     txservice::TxKey catalogTxKey{&catalogKey};
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
     // readlocal=true when read catalog
     txservice::ReadTxRequest readTxReq(&txservice::catalog_ccm_name,
                                        0,
@@ -338,8 +338,8 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
                                        false,
                                        false,
                                        false,
-                                       yieldFunc,
-                                       resumeFunc,
+                                       coro.yieldFuncPtr,
+                                       coro.resumeFuncPtr,
                                        _txm);
     bool exists{false};
     auto errorCode = txservice::TxReadCatalog(_txm, readTxReq, exists);
@@ -380,7 +380,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                  << ". tableName: " << tableName.StringView() << ". mongoKey: " << key->ToString();
     getTxm();
     txservice::TxKey txKey(key);
-    auto [yieldFunc, resumeFunc] = opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
 
     while (true) {
         txservice::ReadTxRequest readTxReq(&tableName,
@@ -394,8 +394,8 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                                            false,
                                            false,
                                            false,
-                                           yieldFunc,
-                                           resumeFunc,
+                                           coro.yieldFuncPtr,
+                                           coro.resumeFuncPtr,
                                            _txm);
         _txm->Execute(&readTxReq);
         readTxReq.Wait();
@@ -446,8 +446,8 @@ void EloqRecoveryUnit::notifyReloadCache(OperationContext* opCtx) {
 
     getTxm();
 
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
-    txservice::ReloadCacheTxRequest reloadTxReq(yieldFunc, resumeFunc, _txm);
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    txservice::ReloadCacheTxRequest reloadTxReq(coro.yieldFuncPtr, coro.resumeFuncPtr, _txm);
     _txm->Execute(&reloadTxReq);
     reloadTxReq.Wait();
     if (reloadTxReq.IsError()) {
@@ -467,7 +467,7 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
     std::string kvInfo = Eloq::storeHandler->CreateKVCatalogInfo(&tempSchema);
     std::string emptyImage{""};
     std::string newImage = EloqDS::SerializeSchemaImage(std::string{metadata}, kvInfo, "");
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
 
     txservice::UpsertTableTxRequest upsertTableTxReq{&tableName,
                                                      &emptyImage,
@@ -475,8 +475,8 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
                                                      &newImage,
                                                      txservice::OperationType::CreateTable,
                                                      nullptr,
-                                                     yieldFunc,
-                                                     resumeFunc,
+                                                     coro.yieldFuncPtr,
+                                                     coro.resumeFuncPtr,
                                                      _txm};
     _txm->Execute(&upsertTableTxReq);
     upsertTableTxReq.Wait();
@@ -511,7 +511,7 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
     getTxm();
 
     std::string emptyImage{""};
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
 
     txservice::UpsertTableTxRequest dropTableTxReq{&tableName,
                                                    &catalogRecord.Schema()->SchemaImage(),
@@ -519,8 +519,8 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
                                                    &emptyImage,
                                                    txservice::OperationType::DropTable,
                                                    nullptr,
-                                                   yieldFunc,
-                                                   resumeFunc,
+                                                   coro.yieldFuncPtr,
+                                                   coro.resumeFuncPtr,
                                                    _txm};
     _txm->Execute(&dropTableTxReq);
     dropTableTxReq.Wait();
@@ -619,7 +619,7 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
         MONGO_LOG(1) << "OperationType::Update";
     }
 
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
 
     if (_txm->DataWriteSetSize() > 0) {
         *insideDmlTxn = true;
@@ -645,8 +645,8 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
                                                          newSchemaImage,
                                                          opType,
                                                          &alterTableInfoImage,
-                                                         yieldFunc,
-                                                         resumeFunc,
+                                                         coro.yieldFuncPtr,
+                                                         coro.resumeFuncPtr,
                                                          _txm};
         _txm->Execute(&upsertTableTxReq);
         upsertTableTxReq.Wait();
@@ -882,7 +882,7 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
 
     closeAllCursors();
 
-    auto [yieldFunc, resumeFunc] = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
 
     bool succeed = true;
     txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;
@@ -890,7 +890,7 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
         MONGO_LOG(1) << "EloqRecoveryUnit::_txnClose. "
                      << "txm commit " << _txm->TxNumber();
 
-        std::tie(succeed, err) = txservice::CommitTx(_txm, yieldFunc, resumeFunc);
+        std::tie(succeed, err) = txservice::CommitTx(_txm, coro.yieldFuncPtr, coro.resumeFuncPtr);
         if (!succeed) {
             MONGO_LOG(1) << "txm commit fail. "
                          << "errorCode:" << err;
@@ -899,7 +899,7 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
         MONGO_LOG(1) << "EloqRecoveryUnit::_txnClose. "
                      << "txm abort";
         // rollback
-        txservice::AbortTx(_txm, yieldFunc, resumeFunc);
+        txservice::AbortTx(_txm, coro.yieldFuncPtr, coro.resumeFuncPtr);
     }
 
     // We reset the _lastTimestampSet between transactions. Since it is legal for one

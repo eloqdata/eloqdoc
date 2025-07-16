@@ -592,7 +592,8 @@ private:
     // retryable writes.
     SingleTransactionStats _singleTransactionStats;
 
-    uint16_t _threadGroupId;
+    // Bind the session to which thread group.
+    const uint16_t _threadGroupId;
 };
 
 }  // namespace mongo

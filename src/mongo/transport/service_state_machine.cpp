@@ -270,7 +270,8 @@ void ServiceStateMachine::reset(ServiceContext* svcContext,
     // _threadName = str::stream() << "conn" << _session()->id();
     _dbClient = svcContext->makeClient(_threadName, std::move(session), this);
     _dbClientPtr = _dbClient.get();
-    _threadGroupId = groupId;
+    _migrating.store(false, std::memory_order_relaxed);
+    _threadGroupId.store(groupId, std::memory_order_relaxed);
     _owned.store(Ownership::kUnowned);
 }
 
@@ -430,7 +431,8 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         // MONGO_LOG(0) << "Operation Context decorations memeory usage: " << opCtx->sizeBytes();
 
         if (serverGlobalParams.enableCoroutine) {
-            opCtx->setCoroutineFunctors(&_coroYield, &_coroResume);
+            opCtx->setCoroutineFunctors(
+                CoroutineFunctors{&_coroYield, &_coroResume, &_coroLongResume});
         }
 
         // The handleRequest is implemented in a subclass for mongod/mongos and actually all the
@@ -441,7 +443,8 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         opCtx.reset(nullptr);
 
         _coroStatus = CoroStatus::Empty;
-        _serviceExecutor->ongoingCoroutineCountUpdate(_threadGroupId, -1);
+        _serviceExecutor->ongoingCoroutineCountUpdate(
+            _threadGroupId.load(std::memory_order_relaxed), -1);
 
         // opCtx must be destroyed here so that the operation cannot show
         // up in currentOp results after the response reaches the client
@@ -512,14 +515,30 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                     if (_coroStatus == CoroStatus::Empty) {
                         MONGO_LOG(1) << "coroutine begin";
                         _coroStatus = CoroStatus::OnGoing;
-                        _serviceExecutor->ongoingCoroutineCountUpdate(_threadGroupId, 1);
-                        auto func = [ssm = shared_from_this()] {
+                        _serviceExecutor->ongoingCoroutineCountUpdate(
+                            _threadGroupId.load(std::memory_order_relaxed), 1);
+                        _resumeTask = [ssm = this] {
                             Client::setCurrent(std::move(ssm->_dbClient));
-                            ssm->_runResumeProcess();
+                            if (ssm->_migrating.load(std::memory_order_relaxed)) {
+                                ssm->_coroResume();
+                                ssm->_coroYield();
+                            } else {
+                                ssm->_runResumeProcess();
+                                bool migrating = true;
+                                ssm->_migrating.compare_exchange_strong(
+                                    migrating, false, std::memory_order_acq_rel);
+                                if (migrating) {
+                                    MONGO_LOG(1)
+                                        << "Migrate logical session to "
+                                        << ssm->_threadGroupId.load(std::memory_order_relaxed);
+                                }
+                            }
                         };
 
-                        _coroResume =
-                            _serviceExecutor->coroutineResumeFunctor(_threadGroupId, func);
+                        _coroResume = _serviceExecutor->coroutineResumeFunctor(
+                            _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
+                        _coroLongResume = _serviceExecutor->coroutineLongResumeFunctor(
+                            _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
 
                         boost::context::stack_context sc = coroStackContext();
                         boost::context::preallocated prealloc(sc.sp, sc.size, sc);
@@ -538,6 +557,14 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                                 abortIfStackOverflow();
                                 return std::move(sink);
                             });
+
+                        bool migrating = true;
+                        _migrating.compare_exchange_strong(
+                            migrating, false, std::memory_order_acq_rel);
+                        if (migrating) {
+                            MONGO_LOG(1) << "Migrate logical session to "
+                                         << _threadGroupId.load(std::memory_order_relaxed);
+                        }
 
                         // _source =
                         //     boost::context::callcc([this, &guard](boost::context::continuation&&
@@ -673,7 +700,17 @@ void ServiceStateMachine::setServiceExecutor(transport::ServiceExecutor* service
 
 void ServiceStateMachine::setThreadGroupId(size_t id) {
     MONGO_LOG(1) << "ServiceStateMachine::setThreadGroupId. id: " << id;
-    _threadGroupId = id;
+    _threadGroupId.store(id, std::memory_order_release);
+}
+
+void ServiceStateMachine::migrateThreadGroup(uint16_t threadGroupId) {
+    _threadGroupId.store(threadGroupId, std::memory_order_relaxed);
+    _coroResume = _serviceExecutor->coroutineResumeFunctor(threadGroupId, _resumeTask);
+    _coroLongResume = _serviceExecutor->coroutineLongResumeFunctor(threadGroupId, _resumeTask);
+    _migrating.store(true, std::memory_order_relaxed);
+    _coroResume();
+    _coroYield();
+    _owningThread.store(stdx::this_thread::get_id());
 }
 
 ServiceStateMachine::State ServiceStateMachine::state() {

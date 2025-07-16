@@ -39,7 +39,11 @@
 #include "mongo/db/service_context.h"
 #include "mongo/db/session.h"
 #include "mongo/db/session_catalog.h"
+#include "mongo/transport/service_entry_point.h"
+#include "mongo/transport/service_executor.h"
 #include "mongo/util/log.h"
+
+#include <boost/context/continuation_fcontext.hpp>
 
 namespace mongo {
 namespace {
@@ -68,32 +72,82 @@ SessionKiller::Result killSessionsLocal(OperationContext* opCtx,
 }
 
 void killAllExpiredTransactions(OperationContext* opCtx) {
+    RecoveryUnit* ru = opCtx->releaseRecoveryUnit();
+    WriteUnitOfWork::RecoveryUnitState ruState = opCtx->getRecoveryUnitState();
+
     SessionKiller::Matcher matcherAllSessions(
         KillAllSessionsByPatternSet{makeKillAllSessionsByPattern(opCtx)});
+
     SessionCatalog::get(opCtx)->scanSessions(
         opCtx, matcherAllSessions, [](OperationContext* opCtx, Session* session) {
-            try {
-                session->abortArbitraryTransactionIfExpired(opCtx);
-            } catch (const DBException& ex) {
-                Status status = ex.toStatus();
-                std::string errmsg = str::stream()
-                    << "May have failed to abort expired transaction with session id (lsid) '"
-                    << session->getSessionId() << "'."
-                    << " Caused by: " << status;
+            bool finished = false;
+            std::mutex mux;
+            std::condition_variable cv;
 
-                // LockTimeout errors are expected if we are unable to acquire an IS lock to clean
-                // up transaction cursors. The transaction abort (and lock resource release) should
-                // have succeeded despite failing to clean up cursors. The cursors will eventually
-                // be cleaned up by the cursor manager. We'll log such errors at a higher log level
-                // for diagnostic purposes in case something gets stuck.
-                if (ErrorCodes::isShutdownError(status.code()) ||
-                    status == ErrorCodes::LockTimeout) {
-                    LOG(1) << errmsg;
-                } else {
-                    warning() << errmsg;
-                }
+            std::function<void()> yieldFunc, resumeFunc, longResumeFunc;
+            opCtx->setCoroutineFunctors(
+                CoroutineFunctors{&yieldFunc, &resumeFunc, &longResumeFunc});
+            transport::ServiceExecutor* serviceExecutor =
+                getGlobalServiceContext()->getServiceEntryPoint()->getServiceExecutor();
+
+            boost::context::continuation source;
+            std::function<void()> resumeTask = [&source] {
+                log() << "abortArbitraryTransactionIfExpired call resume";
+                source = source.resume();
+            };
+            resumeFunc =
+                serviceExecutor->coroutineResumeFunctor(session->ThreadGroupId(), resumeTask);
+
+            auto task = [&finished, &mux, &cv, &source, &yieldFunc, opCtx, session] {
+                source = boost::context::callcc([&finished, &mux, &cv, &yieldFunc, opCtx, session](
+                                                    boost::context::continuation&& sink) {
+                    yieldFunc = [&sink]() {
+                        log() << "abortArbitraryTransactionIfExpired call yield";
+                        sink = sink.resume();
+                    };
+
+                    std::unique_lock lk(mux);
+                    try {
+                        session->abortArbitraryTransactionIfExpired(opCtx);
+                    } catch (const DBException& ex) {
+                        const Status& status = ex.toStatus();
+                        std::string errmsg = str::stream() << "May have failed to abort expired "
+                                                              "transaction with session id (lsid) '"
+                                                           << session->getSessionId() << "'."
+                                                           << " Caused by: " << status;
+
+                        // LockTimeout errors are expected if we are unable to acquire an IS lock to
+                        // clean up transaction cursors. The transaction abort (and lock resource
+                        // release) should have succeeded despite failing to clean up cursors. The
+                        // cursors will eventually be cleaned up by the cursor manager. We'll log
+                        // such errors at a higher log level for diagnostic purposes in case
+                        // something gets stuck.
+                        if (ErrorCodes::isShutdownError(status.code()) ||
+                            status == ErrorCodes::LockTimeout) {
+                            LOG(1) << errmsg;
+                        } else {
+                            warning() << errmsg;
+                        }
+                    }
+
+                    finished = true;
+                    cv.notify_one();
+                    return std::move(sink);
+                });
+            };
+
+            Status status =
+                serviceExecutor->schedule(std::move(task),
+                                          transport::ServiceExecutor::ScheduleFlags::kEmptyFlags,
+                                          transport::ServiceExecutorTaskName::kSSMProcessMessage,
+                                          session->ThreadGroupId());
+            if (status.isOK()) {
+                std::unique_lock lk(mux);
+                cv.wait(lk, [&finished]() { return finished; });
             }
         });
+
+    opCtx->setRecoveryUnit(ru, ruState);
 }
 
 }  // namespace mongo

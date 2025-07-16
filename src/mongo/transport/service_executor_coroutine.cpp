@@ -185,7 +185,7 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
                 cnt = threadGroup._resumeQueue.try_dequeue_bulk(taskBulk.begin(), taskBulk.size());
                 threadGroup._resumeQueueSize.fetch_sub(cnt);
                 for (size_t i = 0; i < cnt; ++i) {
-                    setThreadName(threadNameSD);
+                    // setThreadName(threadNameSD);
                     taskBulk[i]();
                 }
             }
@@ -195,7 +195,7 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
                 cnt = threadGroup._taskQueue.try_dequeue_bulk(taskBulk.begin(), taskBulk.size());
                 threadGroup._taskQueueSize.fetch_sub(cnt);
                 for (size_t i = 0; i < cnt; ++i) {
-                    setThreadName(threadNameSD);
+                    // setThreadName(threadNameSD);
                     taskBulk[i]();
                 }
             }
@@ -263,7 +263,7 @@ Status ServiceExecutorCoroutine::schedule(Task task,
                                           ScheduleFlags flags,
                                           ServiceExecutorTaskName taskName,
                                           uint16_t threadGroupId) {
-    MONGO_LOG(1) << "schedule with group id: " << threadGroupId;
+    MONGO_LOG(3) << "schedule with group id: " << threadGroupId;
     if (!_stillRunning.load(std::memory_order_relaxed)) {
         return Status{ErrorCodes::ShutdownInProgress, "Executor is not running"};
     }
@@ -300,12 +300,17 @@ Status ServiceExecutorCoroutine::schedule(Task task,
     return Status::OK();
 }
 
+
 std::function<void()> ServiceExecutorCoroutine::coroutineResumeFunctor(uint16_t threadGroupId,
-                                                                       Task task) {
-    assert(threadGroupId < _threadGroups.size());
-    return [thd_group = &_threadGroups[threadGroupId], tsk = std::move(task)]() {
-        thd_group->resumeTask(tsk);
-    };
+                                                                       const Task& task) {
+    invariant(threadGroupId < _threadGroups.size());
+    return [thd_group = &_threadGroups[threadGroupId], &task]() { thd_group->resumeTask(task); };
+}
+
+std::function<void()> ServiceExecutorCoroutine::coroutineLongResumeFunctor(uint16_t threadGroupId,
+                                                                           const Task& task) {
+    invariant(threadGroupId < _threadGroups.size());
+    return [thd_group = &_threadGroups[threadGroupId], &task]() { thd_group->enqueueTask(task); };
 }
 
 void ServiceExecutorCoroutine::ongoingCoroutineCountUpdate(uint16_t threadGroupId, int delta) {

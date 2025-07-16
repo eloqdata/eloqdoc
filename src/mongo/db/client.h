@@ -248,7 +248,7 @@ private:
 
     PseudoRandom _prng;
 
-    // Points to the ServiceStateMachine if it is remote client.
+    // Points to the ServiceStateMachine if it is a remote client.
     ServiceStateMachine* _stm = nullptr;
 };
 

@@ -67,6 +67,14 @@ namespace repl {
 class UnreplicatedWritesBlock;
 }  // namespace repl
 
+struct CoroutineFunctors {
+    const std::function<void()>* yieldFuncPtr{nullptr};
+    const std::function<void()>* resumeFuncPtr{nullptr};
+    const std::function<void()>* longResumeFuncPtr{nullptr};
+
+    const static CoroutineFunctors Unavailable;
+};
+
 /**
  * This class encompasses the state required by an operation and lives from the time a network
  * operation is dispatched until its execution is finished. Note that each "getmore" on a cursor
@@ -442,24 +450,12 @@ public:
      */
     Microseconds getRemainingMaxTimeMicros() const;
 
-    void setCoroutineFunctors(const std::function<void()>* yield,
-                              const std::function<void()>* resume) {
-        _coroYield = yield;
-        _coroResume = resume;
+    void setCoroutineFunctors(const CoroutineFunctors& coroFunctors) {
+        _coroFunctors = coroFunctors;
     }
 
-    std::pair<const std::function<void()>*, const std::function<void()>*> getCoroutineFunctors()
-        const {
-        // Some temporary, auxiliary and background threads, such as
-        // `startPeriodicThreadToAbortExpiredTransactions` and `js`, invoke this function. These
-        // threads share the same OperationContext with the worker thread named `thread_group`, but
-        // they should not call yield or resume functions. Therefore, we need to verify the thread
-        // name.
-        if (MONGO_likely(localThreadId != -1)) {
-            return {_coroYield, _coroResume};
-        } else {
-            return {nullptr, nullptr};
-        }
+    const CoroutineFunctors& getCoroutineFunctors() const {
+        return _coroFunctors;
     }
 
     int getIsolationLevel() const {
@@ -583,8 +579,7 @@ private:
 
     bool _writesAreReplicated = true;
 
-    const std::function<void()>* _coroYield{nullptr};
-    const std::function<void()>* _coroResume{nullptr};
+    CoroutineFunctors _coroFunctors;
     int _isolationLevel{0};
     bool _isUpsert{false};
 

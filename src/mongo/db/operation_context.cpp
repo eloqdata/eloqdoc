@@ -77,11 +77,13 @@ MONGO_FAIL_POINT_DEFINE(checkForInterruptFail);
 
 }  // namespace
 
+const CoroutineFunctors CoroutineFunctors::Unavailable{};
+
 OperationContext::OperationContext(Client* client, unsigned int opId)
     : _client(client),
       _opId(opId),
-      _elapsedTime(client ? client->getServiceContext()->getTickSource()
-                          : SystemTickSource::get()) {}
+      _elapsedTime(client ? client->getServiceContext()->getTickSource() : SystemTickSource::get()),
+      _coroFunctors(CoroutineFunctors::Unavailable) {}
 
 void OperationContext::reset(Client* client, unsigned int opId) {
     MONGO_LOG(1) << "OperationContext::reset";
@@ -116,8 +118,7 @@ void OperationContext::reset(Client* client, unsigned int opId) {
     _timeoutError = ErrorCodes::ExceededTimeLimit;
     _maxTime = Microseconds::max();
     _writesAreReplicated = true;
-    _coroYield = nullptr;
-    _coroResume = nullptr;
+    _coroFunctors = CoroutineFunctors::Unavailable;
     _isolationLevel = 0;
     _isUpsert = false;
 }
@@ -212,18 +213,19 @@ template <>
 void deinit(OperationContext* ptr) {
     ptr->resetAllDecorations();
     ptr->_writeUnitOfWork.reset();
+    ptr->_recoveryUnit.reset();
 }
 
 void coroWait(std::unique_lock<std::mutex>& lock, OperationContext* opCtx) {
     invariant(localThreadId != -1);
     invariant(lock.owns_lock());
-    auto [coroYieldPtr, coroResumePtr] = opCtx->getCoroutineFunctors();
-    (*coroResumePtr)();
+    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
+    (*coro.longResumeFuncPtr)();
     lock.unlock();
-    (*coroYieldPtr)();
+    (*coro.yieldFuncPtr)();
     while (!lock.try_lock()) {
-        (*coroResumePtr)();
-        (*coroYieldPtr)();
+        (*coro.longResumeFuncPtr)();
+        (*coro.yieldFuncPtr)();
     }
 }
 
