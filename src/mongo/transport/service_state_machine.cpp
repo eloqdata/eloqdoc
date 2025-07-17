@@ -704,13 +704,16 @@ void ServiceStateMachine::setThreadGroupId(size_t id) {
 }
 
 void ServiceStateMachine::migrateThreadGroup(uint16_t threadGroupId) {
+    dassert(_owned.loadRelaxed() == Ownership::kOwned);
     _threadGroupId.store(threadGroupId, std::memory_order_relaxed);
     _coroResume = _serviceExecutor->coroutineResumeFunctor(threadGroupId, _resumeTask);
     _coroLongResume = _serviceExecutor->coroutineLongResumeFunctor(threadGroupId, _resumeTask);
     _migrating.store(true, std::memory_order_relaxed);
     _coroResume();
     _coroYield();
+#ifdef MONGO_CONFIG_DEBUG_BUILD
     _owningThread.store(stdx::this_thread::get_id());
+#endif
 }
 
 ServiceStateMachine::State ServiceStateMachine::state() {
