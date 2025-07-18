@@ -239,10 +239,10 @@ void EloqCatalogRecordStore::deleteRecord(OperationContext* opCtx, const RecordI
             }
         }
 
-        std::chrono::milliseconds duration{uniformDist(randomEngine)};
+        mongo::Milliseconds duration{uniformDist(randomEngine)};
         MONGO_LOG(1) << "Fail to drop table in Eloq";
         MONGO_LOG(1) << "Sleep for " << duration.count() << "ms";
-        std::this_thread::sleep_for(duration);
+        opCtx->sleepFor(duration);
         MONGO_LOG(1) << "Retry count: " << i;
         catalogRecord.Reset();
     }
@@ -290,8 +290,9 @@ StatusWith<RecordId> EloqCatalogRecordStore::insertRecord(
                             "may do DDL on the same table.";
         } else {
             if (exist) {
-                return {ErrorCodes::NamespaceExists,
-                        "Collection already exists in Eloq storage engine"};
+                const char* msg = "Collection already exists in Eloq storage engine";
+                warning() << msg << ", ns: " << tableName.StringView();
+                return {ErrorCodes::NamespaceExists, msg};
             }
 
             auto status = ru->createTable(tableName, metadata);
@@ -300,9 +301,9 @@ StatusWith<RecordId> EloqCatalogRecordStore::insertRecord(
             }
         }
 
-        std::chrono::milliseconds duration{uniformDist(randomEngine)};
+        mongo::Milliseconds duration{uniformDist(randomEngine)};
         MONGO_LOG(1) << "Fail to create table in Eloq. Sleep for " << duration.count() << "ms";
-        std::this_thread::sleep_for(duration);
+        opCtx->sleepFor(duration);
         MONGO_LOG(1) << "Retry count: " << i;
         catalogRecord.Reset();
     }
@@ -378,9 +379,9 @@ Status EloqCatalogRecordStore::updateRecord(OperationContext* opCtx,
             }
         }
 
-        std::chrono::milliseconds duration{uniformDist(randomEngine)};
+        mongo::Milliseconds duration{uniformDist(randomEngine)};
         MONGO_LOG(1) << "Fail to create table in Eloq. Sleep for " << duration.count() << "ms";
-        std::this_thread::sleep_for(duration);
+        opCtx->sleepFor(duration);
         MONGO_LOG(1) << "Retry count: " << i;
         catalogRecord.Reset();
     }

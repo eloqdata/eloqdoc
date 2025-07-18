@@ -179,10 +179,12 @@ public:
 
 private:
     // Must go through FeatureTracker::get() or FeatureTracker::create().
-    FeatureTracker(KVCatalog* catalog, RecordId rid) : _catalog(catalog), _rid(rid) {}
+    FeatureTracker(KVCatalog* catalog /*, RecordId rid*/) : _catalog(catalog) /*, _rid(rid)*/ {}
 
     KVCatalog* _catalog;
-    RecordId _rid;
+    // In EloqDoc, each threadgroup holds a FeatureTracker for a collection.
+    // RecordId _rid;
+    const RecordId _rid{"featureDocument"};
 
     NonRepairableFeatureMask _usedNonRepairableFeaturesMask =
         static_cast<NonRepairableFeatureMask>(NonRepairableFeature::kNextFeatureBit) - 1;

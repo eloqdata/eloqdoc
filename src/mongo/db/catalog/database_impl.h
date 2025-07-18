@@ -190,9 +190,11 @@ public:
     /**
      * @param ns - this is fully qualified, which is maybe not ideal ???
      */
-    Collection* getCollection(OperationContext* opCtx, StringData ns) final;
+    Collection* getCollection(OperationContext* opCtx, StringData ns, bool isForWrite) final;
 
-    Collection* getCollection(OperationContext* opCtx, const NamespaceString& ns) override;
+    Collection* getCollection(OperationContext* opCtx,
+                              const NamespaceString& ns,
+                              bool isForWrite) override;
 
     /**
      * Get the view catalog, which holds the definition for all views created on this database. You

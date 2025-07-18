@@ -325,7 +325,7 @@ public:
         }
         DatabaseShardingState::get(db).checkDbVersion(opCtx);
 
-        Collection* collection = db->getCollection(opCtx, ns);
+        Collection* collection = db->getCollection(opCtx, ns, true);
         if (collection) {
             result.appendBool("createdCollectionAutomatically", false);
         } else {

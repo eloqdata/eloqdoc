@@ -205,7 +205,8 @@ void makeCollection(OperationContext* opCtx, const NamespaceString& ns) {
     writeConflictRetry(opCtx, "implicit collection creation", ns.ns(), [&opCtx, &ns] {
         AutoGetOrCreateDb db(opCtx, ns.db(), MODE_X);
         // assertCanWrite_inlock(opCtx, ns);
-        if (!db.getDb()->getCollection(opCtx, ns)) {  // someone else may have beat us to it.
+        // EloqDoc release catalog lock after executing DDL. Acquire catalog lock again.
+        while (!db.getDb()->getCollection(opCtx, ns)) {  // someone else may have beat us to it.
             uassertStatusOK(userAllowedCreateNS(ns.db(), ns.coll()));
             WriteUnitOfWork wuow(opCtx);
             CollectionOptions collectionOptions;

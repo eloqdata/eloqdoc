@@ -67,7 +67,6 @@ Status wrappedRun(OperationContext* opCtx,
                                                                              collection->uuid(),
                                                                              desc->indexName(),
                                                                              desc->infoObj());
-
                 });
 
             anObjBuilder->append("msg", "non-_id indexes dropped for collection");
@@ -106,11 +105,8 @@ Status wrappedRun(OperationContext* opCtx,
         } else if (indexes.size() > 1) {
             return Status(ErrorCodes::AmbiguousIndexKeyPattern,
                           str::stream() << indexes.size() << " indexes found for key: "
-                                        << f.embeddedObject()
-                                        << ", identify by name instead."
-                                        << " Conflicting indexes: "
-                                        << indexes[0]->infoObj()
-                                        << ", "
+                                        << f.embeddedObject() << ", identify by name instead."
+                                        << " Conflicting indexes: " << indexes[0]->infoObj() << ", "
                                         << indexes[1]->infoObj());
         }
 
@@ -158,8 +154,8 @@ Status dropIndexes(OperationContext* opCtx,
 
             if (userInitiatedWritesAndNotPrimary) {
                 return Status(ErrorCodes::NotMaster,
-                              str::stream() << "Not primary while dropping indexes in "
-                                            << nss.ns());
+                              str::stream()
+                                  << "Not primary while dropping indexes in " << nss.ns());
             }
 
             if (!serverGlobalParams.quiet.load()) {
@@ -168,7 +164,7 @@ Status dropIndexes(OperationContext* opCtx,
 
             // If db/collection does not exist, short circuit and return.
             Database* db = autoDb.getDb();
-            Collection* collection = db ? db->getCollection(opCtx, nss) : nullptr;
+            Collection* collection = db ? db->getCollection(opCtx, nss, true) : nullptr;
             if (!db || !collection) {
                 if (db && db->getViewCatalog()->lookup(opCtx, nss.ns())) {
                     return Status(ErrorCodes::CommandNotSupportedOnView,

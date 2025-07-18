@@ -742,6 +742,7 @@ void EloqKVEngine::listDatabases(std::vector<std::string>& out) const {
     bool success = Eloq::GetAllTables(tables);
     if (!success) {
         error() << "Failed to discover table names.";
+        uassertStatusOK(Status{ErrorCodes::InternalError, "Failed to discover collection names."});
         return;
     }
 
@@ -773,6 +774,10 @@ bool EloqKVEngine::databaseExists(std::string_view dbName) const {
     // Eloq::storeHandler->DiscoverAllTableNames(tables);
     bool success = Eloq::GetAllTables(tables);
 
+    if (!success) {
+        error() << "Failed to discover collection names.";
+        uassertStatusOK(Status{ErrorCodes::InternalError, "Failed to discover collection names."});
+    }
     for (const auto& tableName : tables) {
         if (dbName == extractDbName(tableName)) {
             return true;
@@ -839,7 +844,7 @@ Status EloqKVEngine::lockCollection(
     // rebuild Collection handler/cache if version changed.
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
-    auto [found, err] = ru->readCatalog(catalogKey, catalogRecord, false);
+    auto [found, err] = ru->readCatalog(catalogKey, catalogRecord, isForWrite);
     if (err != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "ReadCatalog Error. [ErrorCode]: " << err << ". " << tableName.StringView();
         return TxErrorCodeToMongoStatus(err);

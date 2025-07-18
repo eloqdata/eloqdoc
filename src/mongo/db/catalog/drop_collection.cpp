@@ -61,7 +61,7 @@ Status dropCollection(OperationContext* opCtx,
     return writeConflictRetry(opCtx, "drop", collectionName.ns(), [&] {
         AutoGetDb autoDb(opCtx, dbname, MODE_X);
         Database* const db = autoDb.getDb();
-        Collection* coll = db ? db->getCollection(opCtx, collectionName) : nullptr;
+        Collection* coll = db ? db->getCollection(opCtx, collectionName, true) : nullptr;
         auto view =
             db && !coll ? db->getViewCatalog()->lookup(opCtx, collectionName.ns()) : nullptr;
 
@@ -77,8 +77,8 @@ Status dropCollection(OperationContext* opCtx,
 
         if (userInitiatedWritesAndNotPrimary) {
             return Status(ErrorCodes::NotMaster,
-                          str::stream() << "Not primary while dropping collection "
-                                        << collectionName.ns());
+                          str::stream()
+                              << "Not primary while dropping collection " << collectionName.ns());
         }
 
         WriteUnitOfWork wunit(opCtx);

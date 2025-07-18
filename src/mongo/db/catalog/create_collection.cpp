@@ -183,11 +183,10 @@ Status createCollectionForApplyOps(OperationContext* opCtx,
                           << " - existing collection with conflicting UUID " << uuid
                           << " is in a drop-pending state: " << currentName;
                     return Result(Status(ErrorCodes::NamespaceExists,
-                                         str::stream() << "existing collection "
-                                                       << currentName.toString()
-                                                       << " with conflicting UUID "
-                                                       << uuid.toString()
-                                                       << " is in a drop-pending state."));
+                                         str::stream()
+                                             << "existing collection " << currentName.toString()
+                                             << " with conflicting UUID " << uuid.toString()
+                                             << " is in a drop-pending state."));
                 }
 
                 // In the case of oplog replay, a future command may have created or renamed a
@@ -199,7 +198,7 @@ Status createCollectionForApplyOps(OperationContext* opCtx,
                 // of the initial sync or result in rollback to fassert, requiring a resync of that
                 // node.
                 const bool stayTemp = true;
-                if (auto futureColl = db ? db->getCollection(opCtx, newCollName) : nullptr) {
+                if (auto futureColl = db ? db->getCollection(opCtx, newCollName, true) : nullptr) {
                     auto tmpNameResult =
                         db->makeUniqueCollectionNamespace(opCtx, "tmp%%%%%.create");
                     if (!tmpNameResult.isOK()) {
@@ -231,8 +230,7 @@ Status createCollectionForApplyOps(OperationContext* opCtx,
                 if (catalog.lookupCollectionByUUID(uuid)) {
                     uassert(40655,
                             str::stream() << "Invalid name " << redact(newCollName.ns())
-                                          << " for UUID "
-                                          << uuid.toString(),
+                                          << " for UUID " << uuid.toString(),
                             currentName.db() == newCollName.db());
                     Status status =
                         db->renameCollection(opCtx, currentName.ns(), newCollName.ns(), stayTemp);

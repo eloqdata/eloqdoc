@@ -107,8 +107,12 @@ public:
                                   StringData viewName,
                                   const CollectionOptions& options) = 0;
 
-        virtual Collection* getCollection(OperationContext* opCtx, StringData ns) = 0;
-        virtual Collection* getCollection(OperationContext* opCtx, const NamespaceString& nss) = 0;
+        virtual Collection* getCollection(OperationContext* opCtx,
+                                          StringData ns,
+                                          bool isForWrite) = 0;
+        virtual Collection* getCollection(OperationContext* opCtx,
+                                          const NamespaceString& nss,
+                                          bool isForWrite) = 0;
         virtual ViewCatalog* getViewCatalog() = 0;
 
         virtual Collection* getOrCreateCollection(OperationContext* opCtx,
@@ -326,12 +330,16 @@ public:
     /**
      * @param ns - this is fully qualified, which is maybe not ideal ???
      */
-    inline Collection* getCollection(OperationContext* opCtx, const StringData ns) {
-        return this->_impl().getCollection(opCtx, ns);
+    inline Collection* getCollection(OperationContext* opCtx,
+                                     const StringData ns,
+                                     bool isForWrite = false) {
+        return this->_impl().getCollection(opCtx, ns, isForWrite);
     }
 
-    inline Collection* getCollection(OperationContext* opCtx, const NamespaceString& ns) {
-        return this->_impl().getCollection(opCtx, ns);
+    inline Collection* getCollection(OperationContext* opCtx,
+                                     const NamespaceString& ns,
+                                     bool isForWrite = false) {
+        return this->_impl().getCollection(opCtx, ns, isForWrite);
     }
 
     /**

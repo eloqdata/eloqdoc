@@ -25,6 +25,7 @@
  *    exception statement from all source files in the program, then also delete
  *    it in the license file.
  */
+#define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
 #include "mongo/platform/basic.h"
 
@@ -34,6 +35,7 @@
 #include "mongo/db/catalog/uuid_catalog.h"
 #include "mongo/db/s/database_sharding_state.h"
 #include "mongo/util/fail_point_service.h"
+#include "mongo/util/log.h"
 
 namespace mongo {
 namespace {
@@ -106,7 +108,7 @@ AutoGetCollection::AutoGetCollection(OperationContext* opCtx,
     if (!db)
         return;
 
-    _coll = db->getCollection(opCtx, _resolvedNss);
+    _coll = db->getCollection(opCtx, _resolvedNss, modeColl == LockMode::MODE_X);
     invariant(!nsOrUUID.uuid() || _coll,
               str::stream() << "Collection for " << _resolvedNss.ns()
                             << " disappeared after successufully resolving "

@@ -213,13 +213,15 @@ std::unique_ptr<KVCatalog::FeatureTracker> KVCatalog::FeatureTracker::get(Operat
     auto record = catalog->_rs->dataFor(opCtx, rid);
     BSONObj obj = record.toBson();
     invariant(isFeatureDocument(obj));
-    return std::unique_ptr<KVCatalog::FeatureTracker>(new KVCatalog::FeatureTracker(catalog, rid));
+    invariant(rid.getStringView() == "featureDocument");
+    return std::unique_ptr<KVCatalog::FeatureTracker>(
+        new KVCatalog::FeatureTracker(catalog /*, rid*/));
 }
 
 std::unique_ptr<KVCatalog::FeatureTracker> KVCatalog::FeatureTracker::create(
     OperationContext* opCtx, KVCatalog* catalog) {
     return std::unique_ptr<KVCatalog::FeatureTracker>(
-        new KVCatalog::FeatureTracker(catalog, RecordId()));
+        new KVCatalog::FeatureTracker(catalog /*, RecordId() */));
 }
 
 bool KVCatalog::FeatureTracker::isNonRepairableFeatureInUse(OperationContext* opCtx,
@@ -264,11 +266,17 @@ void KVCatalog::FeatureTracker::markRepairableFeatureAsNotInUse(OperationContext
 
 KVCatalog::FeatureTracker::FeatureBits KVCatalog::FeatureTracker::getInfo(
     OperationContext* opCtx) const {
-    if (_rid.isNull()) {
+    // In EloqDoc, each threadgroup holds a FeatureTracker for a collection.
+    // if (_rid.isNull()) {
+    //     return {};
+    // }
+
+    // auto record = _catalog->_rs->dataFor(opCtx, _rid);
+    RecordData record;
+    bool exists = _catalog->_rs->findRecord(opCtx, _rid, &record);
+    if (!exists) {
         return {};
     }
-
-    auto record = _catalog->_rs->dataFor(opCtx, _rid);
     BSONObj obj = record.toBson();
     invariant(isFeatureDocument(obj));
 
@@ -303,7 +311,12 @@ void KVCatalog::FeatureTracker::putInfo(OperationContext* opCtx, const FeatureBi
                static_cast<long long>(versionInfo.repairableFeatures));
     BSONObj obj = bob.done();
 
-    if (_rid.isNull()) {
+    // In EloqDoc, each threadgroup holds a FeatureTracker for a collection.
+    // if (_rid.isNull()) {
+    //
+    RecordData record;
+    bool exists = _catalog->_rs->findRecord(opCtx, _rid, &record);
+    if (!exists) {
         // This is the first time a feature is being marked as in-use or not in-use, so we must
         // insert the feature document rather than update it.
         const bool enforceQuota = false;
@@ -311,7 +324,6 @@ void KVCatalog::FeatureTracker::putInfo(OperationContext* opCtx, const FeatureBi
         auto rid = _catalog->_rs->insertRecord(
             opCtx, obj.objdata(), obj.objsize(), Timestamp(), enforceQuota);
         fassert(40113, rid.getStatus());
-        _rid = rid.getValue();
     } else {
         const bool enforceQuota = false;
         UpdateNotifier* notifier = nullptr;

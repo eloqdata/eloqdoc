@@ -255,7 +255,7 @@ Status KVCollectionCatalogEntry::prepareForIndexBuild(OperationContext* opCtx,
 void KVCollectionCatalogEntry::indexBuildSuccess(OperationContext* opCtx, StringData indexName) {
     // return;
     // MONGO_UNREACHABLE;
-    
+
     MetaData md = _getMetaData(opCtx);
     int offset = md.findIndexOffset(indexName);
     invariant(offset >= 0);
