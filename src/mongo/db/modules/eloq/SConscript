@@ -64,6 +64,10 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
 
 if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["OPEN_LOG_SERVICE"])
+    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/log_service/include"])
+else:
+    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/eloq_log_service/include"])
+
 if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("S3"):
     env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 1)])
 if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("GCS"):
@@ -97,7 +101,6 @@ env["CPPPATH"].extend(
         "$ELOQ_ENGINE_ROOT/tx_service/include/sequences",
         "$ELOQ_ENGINE_ROOT/tx_service/tx-log-protos",
         "$ELOQ_ENGINE_ROOT/tx_service/abseil-cpp",
-        "$ELOQ_ENGINE_ROOT/log_service/include",
         "$ELOQ_ENGINE_ROOT/store_handler",
         "$ELOQ_ENGINE_ROOT/eloq_metrics/include",
         FindIncludePath("mimalloc-2.1"),

@@ -28,8 +28,13 @@
 #include "mongo/db/modules/eloq/src/eloq_index.h"
 #include "mongo/db/modules/eloq/src/eloq_record_store.h"
 
+#ifdef OPEN_LOG_SERVICE
 #include "mongo/db/modules/eloq/log_service/include/log_server.h"
+#else
+#include "mongo/db/modules/eloq/eloq_log_service/include/log_server.h"
+#endif
 #include "mongo/db/modules/eloq/tx_service/include/tx_service.h"
+
 namespace mongo {
 class MongoSystemHandler : public txservice::SystemHandler {
 public:

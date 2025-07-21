@@ -29,7 +29,7 @@ git submodule sync
 git submodule update --init --recursive
 
 cd src/mongo/db/modules/eloq
-ln -s $WORKSPACE/logservice_src log_service
+ln -s $WORKSPACE/eloq_logservice_src eloq_log_service
 
 pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager

@@ -1,174 +1,289 @@
-set(LOG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/log_service)
-set(TX_LOG_PROTOS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-protos) # Shared protos
+SET (LOG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/log_service)
+SET(TX_LOG_PROTOS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-protos)
 
-set(LOCAL_LOG_LIB "") # Initialize list for libraries specific to log_service targets
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wno-error")
 
+option(BRPC_WITH_GLOG "With glog" ON)
+option(USE_ROCKSDB_LOG_STATE "Whether use rocksdb log state or in-memory log state" ON)
 
+option(WITH_ROCKSDB_CLOUD "RocksDB Cloud storage backend, S3 or GCS")
+set_property(CACHE WITH_ROCKSDB_CLOUD PROPERTY STRINGS "S3" "GCS")
+message(NOTICE "With RocksDB Cloud: ${WITH_ROCKSDB_CLOUD}")
 
-set(LOG_SERVICE_ROCKSDB_INCLUDE_DIRS "")
-set(LOG_SERVICE_ROCKSDB_LIBRARIES "")
+find_path(BRPC_INCLUDE_PATH NAMES brpc/stream.h)
+find_library(BRPC_LIB NAMES brpc)
+if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
+    message(FATAL_ERROR "Fail to find brpc")
+endif()
+include_directories(${BRPC_INCLUDE_PATH})
 
-# RocksDB and Cloud SDK finding, conditional for Log Service
-if(USE_ROCKSDB_LOG_STATE) # USE_ROCKSDB_LOG_STATE is a global option
-  message(STATUS "LogService: USE_ROCKSDB_LOG_STATE is ON. Finding RocksDB...")
-  # Find base RocksDB
-  if(NOT ROCKSDB_BASE_INCLUDE_PATH) # Check if already found by another module (e.g. data_store)
-    find_path(ROCKSDB_BASE_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header" "rocksdb")
-  endif()
-  if(NOT ROCKSDB_BASE_LIB)
-    find_library(ROCKSDB_BASE_LIB NAMES rocksdb)
-  endif()
+find_path(BRAFT_INCLUDE_PATH NAMES braft/raft.h)
+find_library(BRAFT_LIB NAMES braft)
+if ((NOT BRAFT_INCLUDE_PATH) OR (NOT BRAFT_LIB))
+    message (FATAL_ERROR "Fail to find braft")
+endif()
+include_directories(${BRAFT_INCLUDE_PATH})
 
-  if(NOT ROCKSDB_BASE_INCLUDE_PATH OR NOT ROCKSDB_BASE_LIB)
-    message(FATAL_ERROR "LogService: Failed to find base RocksDB include path or library.")
-  else()
-    message(STATUS "LogService: Found base RocksDB. Include: ${ROCKSDB_BASE_INCLUDE_PATH}, Lib: ${ROCKSDB_BASE_LIB}")
-    list(APPEND LOG_SERVICE_ROCKSDB_INCLUDE_DIRS ${ROCKSDB_BASE_INCLUDE_PATH})
-    list(APPEND LOG_SERVICE_ROCKSDB_LIBRARIES ${ROCKSDB_BASE_LIB})
-    include_directories(${ROCKSDB_BASE_INCLUDE_PATH}) # Add to this module's includes
-  endif()
+find_path(GFLAGS_INCLUDE_PATH gflags/gflags.h)
+find_library(GFLAGS_LIBRARY NAMES gflags libgflags)
+if((NOT GFLAGS_INCLUDE_PATH) OR (NOT GFLAGS_LIBRARY))
+    message(FATAL_ERROR "Fail to find gflags")
+endif()
+include_directories(${GFLAGS_INCLUDE_PATH})
 
-  if(WITH_ROCKSDB_CLOUD STREQUAL "S3")
-    message(STATUS "LogService: WITH_ROCKSDB_CLOUD is S3. Finding AWS SDK and RocksDB S3 support...")
-    if(NOT AWS_CORE_INCLUDE_PATH)
-      find_path(AWS_CORE_INCLUDE_PATH aws/core/Aws.h)
-      find_path(AWS_S3_INCLUDE_PATH aws/s3/S3Client.h)
-      find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h) # As previously included
+if(BRPC_WITH_GLOG)
+    message(NOTICE "log service brpc with glog")
+    find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
+    find_library(GLOG_LIB NAMES glog VERSION ">=0.6.0" REQUIRED)
+    if((NOT GLOG_INCLUDE_PATH) OR (NOT GLOG_LIB))
+        message(FATAL_ERROR "Fail to find glog")
     endif()
-    if(NOT AWS_CORE_LIB)
-      find_library(AWS_CORE_LIB aws-cpp-sdk-core)
-      find_library(AWS_S3_LIB aws-cpp-sdk-s3)
-      find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis) # As previously included
-    endif()
-    if(NOT ROCKSDB_CLOUD_AWS_LIB)
-      find_library(ROCKSDB_CLOUD_AWS_LIB NAMES rocksdb-cloud-aws)
-    endif()
+    include_directories(${GLOG_INCLUDE_PATH})
+    set(LOG_LIB ${LOG_LIB} ${GLOG_LIB})
+endif()
 
-    if(NOT (AWS_CORE_INCLUDE_PATH AND AWS_S3_INCLUDE_PATH AND AWS_KINESIS_INCLUDE_PATH AND AWS_CORE_LIB AND AWS_S3_LIB AND AWS_KINESIS_LIB AND ROCKSDB_CLOUD_AWS_LIB))
-      message(FATAL_ERROR "LogService: Failed to find all required AWS SDK components (core, s3, kinesis) or rocksdb-cloud-aws library for RocksDB S3 support.")
-    else()
-      message(STATUS "LogService: Found AWS SDK for S3. Core: ${AWS_CORE_LIB}, S3: ${AWS_S3_LIB}, Kinesis: ${AWS_KINESIS_LIB}. RocksDB Cloud AWS Lib: ${ROCKSDB_CLOUD_AWS_LIB}")
-      list(APPEND LOG_SERVICE_ROCKSDB_INCLUDE_DIRS ${AWS_CORE_INCLUDE_PATH} ${AWS_S3_INCLUDE_PATH} ${AWS_KINESIS_INCLUDE_PATH})
-      list(APPEND LOG_SERVICE_ROCKSDB_LIBRARIES ${AWS_CORE_LIB} ${AWS_S3_LIB} ${AWS_KINESIS_LIB} ${ROCKSDB_CLOUD_AWS_LIB})
-      include_directories(${AWS_CORE_INCLUDE_PATH} ${AWS_S3_INCLUDE_PATH} ${AWS_KINESIS_INCLUDE_PATH})
-      add_compile_definitions(USE_AWS)
-      message(STATUS "LogService: Added compile definition USE_AWS.")
-    endif()
-    add_compile_definitions(WITH_ROCKSDB_CLOUD=1) # Example: use a distinct name
-    message(STATUS "LogService: Added compile definition WITH_ROCKSDB_CLOUD=1 for S3.")
-  elseif(WITH_ROCKSDB_CLOUD STREQUAL "GCS")
-    message(STATUS "LogService: WITH_ROCKSDB_CLOUD is GCS. Finding GCP SDK and RocksDB GCS support...")
-    if(NOT GCP_CS_INCLUDE_PATH)
-      find_path(GCP_CS_INCLUDE_PATH google/cloud/storage/client.h)
-    endif()
-    if(NOT GCP_COMMON_LIB)
-      find_library(GCP_COMMON_LIB google_cloud_cpp_common)
-      find_library(GCP_CS_LIB google_cloud_cpp_storage)
-    endif()
-    if(NOT ROCKSDB_CLOUD_GCP_LIB)
-      find_library(ROCKSDB_CLOUD_GCP_LIB NAMES rocksdb-cloud-gcp)
-    endif()
+execute_process(
+    COMMAND bash -c "grep \"namespace [_A-Za-z0-9]\\+ {\" ${GFLAGS_INCLUDE_PATH}/gflags/gflags_declare.h | head -1 | awk '{print $2}' | tr -d '\n'"
+    OUTPUT_VARIABLE GFLAGS_NS
+)
+if(${GFLAGS_NS} STREQUAL "GFLAGS_NAMESPACE")
+    execute_process(
+        COMMAND bash -c "grep \"#define GFLAGS_NAMESPACE [_A-Za-z0-9]\\+\" ${GFLAGS_INCLUDE_PATH}/gflags/gflags_declare.h | head -1 | awk '{print $3}' | tr -d '\n'"
+        OUTPUT_VARIABLE GFLAGS_NS
+    )
+else()
+    add_compile_definitions(OVERRIDE_GFLAGS_NAMESPACE)
+endif()
 
-    if(NOT (GCP_CS_INCLUDE_PATH AND GCP_COMMON_LIB AND GCP_CS_LIB AND ROCKSDB_CLOUD_GCP_LIB))
-      message(FATAL_ERROR "LogService: Failed to find all required GCP SDK components or rocksdb-cloud-gcp library for RocksDB GCS support.")
-    else()
-      message(STATUS "LogService: Found GCP SDK for GCS. Common: ${GCP_COMMON_LIB}, Storage: ${GCP_CS_LIB}. RocksDB Cloud GCP Lib: ${ROCKSDB_CLOUD_GCP_LIB}")
-      list(APPEND LOG_SERVICE_ROCKSDB_INCLUDE_DIRS ${GCP_CS_INCLUDE_PATH})
-      list(APPEND LOG_SERVICE_ROCKSDB_LIBRARIES ${GCP_COMMON_LIB} ${GCP_CS_LIB} ${ROCKSDB_CLOUD_GCP_LIB})
-      include_directories(${GCP_CS_INCLUDE_PATH})
-      add_compile_definitions(USE_GCP)
-      message(STATUS "LogService: Added compile definition USE_GCP.")
-    endif()
-    add_compile_definitions(WITH_ROCKSDB_CLOUD_IMPL=2) # Example: use a distinct name
-    message(STATUS "LogService: Added compile definition WITH_ROCKSDB_CLOUD_IMPL=2 for GCS.")
-  endif()
+#find_path(GPERFTOOLS_INCLUDE_DIR NAMES gperftools/heap-profiler.h)
+#find_library(GPERFTOOLS_LIBRARIES NAMES tcmalloc_and_profiler)
+#if (GPERFTOOLS_INCLUDE_DIR AND GPERFTOOLS_LIBRARIES)
+#    set(CMAKE_CXX_FLAGS "-DBRPC_ENABLE_CPU_PROFILER")
+#    include_directories(${GPERFTOOLS_INCLUDE_DIR})
+#else ()
+#    set (GPERFTOOLS_LIBRARIES "")
+#endif ()
 
-  list(APPEND LOCAL_LOG_LIB ${LOG_SERVICE_ROCKSDB_LIBRARIES})
-  add_compile_definitions(USE_ROCKSDB_LOG_STATE)
-  message(STATUS "LogService: Added compile definition USE_ROCKSDB_LOG_STATE. Linking with RocksDB libs: ${LOG_SERVICE_ROCKSDB_LIBRARIES}")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CPP_FLAGS} -DGFLAGS_NS=${GFLAGS_NS} -DNDEBUG -O2 -D__const__= -pipe -W -Wall -Wno-unused-parameter -fPIC -fno-omit-frame-pointer")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # require at least gcc 4.8
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.8)
+        message(FATAL_ERROR "GCC is too old, please install a newer version supporting C++11")
+    endif()
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # require at least clang 3.3
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.3)
+        message(FATAL_ERROR "Clang is too old, please install a newer version supporting C++11")
+    endif()
+else()
+    message(WARNING "You are using an unsupported compiler! Compilation has only been tested with Clang and GCC.")
 endif()
 
 
+#if(CMAKE_VERSION VERSION_LESS "3.1.3")
+#    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+#        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+#    endif()
+#    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+#        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+#    endif()
+#else()
+#    set(CMAKE_CXX_STANDARD 17)
+#    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+#endif()
 
-set(LOG_INCLUDE_DIR_MODULE # Module specific include directories
-  ${LOG_SOURCE_DIR}/include
-  ${TX_LOG_PROTOS_SOURCE_DIR} # For shared log.proto
-  # Add other necessary include paths from find_dependencies if not globally included:
-  ${GFLAGS_INCLUDE_PATH} # GFLAGS from find_dependencies
-  ${LEVELDB_INCLUDE_PATH} # LEVELDB from find_dependencies
-  ${LOG_SERVICE_ROCKSDB_INCLUDE_DIRS} # Conditionally added RocksDB includes
-  # BRPC/BRAFT includes are typically target-specific
-)
-# BRPC/BRAFT dependencies
-find_path(BRPC_INCLUDE_PATH_LOG NAMES brpc/stream.h)
-find_library(BRPC_LIB_LOG NAMES brpc)
-find_path(BRAFT_INCLUDE_PATH_LOG NAMES braft/raft.h)
-find_library(BRAFT_LIB_LOG NAMES braft)
-
-if(NOT (BRPC_INCLUDE_PATH_LOG AND BRPC_LIB_LOG AND BRAFT_INCLUDE_PATH_LOG AND BRAFT_LIB_LOG))
-  message(FATAL_ERROR "Failed to find bRPC or bRaft for log_service.")
+find_path(LEVELDB_INCLUDE_PATH NAMES leveldb/db.h)
+find_library(LEVELDB_LIB NAMES leveldb)
+if ((NOT LEVELDB_INCLUDE_PATH) OR (NOT LEVELDB_LIB))
+    message(FATAL_ERROR "Fail to find leveldb")
 endif()
-message(STATUS "LogService: Found bRPC: ${BRPC_LIB_LOG} (Inc: ${BRPC_INCLUDE_PATH_LOG}), bRaft: ${BRAFT_LIB_LOG} (Inc: ${BRAFT_INCLUDE_PATH_LOG})")
-list(APPEND LOG_INCLUDE_DIR_MODULE ${BRPC_INCLUDE_PATH_LOG} ${BRAFT_INCLUDE_PATH_LOG})
+include_directories(${LEVELDB_INCLUDE_PATH})
 
+set(LOG_SHIPPING_THREADS_NUM 1)
+if (USE_ROCKSDB_LOG_STATE)
+  if (WITH_ROCKSDB_CLOUD MATCHES "S3|GCS")
+    if (WITH_ROCKSDB_CLOUD STREQUAL "S3")
+        find_path(AWS_CORE_INCLUDE_PATH aws/core/Aws.h)
+        if((NOT AWS_CORE_INCLUDE_PATH))
+          message(FATAL_ERROR "Fail to find aws/core include path")
+        endif()
+        message(STATUS "aws/core include path: ${AWS_CORE_INCLUDE_PATH}")
+  
+        find_library(AWS_CORE_LIB aws-cpp-sdk-core)
+        if((NOT AWS_CORE_LIB ))
+          message(FATAL_ERROR "Fail to find aws-cpp-sdk-core lib")
+        endif()
+        message(STATUS "aws-cpp-sdk-core library: ${AWS_CORE_LIB}")
+  
+        find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h)
+        if((NOT AWS_KINESIS_INCLUDE_PATH))
+          message(FATAL_ERROR "Fail to find aws/kinesis include path")
+        endif()
+        message(STATUS "aws/kinesis include path: ${AWS_KINESIS_INCLUDE_PATH}")
+  
+        find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis)
+        if((NOT AWS_KINESIS_LIB))
+          message(FATAL_ERROR "Fail to find aws-cpp-sdk-kinesis lib")
+        endif()
+        message(STATUS "aws-cpp-sdk-kinesis library: ${AWS_KINESIS_LIB}")
+  
+  
+        find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h)
+        if((NOT AWS_KINESIS_INCLUDE_PATH))
+          message(FATAL_ERROR "Fail to find aws/kinesis include path")
+        endif()
+        message(STATUS "aws/kinesis include path: ${AWS_KINESIS_INCLUDE_PATH}")
+  
+        find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis)
+        if((NOT AWS_KINESIS_LIB))
+          message(FATAL_ERROR "Fail to find aws-cpp-sdk-kinesis lib")
+        endif()
+        message(STATUS "aws-cpp-sdk-kinesis library: ${AWS_KINESIS_LIB}")
+  
+        find_path(AWS_S3_INCLUDE_PATH aws/s3/S3Client.h)
+        if((NOT AWS_S3_INCLUDE_PATH))
+          message(FATAL_ERROR "Fail to find aws/s3 include path")
+        endif()
+        message(STATUS "aws/s3 include path: ${AWS_S3_INCLUDE_PATH}")
+  
+        find_library(AWS_S3_LIB aws-cpp-sdk-s3)
+        if((NOT AWS_S3_LIB ))
+          message(FATAL_ERROR "Fail to find aws-cpp-sdk-s3 lib")
+        endif()
+        message(STATUS "aws-cpp-sdk-s3 library: ${AWS_S3_LIB}")
+  
+        set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_CORE_INCLUDE_PATH})
+        set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_KINESIS_INCLUDE_PATH})
+        set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_S3_INCLUDE_PATH})
+  
+        set(ROCKSDB_LIB ${ROCKSDB_LIB} ${AWS_CORE_LIB})
+        set(ROCKSDB_LIB ${ROCKSDB_LIB} ${AWS_KINESIS_LIB})
+        set(ROCKSDB_LIB ${ROCKSDB_LIB} ${AWS_S3_LIB})
+  
+        find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-aws)
 
-list(APPEND LOCAL_LOG_LIB
-  ${CMAKE_THREAD_LIBS_INIT}
-  ${GFLAGS_LIBRARY} # From find_dependencies
-  ${PROTOBUF_LIBRARY} # From compile_protos (find_package Protobuf)
-  ${LEVELDB_LIB} # From find_dependencies
-  ${BRAFT_LIB} # Local find for log_service
-  ${BRPC_LIB_LOG} # Local find for log_service
-  dl
-  z
+        add_compile_definitions(USE_AWS)
+        add_compile_definitions(WITH_ROCKSDB_CLOUD=1)
+      elseif (WITH_ROCKSDB_CLOUD STREQUAL "GCS")
+        find_path(GCP_CS_INCLUDE_PATH google/cloud/storage/client.h)
+        if((NOT GCP_CS_INCLUDE_PATH))
+          message(FATAL_ERROR "Fail to find google/cloud/storage include path")
+        endif()
+        message(STATUS "google/cloud/storage include path: ${GCP_CS_INCLUDE_PATH}")
+  
+        find_library(GCP_COMMON_LIB google_cloud_cpp_common)
+        if((NOT GCP_COMMON_LIB))
+          message(FATAL_ERROR "Fail to find google_cloud_cpp_common lib")
+        endif()
+        message(STATUS "google_cloud_cpp_common library: ${GCP_COMMON_LIB}")
+
+        find_library(GCP_CS_LIB google_cloud_cpp_storage)
+        if((NOT GCP_CS_LIB))
+          message(FATAL_ERROR "Fail to find google_cloud_cpp_storage lib")
+        endif()
+        message(STATUS "google_cloud_cpp_storage library: ${GCP_CS_LIB}")
+
+        set(ROCKSDB_LIB ${ROCKSDB_LIB} ${GCP_COMMON_LIB})
+        set(ROCKSDB_LIB ${ROCKSDB_LIB} ${GCP_CS_LIB})
+  
+        find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-gcp)
+
+        add_compile_definitions(USE_GCP)
+        add_compile_definitions(WITH_ROCKSDB_CLOUD=2)
+      endif ()
+
+      find_path(ROCKSDB_CLOUD_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header")
+      if (NOT ROCKSDB_CLOUD_INCLUDE_PATH)
+    	  message(FATAL_ERROR "Fail to find RocksDB Cloud include path")
+      endif ()
+      message(STATUS "ROCKSDB_CLOUD_INCLUDE_PATH: ${ROCKSDB_CLOUD_INCLUDE_PATH}")
+      set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${ROCKSDB_CLOUD_INCLUDE_PATH})
+
+      if (NOT ROCKSDB_CLOUD_LIB)
+    	  message(FATAL_ERROR "Fail to find RocksDB Cloud lib path")
+      endif ()
+      message(STATUS "ROCKSDB_CLOUD_LIB: ${ROCKSDB_CLOUD_LIB}")
+      set(ROCKSDB_LIB ${ROCKSDB_LIB} ${ROCKSDB_CLOUD_LIB})
+    else ()
+      find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
+      if (NOT ROCKSDB_INCLUDE_PATH)
+    	message(FATAL_ERROR "Fail to find RocksDB include path")
+      endif ()
+      message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
+
+      find_library(ROCKSDB_LIB NAMES rocksdb)
+      if (NOT ROCKSDB_LIB)
+    	  message(FATAL_ERROR "Fail to find RocksDB lib path")
+      endif ()
+      message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
+    endif ()
+
+    include_directories(${ROCKSDB_INCLUDE_PATH})
+
+    set(LOG_LIB
+            ${LOG_LIB}
+            ${ROCKSDB_LIB}
+            )
+
+    # add preprocessor definition USE_ROCKSDB_LOG_STATE
+    add_compile_definitions(USE_ROCKSDB_LOG_STATE)
+    # one shipping thread is enough for rocksdb version log state
+    set(LOG_SHIPPING_THREADS_NUM 1)
+endif ()
+
+add_compile_definitions(LOG_SHIPPING_THREADS_NUM=${LOG_SHIPPING_THREADS_NUM})
+
+set(LOG_INCLUDE_DIR
+   ${LOG_SOURCE_DIR}/include
+   ${TX_LOG_PROTOS_SOURCE_DIR}
+   )
+
+set(LOG_LIB
+    ${LOG_LIB}
+    ${CMAKE_THREAD_LIBS_INIT}
+    ${GFLAGS_LIBRARY}
+    ${PROTOBUF_LIBRARY}
+    ${GPERFTOOLS_LIBRARIES}
+    ${LEVELDB_LIB}
+    ${BRAFT_LIB}
+    ${BRPC_LIB}
+    dl
+    z
+    )
+
+find_package(Protobuf REQUIRED)
+
+message("TX_LOG_PROTOS_SOURCE_DIR:${TX_LOG_PROTOS_SOURCE_DIR} ; LOG_INCLUDE_DIR: ${LOG_INCLUDE_DIR}")
+
+add_library(LOG_SERVICE_OBJ OBJECT
+    ${LOG_SOURCE_DIR}/src/log_server.cpp
+    ${LOG_SOURCE_DIR}/src/log_state_rocksdb_impl.cpp
+    ${LOG_SOURCE_DIR}/src/log_state_rocksdb_cloud_impl.cpp
+    ${LOG_SOURCE_DIR}/src/open_log_service.cpp
+    ${LOG_SOURCE_DIR}/src/open_log_task.cpp
+    ${LOG_SOURCE_DIR}/src/fault_inject.cpp
+    ${LOG_SOURCE_DIR}/src/INIReader.cpp
+    ${LOG_SOURCE_DIR}/src/ini.c
+    ${TX_LOG_PROTOS_SOURCE_DIR}/log.pb.cc
 )
-
-
-# Compile protos for the log service (e.g., log.proto)
-compile_protos_in_directory(${TX_LOG_PROTOS_SOURCE_DIR})
-set(LOG_COMPILED_PROTO_FILES_FOR_LOG ${COMPILED_PROTO_CC_FILES})
-message(STATUS "LogService: Compiled Log protos: ${LOG_COMPILED_PROTO_FILES_FOR_LOG}")
-
-message(STATUS "LOG_SERVICE: TX_LOG_PROTOS_SOURCE_DIR: ${TX_LOG_PROTOS_SOURCE_DIR}, Effective LOG_INCLUDE_DIR_MODULE: ${LOG_INCLUDE_DIR_MODULE}")
-message(STATUS "LOG_SERVICE: Effective LOCAL_LOG_LIB: ${LOCAL_LOG_LIB}")
-
-set(_LOG_SERVICE_SOURCES
-  ${LOG_SOURCE_DIR}/src/log_instance.cpp
-  ${LOG_SOURCE_DIR}/src/log_server.cpp
-  ${LOG_SOURCE_DIR}/src/log_state_rocksdb_impl.cpp
-  ${LOG_SOURCE_DIR}/src/log_state_rocksdb_cloud_impl.cpp
-  ${LOG_SOURCE_DIR}/src/log_state_memory_impl.cpp
-  ${LOG_SOURCE_DIR}/src/fault_inject.cpp
-  ${LOG_SOURCE_DIR}/src/INIReader.cpp
-  ${LOG_SOURCE_DIR}/src/ini.c
-)
-if(LOG_COMPILED_PROTO_FILES_FOR_LOG)
-  list(APPEND _LOG_SERVICE_SOURCES ${LOG_COMPILED_PROTO_FILES_FOR_LOG})
-  message(STATUS "LogService: Appended LOG_COMPILED_PROTO_FILES_FOR_LOG to _LOG_SERVICE_SOURCES.")
-endif()
-
-add_library(LOG_SERVICE_OBJ OBJECT ${_LOG_SERVICE_SOURCES})
 target_include_directories(LOG_SERVICE_OBJ PUBLIC
-  ${LOG_INCLUDE_DIR}
+    ${LOG_INCLUDE_DIR}
 )
-
 
 add_library(logservice_static STATIC
-  $<TARGET_OBJECTS:LOG_SERVICE_OBJ>
+    $<TARGET_OBJECTS:LOG_SERVICE_OBJ>
 )
 target_link_libraries(logservice_static PUBLIC
-  ${LOG_LIB}
-  ${PROTOBUF_LIBRARIES}
+    ${LOG_LIB}
+    ${PROTOBUF_LIBRARIES}
 )
 set_target_properties(logservice_static PROPERTIES OUTPUT_NAME logservice)
 
-
 add_library(logservice_shared SHARED
-  $<TARGET_OBJECTS:LOG_SERVICE_OBJ>
+    $<TARGET_OBJECTS:LOG_SERVICE_OBJ>
 )
 target_link_libraries(logservice_shared PUBLIC
-  ${LOG_LIB}
-  ${PROTOBUF_LIBRARIES}
+    ${LOG_LIB}
+    ${PROTOBUF_LIBRARIES}
 )
 set_target_properties(logservice_shared PROPERTIES OUTPUT_NAME logservice)
-set_target_properties(logservice_shared PROPERTIES INSTALL_RPATH "$ORIGIN")

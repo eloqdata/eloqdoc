@@ -26,7 +26,6 @@ git submodule sync
 git submodule update --init --recursive
 
 cd src/mongo/db/modules/eloq
-ln -s $WORKSPACE/logservice_src log_service
 
 cd /home/mono/workspace/mongo
 

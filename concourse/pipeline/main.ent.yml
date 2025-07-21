@@ -7,7 +7,7 @@ resources:
     uri: git@github.com:eloqdata/eloqdoc.git
     private_key: ((git-key))
 
-- name: logservice_src
+- name: eloq_logservice_src
   type: git
   source:
     branch: main
@@ -38,7 +38,7 @@ jobs:
       steps:
       - get: eloqdoc_src
         trigger: true
-      - get: logservice_src
+      - get: eloq_logservice_src
       - get: raft_host_manager_src
       - get: mono_ubuntu_2404
   - task: compile-test-task

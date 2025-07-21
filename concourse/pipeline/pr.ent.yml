@@ -14,7 +14,7 @@ resources:
     access_token: ((git-token))
     ignore_drafts: true
 
-- name: logservice_src
+- name: eloq_logservice_src
   type: git
   source:
     branch: main
@@ -46,7 +46,7 @@ jobs:
             - get: eloqdoc_pr
               trigger: true
               version: every
-            - get: logservice_src
+            - get: eloq_logservice_src
             - get: raft_host_manager_src
             - get: mono_ubuntu_2404
       - put: eloqdoc_pr
@@ -55,7 +55,7 @@ jobs:
           status: pending
       - task: compile-test-task
         image: mono_ubuntu_2404
-        file: eloqdoc_pr/concourse/tasks/pr_ent.yml
+        file: eloqdoc_pr/concourse/tasks/pr.ent.yml
         vars:
           cass-host: ((cassandra-host))
         privileged: true

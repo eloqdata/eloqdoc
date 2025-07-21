@@ -177,5 +177,6 @@ testcase_log.txt
 
 src/mongo/db/modules/eloq/*build*
 src/mongo/db/modules/eloq/*test*/
+src/mongo/db/modules/eloq/eloq_log_service/
 config/*/*.conf
 .python-version

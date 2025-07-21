@@ -90,7 +90,11 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/store)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/abseil-cpp)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-protos) # For shared protos
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/eloq_metrics/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/log_service/include)
+if (OPEN_LOG_SERVICE)
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/log_service/include)
+else()
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/eloq_log_service/include)
+endif()
 
 # --- Include build system modules ---
 add_subdirectory(tx_service/abseil-cpp)
@@ -99,9 +103,9 @@ include(cmake/compile_protos.cmake)   # Helper function for proto compilation
 include(cmake/build_eloq_metrics.cmake)
 include(cmake/build_tx_service.cmake)
 if (OPEN_LOG_SERVICE)
-include(cmake/build_open_log_service.cmake)
+    include(cmake/build_log_service.cmake)
 else()
-include(cmake/build_log_service.cmake)
+    include(cmake/build_eloq_log_service.cmake)
 endif()
 include(cmake/build_data_store.cmake)
 
