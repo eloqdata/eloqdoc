@@ -751,13 +751,13 @@ void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) 
 
     // For primary index.
     auto mongoKey = std::make_unique<Eloq::MongoKey>(id);
-    auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
+    Eloq::MongoRecord mongoRecord;
     uint64_t keySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
     // read the record if the table is creating indexes.
     if (table._creatingIndexes.size() > 0) {
         auto [exists, err] =
-            ru->getKV(opCtx, _tableName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
+            ru->getKV(opCtx, _tableName, keySchemaVersion, mongoKey.get(), &mongoRecord, true);
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
     }
 
@@ -770,7 +770,7 @@ void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) 
 
     // remove record from creating index.
     if (table._creatingIndexes.size() > 0) {
-        BSONObj recordObj(mongoRecord->EncodedBlobData());
+        BSONObj recordObj(mongoRecord.EncodedBlobData());
         for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
             const txservice::TableName& indexName = index->first;
             const auto* keySchema =
@@ -1094,7 +1094,6 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         if (err != txservice::TxErrorCode::NO_ERROR) {
             return TxErrorCodeToMongoStatus(err);
         }
-
         if (exists) {
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         }
