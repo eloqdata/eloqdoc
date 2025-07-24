@@ -172,6 +172,9 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
         threadGroup._updateExtProc(1);
 #endif
         std::array<Task, kTaskBatchSize> taskBulk;
+        moodycamel::ConsumerToken taskToken(threadGroup._taskQueue);
+        moodycamel::ConsumerToken resumeToken(threadGroup._resumeQueue);
+
         size_t idleCnt = 0;
         std::chrono::steady_clock::time_point idleStartTime;
         while (_stillRunning.load(std::memory_order_relaxed)) {
@@ -182,7 +185,8 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
             size_t cnt = 0;
             // process resume task
             if (threadGroup._resumeQueueSize.load(std::memory_order_relaxed) > 0) {
-                cnt = threadGroup._resumeQueue.try_dequeue_bulk(taskBulk.begin(), taskBulk.size());
+                cnt = threadGroup._resumeQueue.try_dequeue_bulk(
+                    resumeToken, taskBulk.begin(), taskBulk.size());
                 threadGroup._resumeQueueSize.fetch_sub(cnt);
                 for (size_t i = 0; i < cnt; ++i) {
                     // setThreadName(threadNameSD);
@@ -192,7 +196,8 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
 
             // process normal task
             if (cnt == 0 && threadGroup._taskQueueSize.load(std::memory_order_relaxed) > 0) {
-                cnt = threadGroup._taskQueue.try_dequeue_bulk(taskBulk.begin(), taskBulk.size());
+                cnt = threadGroup._taskQueue.try_dequeue_bulk(
+                    taskToken, taskBulk.begin(), taskBulk.size());
                 threadGroup._taskQueueSize.fetch_sub(cnt);
                 for (size_t i = 0; i < cnt; ++i) {
                     // setThreadName(threadNameSD);
