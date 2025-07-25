@@ -43,6 +43,7 @@
 #include "mongo/db/db_raii.h"
 #include "mongo/db/dbhelpers.h"
 #include "mongo/db/namespace_string.h"
+#include "mongo/db/op_observer.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/ops/delete.h"
 #include "mongo/db/ops/write_ops_exec.h"
@@ -428,8 +429,7 @@ Status MigrationDestinationManager::abort(const MigrationSessionId& sessionId) {
     if (!_sessionId->matches(sessionId)) {
         return {ErrorCodes::CommandFailed,
                 str::stream() << "received abort request from a stale session "
-                              << sessionId.toString()
-                              << ". Current session is "
+                              << sessionId.toString() << ". Current session is "
                               << _sessionId->toString()};
     }
 
@@ -454,8 +454,7 @@ Status MigrationDestinationManager::startCommit(const MigrationSessionId& sessio
     if (_state != STEADY) {
         return {ErrorCodes::CommandFailed,
                 str::stream() << "Migration startCommit attempted when not in STEADY state."
-                              << " Sender's session is "
-                              << sessionId.toString()
+                              << " Sender's session is " << sessionId.toString()
                               << (_sessionId ? (". Current session is " + _sessionId->toString())
                                              : ". No active session on this shard.")};
     }
@@ -469,8 +468,7 @@ Status MigrationDestinationManager::startCommit(const MigrationSessionId& sessio
     if (!_sessionId->matches(sessionId)) {
         return {ErrorCodes::CommandFailed,
                 str::stream() << "startCommit received commit request from a stale session "
-                              << sessionId.toString()
-                              << ". Current session is "
+                              << sessionId.toString() << ". Current session is "
                               << _sessionId->toString()};
     }
 
@@ -542,9 +540,7 @@ void MigrationDestinationManager::cloneCollectionIndexesAndOptions(OperationCont
         auto infos = infosRes.docs;
         uassert(ErrorCodes::NamespaceNotFound,
                 str::stream() << "expected listCollections against the primary shard for "
-                              << nss.toString()
-                              << " to return 1 entry, but got "
-                              << infos.size()
+                              << nss.toString() << " to return 1 entry, but got " << infos.size()
                               << " entries",
                 infos.size() == 1);
 
@@ -566,8 +562,7 @@ void MigrationDestinationManager::cloneCollectionIndexesAndOptions(OperationCont
 
         uassert(ErrorCodes::InvalidUUID,
                 str::stream() << "The donor shard did not return a UUID for collection " << nss.ns()
-                              << " as part of its listCollections response: "
-                              << entry
+                              << " as part of its listCollections response: " << entry
                               << ", but this node expects to see a UUID.",
                 !info["uuid"].eoo());
 
@@ -606,8 +601,7 @@ void MigrationDestinationManager::cloneCollectionIndexesAndOptions(OperationCont
 
             uassert(ErrorCodes::InvalidUUID,
                     str::stream()
-                        << "Cannot create collection "
-                        << nss.ns()
+                        << "Cannot create collection " << nss.ns()
                         << " because we already have an identically named collection with UUID "
                         << (collection->uuid() ? collection->uuid()->toString() : "(none)")
                         << ", which differs from the donor's UUID "
@@ -647,8 +641,7 @@ void MigrationDestinationManager::cloneCollectionIndexesAndOptions(OperationCont
             auto indexInfoObjs = indexer.init(donorIndexSpecs);
             uassert(ErrorCodes::CannotCreateIndex,
                     str::stream() << "failed to create index before migrating data. "
-                                  << " error: "
-                                  << redact(indexInfoObjs.getStatus()),
+                                  << " error: " << redact(indexInfoObjs.getStatus()),
                     indexInfoObjs.isOK());
 
             WriteUnitOfWork wunit(opCtx);
@@ -784,9 +777,9 @@ void MigrationDestinationManager::_migrateDriver(OperationContext* opCtx) {
 
             for (unsigned long i = 0; i < reply.results.size(); ++i) {
                 uassertStatusOKWithContext(reply.results[i],
-                                           str::stream() << "Insert of "
-                                                         << redact(insertOp.getDocuments()[i])
-                                                         << " failed.");
+                                           str::stream()
+                                               << "Insert of " << redact(insertOp.getDocuments()[i])
+                                               << " failed.");
             }
 
             {
@@ -1114,10 +1107,9 @@ CollectionShardingRuntime::CleanupNotification MigrationDestinationManager::_not
     // checking this here is that in the future we shouldn't have this problem.
     if (!metadata->isSharded() || metadata->getCollVersion().epoch() != _epoch) {
         return Status{ErrorCodes::StaleShardVersion,
-                      str::stream() << "not noting chunk " << redact(range.toString())
-                                    << " as pending because the epoch of "
-                                    << _nss.ns()
-                                    << " changed"};
+                      str::stream()
+                          << "not noting chunk " << redact(range.toString())
+                          << " as pending because the epoch of " << _nss.ns() << " changed"};
     }
 
     // Start clearing any leftovers that would be in the new chunk

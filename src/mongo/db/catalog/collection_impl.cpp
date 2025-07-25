@@ -191,8 +191,7 @@ CollectionImpl::~CollectionImpl() {
     if (_uuid) {
         if (auto opCtx = cc().getOperationContext()) {
             auto& uuidCatalog = UUIDCatalog::get(opCtx);
-            // EloqDoc disable defer erase Collection.
-            // invariant(uuidCatalog.lookupCollectionByUUID(_uuid.get()) != _this);
+            invariant(uuidCatalog.lookupCollectionByUUID(_uuid.get()).get() != _this);
             auto& cache = NamespaceUUIDCache::get(opCtx);
             // TODO(geert): cache.verifyNotCached(ns(), uuid().get());
             cache.evictNamespace(ns());

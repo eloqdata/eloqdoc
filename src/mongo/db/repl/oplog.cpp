@@ -1066,10 +1066,12 @@ Status applyOperation_inlock(OperationContext* opCtx,
 
     NamespaceString requestNss;
     Collection* collection = nullptr;
+    std::shared_ptr<Collection> uuidIndexedCollection;
     if (fieldUI) {
         UUIDCatalog& catalog = UUIDCatalog::get(opCtx);
         auto uuid = uassertStatusOK(UUID::parse(fieldUI));
-        collection = catalog.lookupCollectionByUUID(uuid);
+        uuidIndexedCollection = catalog.lookupCollectionByUUID(uuid);
+        collection = uuidIndexedCollection.get();
         uassert(ErrorCodes::NamespaceNotFound,
                 str::stream() << "Failed to apply operation due to missing collection (" << uuid
                               << "): " << redact(op.toString()),

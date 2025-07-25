@@ -1,7 +1,7 @@
 set(LOG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/eloq_log_service)
 set(TX_LOG_PROTOS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-protos) # Shared protos
 
-set(LOCAL_LOG_LIB "") # Initialize list for libraries specific to log_service targets
+set(LOG_LIB "") # Initialize list for libraries specific to log_service targets
 
 
 
@@ -83,7 +83,7 @@ if(USE_ROCKSDB_LOG_STATE) # USE_ROCKSDB_LOG_STATE is a global option
     message(STATUS "LogService: Added compile definition WITH_ROCKSDB_CLOUD_IMPL=2 for GCS.")
   endif()
 
-  list(APPEND LOCAL_LOG_LIB ${LOG_SERVICE_ROCKSDB_LIBRARIES})
+  list(APPEND LOG_LIB ${LOG_SERVICE_ROCKSDB_LIBRARIES})
   add_compile_definitions(USE_ROCKSDB_LOG_STATE)
   message(STATUS "LogService: Added compile definition USE_ROCKSDB_LOG_STATE. Linking with RocksDB libs: ${LOG_SERVICE_ROCKSDB_LIBRARIES}")
 endif()
@@ -112,7 +112,7 @@ message(STATUS "LogService: Found bRPC: ${BRPC_LIB_LOG} (Inc: ${BRPC_INCLUDE_PAT
 list(APPEND LOG_INCLUDE_DIR_MODULE ${BRPC_INCLUDE_PATH_LOG} ${BRAFT_INCLUDE_PATH_LOG})
 
 
-list(APPEND LOCAL_LOG_LIB
+list(APPEND LOG_LIB
   ${CMAKE_THREAD_LIBS_INIT}
   ${GFLAGS_LIBRARY} # From find_dependencies
   ${PROTOBUF_LIBRARY} # From compile_protos (find_package Protobuf)
@@ -130,7 +130,7 @@ set(LOG_COMPILED_PROTO_FILES_FOR_LOG ${COMPILED_PROTO_CC_FILES})
 message(STATUS "LogService: Compiled Log protos: ${LOG_COMPILED_PROTO_FILES_FOR_LOG}")
 
 message(STATUS "LOG_SERVICE: TX_LOG_PROTOS_SOURCE_DIR: ${TX_LOG_PROTOS_SOURCE_DIR}, Effective LOG_INCLUDE_DIR_MODULE: ${LOG_INCLUDE_DIR_MODULE}")
-message(STATUS "LOG_SERVICE: Effective LOCAL_LOG_LIB: ${LOCAL_LOG_LIB}")
+message(STATUS "LOG_SERVICE: Effective LOG_LIB: ${LOG_LIB}")
 
 set(_LOG_SERVICE_SOURCES
   ${LOG_SOURCE_DIR}/src/log_instance.cpp

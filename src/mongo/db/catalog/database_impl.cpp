@@ -240,9 +240,9 @@ Collection* DatabaseImpl::_getOrCreateCollectionInstance(OperationContext* opCtx
         // to rollback UUIDCatalog changes because we are initializing existing collections.
         auto&& uuidCatalog = UUIDCatalog::get(opCtx);
         if (!opCtx->lockState()->inAWriteUnitOfWork()) {
-            uuidCatalog.registerUUIDCatalogEntry(uuid.get(), coll);
+            uuidCatalog.registerUUIDCatalogEntry(uuid.get(), coll->clone(opCtx));
         } else {
-            uuidCatalog.onCreateCollection(opCtx, coll, uuid.get());
+            uuidCatalog.onCreateCollection(opCtx, coll->clone(opCtx), uuid.get());
         }
     }
 
@@ -281,9 +281,9 @@ Collection* DatabaseImpl::_createCollectionHandler(OperationContext* opCtx,
         // to rollback UUIDCatalog changes because we are initializing existing collections.
         auto&& uuidCatalog = UUIDCatalog::get(opCtx);
         if (!opCtx->lockState()->inAWriteUnitOfWork()) {
-            uuidCatalog.registerUUIDCatalogEntry(uuid.get(), collection.get());
+            uuidCatalog.registerUUIDCatalogEntry(uuid.get(), collection->clone(opCtx));
         } else {
-            uuidCatalog.onCreateCollection(opCtx, collection.get(), uuid.get());
+            uuidCatalog.onCreateCollection(opCtx, collection->clone(opCtx), uuid.get());
         }
     }
 

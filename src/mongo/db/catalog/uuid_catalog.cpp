@@ -45,7 +45,7 @@ const ServiceContext::Decoration<UUIDCatalog> getCatalog =
 }  // namespace
 
 void UUIDCatalogObserver::onCreateCollection(OperationContext* opCtx,
-                                             Collection* coll,
+                                             Collection::Uptr coll,
                                              const NamespaceString& collectionName,
                                              const CollectionOptions& options,
                                              const BSONObj& idIndex,
@@ -53,7 +53,7 @@ void UUIDCatalogObserver::onCreateCollection(OperationContext* opCtx,
     if (!options.uuid)
         return;
     UUIDCatalog& catalog = UUIDCatalog::get(opCtx);
-    catalog.onCreateCollection(opCtx, coll, options.uuid.get());
+    catalog.onCreateCollection(opCtx, std::move(coll), options.uuid.get());
 }
 
 void UUIDCatalogObserver::onCollMod(OperationContext* opCtx,
@@ -65,7 +65,7 @@ void UUIDCatalogObserver::onCollMod(OperationContext* opCtx,
     if (!uuid)
         return;
     UUIDCatalog& catalog = UUIDCatalog::get(opCtx);
-    Collection* catalogColl = catalog.lookupCollectionByUUID(uuid.get());
+    std::shared_ptr<Collection> catalogColl = catalog.lookupCollectionByUUID(uuid.get());
     invariant(
         catalogColl->uuid() == uuid,
         str::stream() << (uuid ? uuid->toString() : "<no uuid>") << ","
@@ -96,7 +96,7 @@ void UUIDCatalogObserver::onRenameCollection(OperationContext* opCtx,
     auto newColl = db->getCollection(opCtx, toCollection);
     invariant(newColl);
     UUIDCatalog& catalog = UUIDCatalog::get(opCtx);
-    catalog.onRenameCollection(opCtx, newColl, uuid.get());
+    catalog.onRenameCollection(opCtx, newColl->clone(opCtx), uuid.get());
 }
 
 repl::OpTime UUIDCatalogObserver::preRenameCollection(OperationContext* opCtx,
@@ -127,28 +127,30 @@ UUIDCatalog& UUIDCatalog::get(OperationContext* opCtx) {
 }
 
 void UUIDCatalog::onCreateCollection(OperationContext* opCtx,
-                                     Collection* coll,
+                                     Collection::Uptr coll,
                                      CollectionUUID uuid) {
 
     stdx::lock_guard<stdx::mutex> lock(_catalogLock);
     _removeUUIDCatalogEntry_inlock(uuid);  // Remove UUID if it exists
-    _registerUUIDCatalogEntry_inlock(uuid, coll);
+    _registerUUIDCatalogEntry_inlock(uuid, std::move(coll));
     opCtx->recoveryUnit()->onRollback([this, uuid] { removeUUIDCatalogEntry(uuid); });
 }
 
 void UUIDCatalog::onDropCollection(OperationContext* opCtx, CollectionUUID uuid) {
-    Collection* foundColl = removeUUIDCatalogEntry(uuid);
-    opCtx->recoveryUnit()->onRollback(
-        [this, foundColl, uuid] { registerUUIDCatalogEntry(uuid, foundColl); });
+    std::shared_ptr<Collection> foundColl = removeUUIDCatalogEntry(uuid);
+    opCtx->recoveryUnit()->onRollback([this, foundColl = std::move(foundColl), uuid]() mutable {
+        registerUUIDCatalogEntry(uuid, foundColl);
+    });
 }
 
 void UUIDCatalog::onRenameCollection(OperationContext* opCtx,
-                                     Collection* coll,
+                                     Collection::Uptr coll,
                                      CollectionUUID uuid) {
     invariant(coll);
-    Collection* oldColl = replaceUUIDCatalogEntry(uuid, coll);
-    opCtx->recoveryUnit()->onRollback(
-        [this, oldColl, uuid] { replaceUUIDCatalogEntry(uuid, oldColl); });
+    std::shared_ptr<Collection> oldColl = replaceUUIDCatalogEntry(uuid, std::move(coll));
+    opCtx->recoveryUnit()->onRollback([this, oldColl = std::move(oldColl), uuid]() mutable {
+        replaceUUIDCatalogEntry(uuid, oldColl);
+    });
 }
 
 void UUIDCatalog::onCloseDatabase(OperationContext* opCtx, Database* db) {
@@ -166,7 +168,7 @@ void UUIDCatalog::onCloseCatalog(OperationContext* opCtx) {
     stdx::lock_guard<stdx::mutex> lock(_catalogLock);
     invariant(!_shadowCatalog);
     _shadowCatalog.emplace();
-    for (auto entry : _catalog)
+    for (auto& entry : _catalog)
         _shadowCatalog->insert({entry.first, entry.second->ns()});
 }
 
@@ -177,7 +179,7 @@ void UUIDCatalog::onOpenCatalog(OperationContext* opCtx) {
     _shadowCatalog.reset();
 }
 
-Collection* UUIDCatalog::lookupCollectionByUUID(CollectionUUID uuid) const {
+std::shared_ptr<Collection> UUIDCatalog::lookupCollectionByUUID(CollectionUUID uuid) const {
     stdx::lock_guard<stdx::mutex> lock(_catalogLock);
     auto foundIt = _catalog.find(uuid);
     return foundIt == _catalog.end() ? nullptr : foundIt->second;
@@ -200,20 +202,21 @@ NamespaceString UUIDCatalog::lookupNSSByUUID(CollectionUUID uuid) const {
     return NamespaceString();
 }
 
-Collection* UUIDCatalog::replaceUUIDCatalogEntry(CollectionUUID uuid, Collection* coll) {
+std::shared_ptr<Collection> UUIDCatalog::replaceUUIDCatalogEntry(CollectionUUID uuid,
+                                                                 std::shared_ptr<Collection> coll) {
     stdx::lock_guard<stdx::mutex> lock(_catalogLock);
     invariant(coll);
-    Collection* oldColl = _removeUUIDCatalogEntry_inlock(uuid);
+    std::shared_ptr<Collection> oldColl = _removeUUIDCatalogEntry_inlock(uuid);
     invariant(oldColl != nullptr);  // Need to replace an existing coll
-    _registerUUIDCatalogEntry_inlock(uuid, coll);
+    _registerUUIDCatalogEntry_inlock(uuid, std::move(coll));
     return oldColl;
 }
-void UUIDCatalog::registerUUIDCatalogEntry(CollectionUUID uuid, Collection* coll) {
+void UUIDCatalog::registerUUIDCatalogEntry(CollectionUUID uuid, std::shared_ptr<Collection> coll) {
     stdx::lock_guard<stdx::mutex> lock(_catalogLock);
-    _registerUUIDCatalogEntry_inlock(uuid, coll);
+    _registerUUIDCatalogEntry_inlock(uuid, std::move(coll));
 }
 
-Collection* UUIDCatalog::removeUUIDCatalogEntry(CollectionUUID uuid) {
+std::shared_ptr<Collection> UUIDCatalog::removeUUIDCatalogEntry(CollectionUUID uuid) {
     stdx::lock_guard<stdx::mutex> lock(_catalogLock);
     return _removeUUIDCatalogEntry_inlock(uuid);
 }
@@ -265,17 +268,19 @@ const std::vector<CollectionUUID>& UUIDCatalog::_getOrdering_inlock(
 
     return newOrdering;
 }
-void UUIDCatalog::_registerUUIDCatalogEntry_inlock(CollectionUUID uuid, Collection* coll) {
+void UUIDCatalog::_registerUUIDCatalogEntry_inlock(CollectionUUID uuid,
+                                                   std::shared_ptr<Collection> coll) {
     if (coll && !_catalog.count(uuid)) {
         // Invalidate this database's ordering, since we're adding a new UUID.
         _orderedCollections.erase(coll->ns().db());
 
-        std::pair<CollectionUUID, Collection*> entry = std::make_pair(uuid, coll);
         LOG(2) << "registering collection " << coll->ns() << " with UUID " << uuid.toString();
-        invariant(_catalog.insert(entry).second == true);
+        std::pair<CollectionUUID, std::shared_ptr<Collection>> entry =
+            std::make_pair(uuid, std::move(coll));
+        invariant(_catalog.insert(std::move(entry)).second == true);
     }
 }
-Collection* UUIDCatalog::_removeUUIDCatalogEntry_inlock(CollectionUUID uuid) {
+std::shared_ptr<Collection> UUIDCatalog::_removeUUIDCatalogEntry_inlock(CollectionUUID uuid) {
     auto foundIt = _catalog.find(uuid);
     if (foundIt == _catalog.end())
         return nullptr;
@@ -283,7 +288,7 @@ Collection* UUIDCatalog::_removeUUIDCatalogEntry_inlock(CollectionUUID uuid) {
     // Invalidate this database's ordering, since we're deleting a UUID.
     _orderedCollections.erase(foundIt->second->ns().db());
 
-    auto foundCol = foundIt->second;
+    std::shared_ptr<Collection> foundCol = std::move(foundIt->second);
     LOG(2) << "unregistering collection " << foundCol->ns() << " with UUID " << uuid.toString();
     _catalog.erase(foundIt);
     return foundCol;

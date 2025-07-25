@@ -34,6 +34,7 @@
 #include "mongo/db/concurrency/write_conflict_exception.h"
 #include "mongo/db/dbdirectclient.h"
 #include "mongo/db/namespace_string.h"
+#include "mongo/db/op_observer.h"
 #include "mongo/db/repl/repl_client_info.h"
 #include "mongo/db/repl/replication_process.h"
 #include "mongo/db/session.h"
@@ -194,8 +195,9 @@ bool SessionCatalogMigrationSource::_handleWriteHistory(WithLock, OperationConte
 
             // Note: This is an optimization based on the assumption that it is not possible to be
             // touching different namespaces in the same transaction.
-            if (!nextStmtId || (nextStmtId && *nextStmtId != kIncompleteHistoryStmtId &&
-                                nextOplog.getNamespace() != _ns)) {
+            if (!nextStmtId ||
+                (nextStmtId && *nextStmtId != kIncompleteHistoryStmtId &&
+                 nextOplog.getNamespace() != _ns)) {
                 _currentOplogIterator.reset();
                 return false;
             }
@@ -322,8 +324,7 @@ repl::OplogEntry SessionCatalogMigrationSource::SessionOplogIterator::getNext(
 
             uassert(40656,
                     str::stream() << "rollback detected, rollbackId was " << _initialRollbackId
-                                  << " but is now "
-                                  << rollbackId,
+                                  << " but is now " << rollbackId,
                     rollbackId == _initialRollbackId);
 
             // If the rollbackId hasn't changed, this means that the oplog has been truncated.

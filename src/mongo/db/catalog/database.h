@@ -59,8 +59,8 @@ namespace mongo {
 class Database : public Decorable<Database> {
 public:
     // Used for range-based loop only
-    using CollectionMapView = std::map<std::string, std::unique_ptr<Collection>>;
-    using CollectionMap = std::map<std::string, std::unique_ptr<Collection>, std::less<void>>;
+    using CollectionMapView = std::map<std::string, Collection::Uptr>;
+    using CollectionMap = std::map<std::string, Collection::Uptr, std::less<void>>;
 
     class Impl {
     public:

@@ -46,7 +46,6 @@
 #include "mongo/db/exec/collection_scan_common.h"
 #include "mongo/db/logical_session_id.h"
 #include "mongo/db/namespace_string.h"
-#include "mongo/db/op_observer.h"
 #include "mongo/db/query/collation/collator_interface.h"
 #include "mongo/db/record_id.h"
 #include "mongo/db/repl/oplog.h"
@@ -159,6 +158,8 @@ private:
  */
 class Collection final : CappedCallback, UpdateNotifier {
 public:
+    using Uptr = std::unique_ptr<Collection>;
+
     enum ValidationAction { WARN, ERROR_V };
     enum ValidationLevel { OFF, MODERATE, STRICT_V };
     enum class StoreDeletedDoc { Off, On };
@@ -358,6 +359,11 @@ public:
     explicit inline Collection(std::unique_ptr<Impl> mock) : _pimpl(std::move(mock)) {}
 
     inline ~Collection() = default;
+
+    inline Collection::Uptr clone(OperationContext* const opCtx) {
+        return std::make_unique<Collection>(
+            opCtx, ns().toStringData(), uuid(), details(), getRecordStore(), dbce());
+    }
 
     inline bool ok() const {
         return this->_impl().ok();

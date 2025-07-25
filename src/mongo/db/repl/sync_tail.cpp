@@ -1,30 +1,30 @@
 /**
-*    Copyright (C) 2008 10gen Inc.
-*
-*    This program is free software: you can redistribute it and/or  modify
-*    it under the terms of the GNU Affero General Public License, version 3,
-*    as published by the Free Software Foundation.
-*
-*    This program is distributed in the hope that it will be useful,
-*    but WITHOUT ANY WARRANTY; without even the implied warranty of
-*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*    GNU Affero General Public License for more details.
-*
-*    You should have received a copy of the GNU Affero General Public License
-*    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*
-*    As a special exception, the copyright holders give permission to link the
-*    code of portions of this program with the OpenSSL library under certain
-*    conditions as described in each individual source file and distribute
-*    linked combinations including the program with the OpenSSL library. You
-*    must comply with the GNU Affero General Public License in all respects for
-*    all of the code used other than as permitted herein. If you modify file(s)
-*    with this exception, you may extend this exception to your version of the
-*    file(s), but you are not obligated to do so. If you do not wish to do so,
-*    delete this exception statement from your version. If you delete this
-*    exception statement from all source files in the program, then also delete
-*    it in the license file.
-*/
+ *    Copyright (C) 2008 10gen Inc.
+ *
+ *    This program is free software: you can redistribute it and/or  modify
+ *    it under the terms of the GNU Affero General Public License, version 3,
+ *    as published by the Free Software Foundation.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Affero General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Affero General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *    As a special exception, the copyright holders give permission to link the
+ *    code of portions of this program with the OpenSSL library under certain
+ *    conditions as described in each individual source file and distribute
+ *    linked combinations including the program with the OpenSSL library. You
+ *    must comply with the GNU Affero General Public License in all respects for
+ *    all of the code used other than as permitted herein. If you modify file(s)
+ *    with this exception, you may extend this exception to your version of the
+ *    file(s), but you are not obligated to do so. If you do not wish to do so,
+ *    delete this exception statement from your version. If you delete this
+ *    exception statement from all source files in the program, then also delete
+ *    it in the license file.
+ */
 
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kReplication
 
@@ -468,16 +468,15 @@ void applyOps(std::vector<MultiApplier::OperationPtrs>& writerVectors,
     invariant(writerVectors.size() == statusVector->size());
     for (size_t i = 0; i < writerVectors.size(); i++) {
         if (!writerVectors[i].empty()) {
-            invariant(writerPool->schedule([
-                &func,
-                st,
-                &writer = writerVectors.at(i),
-                &status = statusVector->at(i),
-                &workerMultikeyPathInfo = workerMultikeyPathInfo->at(i)
-            ] {
-                auto opCtx = cc().makeOperationContext();
-                status = func(opCtx.get(), &writer, st, &workerMultikeyPathInfo);
-            }));
+            invariant(
+                writerPool->schedule([&func,
+                                      st,
+                                      &writer = writerVectors.at(i),
+                                      &status = statusVector->at(i),
+                                      &workerMultikeyPathInfo = workerMultikeyPathInfo->at(i)] {
+                    auto opCtx = cc().makeOperationContext();
+                    status = func(opCtx.get(), &writer, st, &workerMultikeyPathInfo);
+                }));
         }
     }
 }
@@ -733,7 +732,7 @@ void tryToGoLiveAsASecondary(OperationContext* opCtx,
                   << ". Current state: " << replCoord->getMemberState() << causedBy(status);
     }
 }
-}
+}  // namespace
 
 class SyncTail::OpQueueBatcher {
     MONGO_DISALLOW_COPYING(OpQueueBatcher);
@@ -919,8 +918,7 @@ void SyncTail::_oplogApplication(OplogBuffer* oplogBuffer,
                            str::stream() << "Attempted to apply an oplog entry ("
                                          << firstOpTimeInBatch.toString()
                                          << ") which is not greater than our last applied OpTime ("
-                                         << lastAppliedOpTimeAtStartOfBatch.toString()
-                                         << ")."));
+                                         << lastAppliedOpTimeAtStartOfBatch.toString() << ")."));
         }
 
         // Don't allow the fsync+lock thread to see intermediate states of batch application.
@@ -953,8 +951,7 @@ void SyncTail::_oplogApplication(OplogBuffer* oplogBuffer,
         const auto lastAppliedOpTimeAtEndOfBatch = replCoord->getMyLastAppliedOpTime();
         invariant(lastAppliedOpTimeAtStartOfBatch == lastAppliedOpTimeAtEndOfBatch,
                   str::stream() << "the last known applied OpTime has changed from "
-                                << lastAppliedOpTimeAtStartOfBatch.toString()
-                                << " to "
+                                << lastAppliedOpTimeAtStartOfBatch.toString() << " to "
                                 << lastAppliedOpTimeAtEndOfBatch.toString()
                                 << " in the middle of batch application");
 
@@ -1205,6 +1202,7 @@ bool SyncTail::fetchAndInsertMissingDocument(OperationContext* opCtx,
         WriteUnitOfWork wunit(opCtx);
 
         Collection* coll = nullptr;
+        std::shared_ptr<Collection> uuidIndexedColl;
         auto uuid = oplogEntry.getUuid();
         if (!uuid) {
             if (!db) {
@@ -1215,7 +1213,8 @@ bool SyncTail::fetchAndInsertMissingDocument(OperationContext* opCtx,
             // If the oplog entry has a UUID, use it to find the collection in which to insert the
             // missing document.
             auto& catalog = UUIDCatalog::get(opCtx);
-            coll = catalog.lookupCollectionByUUID(*uuid);
+            uuidIndexedColl = catalog.lookupCollectionByUUID(*uuid);
+            coll = uuidIndexedColl.get();
             if (!coll) {
                 // TODO(SERVER-30819) insert this UUID into the missing UUIDs set.
                 return false;

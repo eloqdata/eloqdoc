@@ -41,6 +41,7 @@
 #include "mongo/db/curop.h"
 #include "mongo/db/dbhelpers.h"
 #include "mongo/db/namespace_string.h"
+#include "mongo/db/op_observer.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/storage/record_data.h"
 #include "mongo/stdx/unordered_set.h"
@@ -119,9 +120,7 @@ Status DurableViewCatalogImpl::iterate(OperationContext* opCtx, Callback callbac
         if (!valid) {
             return {ErrorCodes::InvalidViewDefinition,
                     str::stream() << "found invalid view definition " << viewDef["_id"]
-                                  << " while reading '"
-                                  << _db->getSystemViewsName()
-                                  << "'"};
+                                  << " while reading '" << _db->getSystemViewsName() << "'"};
         }
 
         Status callbackStatus = callback(viewDef);

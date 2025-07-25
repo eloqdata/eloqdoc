@@ -113,14 +113,15 @@ public:
     }
 
     void onCreateCollection(OperationContext* const opCtx,
-                            Collection* coll,
+                            Collection::Uptr coll,
                             const NamespaceString& collectionName,
                             const CollectionOptions& options,
                             const BSONObj& idIndex,
                             const OplogSlot& createOpTime) override {
         ReservedTimes times{opCtx};
         for (auto& o : _observers)
-            o->onCreateCollection(opCtx, coll, collectionName, options, idIndex, createOpTime);
+            o->onCreateCollection(
+                opCtx, std::move(coll), collectionName, options, idIndex, createOpTime);
     }
 
     void onCollMod(OperationContext* const opCtx,

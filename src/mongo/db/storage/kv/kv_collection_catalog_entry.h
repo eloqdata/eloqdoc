@@ -89,7 +89,7 @@ public:
 
     void updateCappedSize(OperationContext*, long long int) final;
 
-    void addUUID(OperationContext* opCtx, CollectionUUID uuid, Collection* coll) final;
+    void addUUID(OperationContext* opCtx, CollectionUUID uuid, Collection::Uptr coll) final;
 
     bool isEqualToMetadataUUID(OperationContext* opCtx, OptionalCollectionUUID uuid) final;
 

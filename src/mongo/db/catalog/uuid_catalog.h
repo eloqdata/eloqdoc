@@ -70,7 +70,7 @@ public:
                              const BSONObj& msgObj,
                              const boost::optional<BSONObj> o2MsgObj) override {}
     void onCreateCollection(OperationContext* opCtx,
-                            Collection* coll,
+                            Collection::Uptr coll,
                             const NamespaceString& collectionName,
                             const CollectionOptions& options,
                             const BSONObj& idIndex,
@@ -140,7 +140,7 @@ public:
      * This function inserts the entry for uuid, coll into the UUID Collection. It is called by
      * the op observer when a collection is created.
      */
-    void onCreateCollection(OperationContext* opCtx, Collection* coll, CollectionUUID uuid);
+    void onCreateCollection(OperationContext* opCtx, Collection::Uptr coll, CollectionUUID uuid);
 
     /**
      * This function removes the entry for uuid from the UUID catalog. It is called by the op
@@ -153,16 +153,17 @@ public:
      * a new entry for uuid associated with the Collection coll. It is called by the op observer
      * when a collection is renamed.
      */
-    void onRenameCollection(OperationContext* opCtx, Collection* coll, CollectionUUID uuid);
+    void onRenameCollection(OperationContext* opCtx, Collection::Uptr coll, CollectionUUID uuid);
 
     /**
      * Implies onDropCollection for all collections in db, but is not transactional.
      */
     void onCloseDatabase(OperationContext* opCtx, Database* db);
 
-    Collection* replaceUUIDCatalogEntry(CollectionUUID uuid, Collection* coll);
-    void registerUUIDCatalogEntry(CollectionUUID uuid, Collection* coll);
-    Collection* removeUUIDCatalogEntry(CollectionUUID uuid);
+    std::shared_ptr<Collection> replaceUUIDCatalogEntry(CollectionUUID uuid,
+                                                        std::shared_ptr<Collection> coll);
+    void registerUUIDCatalogEntry(CollectionUUID uuid, std::shared_ptr<Collection> coll);
+    std::shared_ptr<Collection> removeUUIDCatalogEntry(CollectionUUID uuid);
 
     /**
      * This function gets the Collection* pointer that corresponds to
@@ -170,7 +171,7 @@ public:
      * to calling this function, or else the found Collection pointer
      * might no longer be valid when the call returns.
      */
-    Collection* lookupCollectionByUUID(CollectionUUID uuid) const;
+    std::shared_ptr<Collection> lookupCollectionByUUID(CollectionUUID uuid) const;
 
     /**
      * This function gets the NamespaceString from the Collection* pointer that
@@ -213,8 +214,8 @@ public:
 private:
     const std::vector<CollectionUUID>& _getOrdering_inlock(const StringData& db,
                                                            const stdx::lock_guard<stdx::mutex>&);
-    void _registerUUIDCatalogEntry_inlock(CollectionUUID uuid, Collection* coll);
-    Collection* _removeUUIDCatalogEntry_inlock(CollectionUUID uuid);
+    void _registerUUIDCatalogEntry_inlock(CollectionUUID uuid, std::shared_ptr<Collection> coll);
+    std::shared_ptr<Collection> _removeUUIDCatalogEntry_inlock(CollectionUUID uuid);
 
     mutable mongo::stdx::mutex _catalogLock;
     /**
@@ -232,7 +233,8 @@ private:
      * not all databases are guaranteed to have an ordering in it.
      */
     StringMap<std::vector<CollectionUUID>> _orderedCollections;
-    mongo::stdx::unordered_map<CollectionUUID, Collection*, CollectionUUID::Hash> _catalog;
+    mongo::stdx::unordered_map<CollectionUUID, std::shared_ptr<Collection>, CollectionUUID::Hash>
+        _catalog;
 };
 
 }  // namespace mongo

@@ -663,7 +663,7 @@ void rollbackCreateIndexes(OperationContext* opCtx, UUID uuid, std::set<std::str
 
     NamespaceString nss = UUIDCatalog::get(opCtx).lookupNSSByUUID(uuid);
     Lock::DBLock dbLock(opCtx, nss.db(), MODE_X);
-    Collection* collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
+    std::shared_ptr<Collection> collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
 
     // If we cannot find the collection, we skip over dropping the index.
     if (!collection) {
@@ -703,7 +703,7 @@ void rollbackDropIndexes(OperationContext* opCtx,
 
     NamespaceString nss = UUIDCatalog::get(opCtx).lookupNSSByUUID(uuid);
     Lock::DBLock dbLock(opCtx, nss.db(), MODE_X);
-    Collection* collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
+    std::shared_ptr<Collection> collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
     // If we cannot find the collection, we skip over dropping the index.
     if (!collection) {
         LOG(2) << "Cannot find the collection with uuid: " << uuid.toString()
@@ -1097,8 +1097,9 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
 
         Database* db = dbLock.getDb();
         if (db) {
-            Collection* collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
-            dropCollection(opCtx, nss, collection, db);
+            std::shared_ptr<Collection> collection =
+                UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
+            dropCollection(opCtx, nss, collection.get(), db);
             LOG(1) << "Dropped collection: " << nss << ", UUID: " << uuid;
         }
     }
@@ -1148,7 +1149,8 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
             auto db = DatabaseHolder::getDatabaseHolder().openDb(opCtx, nss.db().toString());
             invariant(db);
 
-            Collection* collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
+            std::shared_ptr<Collection> collection =
+                UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
             invariant(collection);
 
             auto cce = collection->getCatalogEntry();
@@ -1280,7 +1282,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
                 const NamespaceString docNss(doc.ns);
                 Lock::DBLock docDbLock(opCtx, docNss.db(), MODE_X);
                 OldClientContext ctx(opCtx, doc.ns.toString());
-                Collection* collection = catalog.lookupCollectionByUUID(uuid);
+                std::shared_ptr<Collection> collection = catalog.lookupCollectionByUUID(uuid);
 
                 // Adds the doc to our rollback file if the collection was not dropped while
                 // rolling back createCollection operations. Does not log an error when
@@ -1290,7 +1292,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
 
                 if (collection && removeSaver) {
                     BSONObj obj;
-                    bool found = Helpers::findOne(opCtx, collection, pattern, obj, false);
+                    bool found = Helpers::findOne(opCtx, collection.get(), pattern, obj, false);
                     if (found) {
                         auto status = removeSaver->goingToDelete(obj);
                         if (!status.isOK()) {
@@ -1326,7 +1328,8 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
 
                                 const auto clock = opCtx->getServiceContext()->getFastClockSource();
                                 const auto findOneStart = clock->now();
-                                RecordId loc = Helpers::findOne(opCtx, collection, pattern, false);
+                                RecordId loc =
+                                    Helpers::findOne(opCtx, collection.get(), pattern, false);
                                 if (clock->now() - findOneStart > Milliseconds(200))
                                     warning() << "Roll back slow no _id index for " << nss.ns()
                                               << " perhaps?";
@@ -1370,7 +1373,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
                             }
                         } else {
                             deleteObjects(opCtx,
-                                          collection,
+                                          collection.get(),
                                           nss,
                                           pattern,
                                           true,   // justOne

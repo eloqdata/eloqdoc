@@ -32,6 +32,7 @@
 
 #include "mongo/base/error_extra_info.h"
 #include "mongo/base/string_data.h"
+#include "mongo/db/catalog/collection.h"
 #include "mongo/db/catalog/collection_options.h"
 #include "mongo/db/field_ref.h"
 #include "mongo/db/index/multikey_paths.h"
@@ -109,7 +110,6 @@ void parseMultikeyPathsFromBytes(BSONObj multikeyPathsObj, MultikeyPaths* multik
 }  // namespace
 
 
-class Collection;
 class IndexDescriptor;
 class OperationContext;
 
@@ -413,7 +413,7 @@ public:
      * Assigns a new UUID to this collection. All collections must have UUIDs, so this is called if
      * a collection erroneously does not have a UUID.
      */
-    virtual void addUUID(OperationContext* opCtx, CollectionUUID uuid, Collection* coll) = 0;
+    virtual void addUUID(OperationContext* opCtx, CollectionUUID uuid, Collection::Uptr coll) = 0;
 
     /**
      * Compare the UUID argument to the UUID obtained from the metadata. Return true if they

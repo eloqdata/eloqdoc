@@ -1076,7 +1076,7 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         Record& record = records[i];
         BSONObj obj{record.data.data()};
 
-        const auto idObj = getIdBSONObjWithoutFieldName(obj);
+        const BSONObj idObj = getIdBSONObjWithoutFieldName(obj);
         MONGO_LOG(1) << idObj.jsonString();
         Status s = checkKeySize(idObj, "RecordStore");
         if (!s.isOK()) {

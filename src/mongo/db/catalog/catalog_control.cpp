@@ -196,7 +196,7 @@ void openCatalog(OperationContext* opCtx, const MinVisibleTimestampMap& minVisib
 
             LOG(1) << "openCatalog: registering uuid " << uuid->toString() << " for collection "
                    << collName;
-            uuidCatalog.registerUUIDCatalogEntry(*uuid, collection);
+            uuidCatalog.registerUUIDCatalogEntry(*uuid, collection->clone(opCtx));
 
             if (minVisibleTimestampMap.count(*uuid) > 0) {
                 collection->setMinimumVisibleSnapshot(minVisibleTimestampMap.find(*uuid)->second);

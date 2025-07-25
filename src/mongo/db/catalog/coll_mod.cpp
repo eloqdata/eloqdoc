@@ -44,6 +44,7 @@
 #include "mongo/db/command_generic_argument.h"
 #include "mongo/db/db_raii.h"
 #include "mongo/db/index/index_descriptor.h"
+#include "mongo/db/op_observer.h"
 #include "mongo/db/repl/repl_client_info.h"
 #include "mongo/db/repl/replication_coordinator.h"
 #include "mongo/db/s/sharding_state.h"
@@ -149,13 +150,10 @@ StatusWith<CollModRequest> parseCollModRequest(OperationContext* opCtx,
                 if (indexes.size() > 1) {
                     return Status(ErrorCodes::AmbiguousIndexKeyPattern,
                                   str::stream() << "index keyPattern " << keyPattern << " matches "
-                                                << indexes.size()
-                                                << " indexes,"
+                                                << indexes.size() << " indexes,"
                                                 << " must use index name. "
-                                                << "Conflicting indexes:"
-                                                << indexes[0]->infoObj()
-                                                << ", "
-                                                << indexes[1]->infoObj());
+                                                << "Conflicting indexes:" << indexes[0]->infoObj()
+                                                << ", " << indexes[1]->infoObj());
                 } else if (indexes.empty()) {
                     return Status(ErrorCodes::IndexNotFound,
                                   str::stream() << "cannot find index " << keyPattern << " for ns "
@@ -334,8 +332,8 @@ Status _collModInternal(OperationContext* opCtx,
 
     if (userInitiatedWritesAndNotPrimary) {
         return Status(ErrorCodes::NotMaster,
-                      str::stream() << "Not primary while setting collection options on "
-                                    << nss.ns());
+                      str::stream()
+                          << "Not primary while setting collection options on " << nss.ns());
     }
 
     BSONObjBuilder oplogEntryBuilder;
@@ -398,7 +396,7 @@ Status _collModInternal(OperationContext* opCtx,
             // Notify the index catalog that the definition of this index changed.
             cmr.idx = coll->getIndexCatalog()->refreshEntry(opCtx, cmr.idx);
             result->appendAs(newExpireSecs, "expireAfterSeconds_new");
-            opCtx->recoveryUnit()->onRollback([ opCtx, idx = cmr.idx, coll ]() {
+            opCtx->recoveryUnit()->onRollback([opCtx, idx = cmr.idx, coll]() {
                 coll->getIndexCatalog()->refreshEntry(opCtx, idx);
             });
         }
@@ -455,15 +453,14 @@ Status _collModInternal(OperationContext* opCtx,
         if (uuid && !coll->uuid()) {
             log() << "Assigning UUID " << uuid.get().toString() << " to collection " << coll->ns();
             CollectionCatalogEntry* cce = coll->getCatalogEntry();
-            cce->addUUID(opCtx, uuid.get(), coll);
+            cce->addUUID(opCtx, uuid.get(), coll->clone(opCtx));
         } else if (uuid && coll->uuid() && uuid.get() != coll->uuid().get()) {
             return Status(ErrorCodes::Error(40676),
-                          str::stream() << "collMod " << redact(cmdObj) << " provides a UUID ("
-                                        << uuid.get().toString()
-                                        << ") that does not match the UUID ("
-                                        << coll->uuid().get().toString()
-                                        << ") of the collection "
-                                        << nss.ns());
+                          str::stream()
+                              << "collMod " << redact(cmdObj) << " provides a UUID ("
+                              << uuid.get().toString() << ") that does not match the UUID ("
+                              << coll->uuid().get().toString() << ") of the collection "
+                              << nss.ns());
         }
         coll->refreshUUID(opCtx);
     }
@@ -490,7 +487,7 @@ void _addCollectionUUIDsPerDatabase(OperationContext* opCtx,
         if (!db) {
             return;
         }
-        for (const auto &[name, coll] : db->collections(opCtx)) {
+        for (const auto& [name, coll] : db->collections(opCtx)) {
             // Collection* coll = *collectionIt;
             collNamespaceStrings.push_back(coll->ns());
         }
@@ -606,8 +603,7 @@ void addCollectionUUIDs(OperationContext* opCtx) {
             auto collType = uassertStatusOK(CollectionType::fromBSON(coll));
             uassert(ErrorCodes::InternalError,
                     str::stream() << "expected entry " << coll << " in config.collections for "
-                                  << collType.getNs().ns()
-                                  << " to have a UUID, but it did not",
+                                  << collType.getNs().ns() << " to have a UUID, but it did not",
                     collType.getUUID());
             dbToCollToUUID[collType.getNs().db().toString()].emplace(
                 collType.getNs().coll().toString(), *collType.getUUID());
@@ -674,7 +670,7 @@ Status _updateNonReplicatedUniqueIndexesPerDatabase(OperationContext* opCtx,
 
     // Iterate through all collections if we're in the "local" database.
     if (dbName == "local") {
-        for ( auto& [name, coll] : db->collections(opCtx)) {
+        for (auto& [name, coll] : db->collections(opCtx)) {
             // Collection* coll = *collectionIt;
 
             auto collModStatus = _updateNonReplicatedIndexPerCollection(opCtx, coll.get());

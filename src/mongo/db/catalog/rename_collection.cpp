@@ -58,7 +58,7 @@ namespace mongo {
 namespace {
 
 NamespaceString getNamespaceFromUUID(OperationContext* opCtx, const UUID& uuid) {
-    Collection* source = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
+    std::shared_ptr<Collection> source = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
     return source ? source->ns() : NamespaceString();
 }
 

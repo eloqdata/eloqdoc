@@ -467,20 +467,16 @@ Status StorageInterfaceImpl::renameCollection(OperationContext* opCtx,
     if (fromNS.db() != toNS.db()) {
         return Status(ErrorCodes::InvalidNamespace,
                       str::stream() << "Cannot rename collection between databases. From NS: "
-                                    << fromNS.ns()
-                                    << "; to NS: "
-                                    << toNS.ns());
+                                    << fromNS.ns() << "; to NS: " << toNS.ns());
     }
 
     return writeConflictRetry(opCtx, "StorageInterfaceImpl::renameCollection", fromNS.ns(), [&] {
         AutoGetDb autoDB(opCtx, fromNS.db(), MODE_X);
         if (!autoDB.getDb()) {
             return Status(ErrorCodes::NamespaceNotFound,
-                          str::stream() << "Cannot rename collection from " << fromNS.ns() << " to "
-                                        << toNS.ns()
-                                        << ". Database "
-                                        << fromNS.db()
-                                        << " not found.");
+                          str::stream()
+                              << "Cannot rename collection from " << fromNS.ns() << " to "
+                              << toNS.ns() << ". Database " << fromNS.db() << " not found.");
         }
         WriteUnitOfWork wunit(opCtx);
         const auto status =
@@ -491,7 +487,8 @@ Status StorageInterfaceImpl::renameCollection(OperationContext* opCtx,
 
         auto newColl = autoDB.getDb()->getCollection(opCtx, toNS);
         if (newColl->uuid()) {
-            UUIDCatalog::get(opCtx).onRenameCollection(opCtx, newColl, newColl->uuid().get());
+            UUIDCatalog::get(opCtx).onRenameCollection(
+                opCtx, newColl->clone(opCtx), newColl->uuid().get());
         }
         wunit.commit();
         return status;
@@ -529,8 +526,7 @@ Status StorageInterfaceImpl::setIndexIsMultikey(OperationContext* opCtx,
         if (!idx) {
             return Status(ErrorCodes::IndexNotFound,
                           str::stream() << "Could not find index " << indexName << " in "
-                                        << nss.ns()
-                                        << " to set to multikey.");
+                                        << nss.ns() << " to set to multikey.");
         }
         collection->getIndexCatalog()->getIndex(idx)->setIndexIsMultikey(opCtx, paths);
         wunit.commit();
@@ -618,16 +614,13 @@ StatusWith<std::vector<BSONObj>> _findOrDeleteDocuments(
                 if (!indexDescriptor) {
                     return Result(ErrorCodes::IndexNotFound,
                                   str::stream() << "Index not found, ns:" << nsOrUUID.toString()
-                                                << ", index: "
-                                                << *indexName);
+                                                << ", index: " << *indexName);
                 }
                 if (indexDescriptor->isPartial()) {
                     return Result(ErrorCodes::IndexOptionsConflict,
                                   str::stream()
                                       << "Partial index is not allowed for this operation, ns:"
-                                      << nsOrUUID.toString()
-                                      << ", index: "
-                                      << *indexName);
+                                      << nsOrUUID.toString() << ", index: " << *indexName);
                 }
 
                 KeyPattern keyPattern(indexDescriptor->keyPattern());
@@ -827,11 +820,11 @@ Status _updateWithQuery(OperationContext* opCtx,
         }
 
         AutoGetCollection autoColl(opCtx, nss, MODE_IX);
-        auto collectionResult = getCollection(
-            autoColl,
-            nss,
-            str::stream() << "Unable to update documents in " << nss.ns() << " using query "
-                          << request.getQuery());
+        auto collectionResult =
+            getCollection(autoColl,
+                          nss,
+                          str::stream() << "Unable to update documents in " << nss.ns()
+                                        << " using query " << request.getQuery());
         if (!collectionResult.isOK()) {
             return collectionResult.getStatus();
         }
@@ -959,11 +952,11 @@ Status StorageInterfaceImpl::deleteByFilter(OperationContext* opCtx,
         }
 
         AutoGetCollection autoColl(opCtx, nss, MODE_IX);
-        auto collectionResult = getCollection(
-            autoColl,
-            nss,
-            str::stream() << "Unable to delete documents in " << nss.ns() << " using filter "
-                          << filter);
+        auto collectionResult =
+            getCollection(autoColl,
+                          nss,
+                          str::stream() << "Unable to delete documents in " << nss.ns()
+                                        << " using filter " << filter);
         if (!collectionResult.isOK()) {
             return collectionResult.getStatus();
         }

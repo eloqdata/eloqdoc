@@ -31,6 +31,7 @@
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/catalog/drop_indexes.h"
+#include "mongo/db/op_observer.h"
 
 #include "mongo/db/background.h"
 #include "mongo/db/catalog/index_catalog.h"

@@ -51,6 +51,7 @@
 #include "mongo/db/jsobj.h"
 #include "mongo/db/matcher/expression_geo.h"
 #include "mongo/db/matcher/extensions_callback_real.h"
+#include "mongo/db/op_observer.h"
 #include "mongo/db/pipeline/document_source_geo_near.h"
 #include "mongo/db/query/explain.h"
 #include "mongo/db/query/find_common.h"
