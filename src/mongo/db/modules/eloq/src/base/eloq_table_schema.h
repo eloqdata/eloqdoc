@@ -33,6 +33,10 @@
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
 #include "mongo/db/modules/eloq/src/base/eloq_record.h"
 
+#ifdef verify
+#undef verify
+#endif
+
 #include "mongo/db/modules/eloq/tx_service/include/catalog_factory.h"
 #include "mongo/db/modules/eloq/tx_service/include/schema.h"
 #include "mongo/db/modules/eloq/tx_service/include/table_statistics.h"
