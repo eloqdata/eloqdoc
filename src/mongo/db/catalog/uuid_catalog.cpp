@@ -130,7 +130,7 @@ void UUIDCatalog::onCreateCollection(OperationContext* opCtx,
                                      Collection::Uptr coll,
                                      CollectionUUID uuid) {
 
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     _removeUUIDCatalogEntry_inlock(uuid);  // Remove UUID if it exists
     _registerUUIDCatalogEntry_inlock(uuid, std::move(coll));
     opCtx->recoveryUnit()->onRollback([this, uuid] { removeUUIDCatalogEntry(uuid); });
@@ -165,7 +165,7 @@ void UUIDCatalog::onCloseDatabase(OperationContext* opCtx, Database* db) {
 
 void UUIDCatalog::onCloseCatalog(OperationContext* opCtx) {
     invariant(opCtx->lockState()->isW());
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     invariant(!_shadowCatalog);
     _shadowCatalog.emplace();
     for (auto& entry : _catalog)
@@ -174,19 +174,19 @@ void UUIDCatalog::onCloseCatalog(OperationContext* opCtx) {
 
 void UUIDCatalog::onOpenCatalog(OperationContext* opCtx) {
     invariant(opCtx->lockState()->isW());
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     invariant(_shadowCatalog);
     _shadowCatalog.reset();
 }
 
 std::shared_ptr<Collection> UUIDCatalog::lookupCollectionByUUID(CollectionUUID uuid) const {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     auto foundIt = _catalog.find(uuid);
     return foundIt == _catalog.end() ? nullptr : foundIt->second;
 }
 
 NamespaceString UUIDCatalog::lookupNSSByUUID(CollectionUUID uuid) const {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     auto foundIt = _catalog.find(uuid);
     if (foundIt != _catalog.end())
         return foundIt->second->ns();
@@ -204,7 +204,7 @@ NamespaceString UUIDCatalog::lookupNSSByUUID(CollectionUUID uuid) const {
 
 std::shared_ptr<Collection> UUIDCatalog::replaceUUIDCatalogEntry(CollectionUUID uuid,
                                                                  std::shared_ptr<Collection> coll) {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     invariant(coll);
     std::shared_ptr<Collection> oldColl = _removeUUIDCatalogEntry_inlock(uuid);
     invariant(oldColl != nullptr);  // Need to replace an existing coll
@@ -212,17 +212,17 @@ std::shared_ptr<Collection> UUIDCatalog::replaceUUIDCatalogEntry(CollectionUUID 
     return oldColl;
 }
 void UUIDCatalog::registerUUIDCatalogEntry(CollectionUUID uuid, std::shared_ptr<Collection> coll) {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     _registerUUIDCatalogEntry_inlock(uuid, std::move(coll));
 }
 
 std::shared_ptr<Collection> UUIDCatalog::removeUUIDCatalogEntry(CollectionUUID uuid) {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     return _removeUUIDCatalogEntry_inlock(uuid);
 }
 
 boost::optional<CollectionUUID> UUIDCatalog::prev(const StringData& db, CollectionUUID uuid) {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     const auto& ordering = _getOrdering_inlock(db, lock);
     auto current = std::lower_bound(ordering.cbegin(), ordering.cend(), uuid);
 
@@ -235,7 +235,7 @@ boost::optional<CollectionUUID> UUIDCatalog::prev(const StringData& db, Collecti
 }
 
 boost::optional<CollectionUUID> UUIDCatalog::next(const StringData& db, CollectionUUID uuid) {
-    stdx::lock_guard<stdx::mutex> lock(_catalogLock);
+    stdx::lock_guard<stdx::recursive_mutex> lock(_catalogLock);
     const auto& ordering = _getOrdering_inlock(db, lock);
     auto current = std::lower_bound(ordering.cbegin(), ordering.cend(), uuid);
 
@@ -247,7 +247,7 @@ boost::optional<CollectionUUID> UUIDCatalog::next(const StringData& db, Collecti
 }
 
 const std::vector<CollectionUUID>& UUIDCatalog::_getOrdering_inlock(
-    const StringData& db, const stdx::lock_guard<stdx::mutex>&) {
+    const StringData& db, const stdx::lock_guard<stdx::recursive_mutex>&) {
     // If an ordering is already cached,
     auto it = _orderedCollections.find(db);
     if (it != _orderedCollections.end()) {

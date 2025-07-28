@@ -212,12 +212,12 @@ public:
     boost::optional<CollectionUUID> next(const StringData& db, CollectionUUID uuid);
 
 private:
-    const std::vector<CollectionUUID>& _getOrdering_inlock(const StringData& db,
-                                                           const stdx::lock_guard<stdx::mutex>&);
+    const std::vector<CollectionUUID>& _getOrdering_inlock(
+        const StringData& db, const stdx::lock_guard<stdx::recursive_mutex>&);
     void _registerUUIDCatalogEntry_inlock(CollectionUUID uuid, std::shared_ptr<Collection> coll);
     std::shared_ptr<Collection> _removeUUIDCatalogEntry_inlock(CollectionUUID uuid);
 
-    mutable mongo::stdx::mutex _catalogLock;
+    mutable mongo::stdx::recursive_mutex _catalogLock;
     /**
      * When present, indicates that the catalog is in closed state, and contains a map from UUID
      * to pre-close NSS. See also onCloseCatalog.
