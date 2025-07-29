@@ -889,18 +889,7 @@ std::unique_ptr<RecordStore> EloqKVEngine::getRecordStore(OperationContext* opCt
         params.cappedMaxDocs = options.cappedMaxDocs ? options.cappedMaxDocs : -1;
     }
 
-    // {
-    //     std::scoped_lock<std::mutex> lk{_tableNameIdentMapMutex};
-    //     _tableNameIdentMap[params.tableName] = ident.toString();
-    // }
-
     auto recordStore = std::make_unique<EloqRecordStore>(opCtx, params);
-
-    {
-        std::scoped_lock<std::mutex> lk(_identCollectionMapMutex);
-        _identCollectionMap[ident.toString()] = recordStore.get();
-    }
-
     return recordStore;
 }
 
@@ -975,11 +964,6 @@ SortedDataInterface* EloqKVEngine::getSortedDataInterface(OperationContext* opCt
         }
     }
 
-    {
-        std::scoped_lock<std::mutex> lk{_identIndexMapMutex};
-        _identIndexMap[ident.toString()] = index.get();
-    }
-
     return index.release();
 }
 
@@ -1017,25 +1001,6 @@ Status EloqKVEngine::createGroupedSortedDataInterface(OperationContext* opCtx,
 int64_t EloqKVEngine::getIdentSize(OperationContext* opCtx, StringData ident) {
     MONGO_LOG(1) << "EloqKVEngine::getIdentSize"
                  << ". ident: " << ident;
-    {
-        std::scoped_lock<std::mutex> lk{_identCollectionMapMutex};
-        if (const auto& iter = _identCollectionMap.find(ident.toStringView());
-            iter != _identCollectionMap.end()) {
-            return iter->second->storageSize(opCtx);
-        }
-    }
-
-    {
-        std::scoped_lock<std::mutex> lk{_identIndexMapMutex};
-        if (const auto& iter = _identIndexMap.find(ident.toStringView());
-            iter != _identIndexMap.end()) {
-            return iter->second->getSpaceUsedBytes(opCtx);
-        }
-    }
-
-    MONGO_LOG(1) << "ident may not opened by call getRecordStore or getSortedDataInterface";
-    // this can only happen if collection or index exists, but it's not opened (i.e.
-    // getRecordStore or getSortedDataInterface are not called)
     return 0;
 }
 
@@ -1050,21 +1015,6 @@ Status EloqKVEngine::dropIdent(OperationContext* opCtx, StringData ident) {
                  << ". ident: " << ident;
     // Attention please!
     // EloqRecordStore and EloqIndex now have been destructed
-    {
-        std::scoped_lock<std::mutex> lk{_identCollectionMapMutex};
-        if (const auto& iter = _identCollectionMap.find(ident.toStringView());
-            iter != _identCollectionMap.end()) {
-            _identCollectionMap.erase(iter);
-        }
-    }
-    {
-        std::scoped_lock<std::mutex> lk{_identIndexMapMutex};
-        if (const auto& iter = _identIndexMap.find(ident.toStringView());
-            iter != _identIndexMap.end()) {
-            _identIndexMap.erase(iter);
-        }
-    }
-
     return Status::OK();
 }
 

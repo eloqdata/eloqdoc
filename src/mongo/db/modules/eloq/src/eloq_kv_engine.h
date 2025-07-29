@@ -194,11 +194,5 @@ private:
     std::string _dbPath;
     std::unique_ptr<Eloq::MongoLogAgent> _logAgent;
     std::unique_ptr<metrics::MetricsRegistry> _metricsRegistry{nullptr};
-
-    mutable std::mutex _identCollectionMapMutex;
-    std::map<std::string, EloqRecordStore*, std::less<>> _identCollectionMap;
-
-    mutable std::mutex _identIndexMapMutex;
-    std::map<std::string, EloqIndex*, std::less<>> _identIndexMap;
 };
 }  // namespace mongo
