@@ -161,6 +161,12 @@ public:
         bool isForWrite = false,
         bool readLocal = false);
 
+    [[nodiscard]] txservice::TxErrorCode batchGetKV(OperationContext* opCtx,
+                                                    const txservice::TableName& tableName,
+                                                    uint64_t keySchemaVersion,
+                                                    std::vector<txservice::ScanBatchTuple>& batch,
+                                                    bool isForWrite);
+
     void notifyReloadCache(OperationContext* opCtx);
 
     Status createTable(const txservice::TableName& tableName, std::string_view metadata);

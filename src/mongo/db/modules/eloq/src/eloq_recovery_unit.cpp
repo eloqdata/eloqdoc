@@ -441,6 +441,44 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKVInternal(
         opCtx, tableName, keySchemaVersion, &_kvPair.keyRef(), _kvPair.getValuePtr(), isForWrite);
 }
 
+txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
+                                                    const txservice::TableName& tableName,
+                                                    uint64_t keySchemaVersion,
+                                                    std::vector<txservice::ScanBatchTuple>& batch,
+                                                    bool isForWrite) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV. tableName: " << tableName.StringView()
+                 << ", batch size: " << batch.size();
+    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
+
+    bool isForShare = false;
+    bool readLocal = false;
+    txservice::BatchReadTxRequest batchReadTxReq(&tableName,
+                                                 keySchemaVersion,
+                                                 batch,
+                                                 isForWrite,
+                                                 isForShare,
+                                                 readLocal,
+                                                 coro.yieldFuncPtr,
+                                                 coro.resumeFuncPtr,
+                                                 _txm);
+    _txm->Execute(&batchReadTxReq);
+    batchReadTxReq.Wait();
+    txservice::TxErrorCode err = batchReadTxReq.ErrorCode();
+    if (err == txservice::TxErrorCode::NO_ERROR) {
+        MONGO_LOG(1) << "EloqRecoveryUnit BatchReadEntry tableName: " << tableName.StringView()
+                     << " NO_ERROR";
+    } else if (err == txservice::TxErrorCode::DEAD_LOCK_ABORT ||
+               err == txservice::TxErrorCode::READ_WRITE_CONFLICT ||
+               err == txservice::TxErrorCode::WRITE_WRITE_CONFLICT) {
+        MONGO_LOG(0) << "EloqRecoveryUnit BatchReadEntry tableName: " << tableName.StringView()
+                     << ", " << batchReadTxReq.ErrorMsg();
+    } else {
+        error() << "EloqRecoveryUnit BatchReadEntry tableName: " << tableName.StringView() << ", "
+                << batchReadTxReq.ErrorMsg();
+    }
+    return err;
+}
+
 void EloqRecoveryUnit::notifyReloadCache(OperationContext* opCtx) {
     MONGO_LOG(1) << "EloqRecoveryUnit::notifyReloadCache";
 
