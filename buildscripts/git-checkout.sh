@@ -5,8 +5,8 @@ TAG=$1
 if [ -n "${TAG}" ]; then
   git checkout "${TAG}"
 else
-  git checkout eloqdoc-4.0.3
-  git pull origin eloqdoc-4.0.3
+  git checkout main
+  git pull origin main
 fi
 git submodule update --recursive
 

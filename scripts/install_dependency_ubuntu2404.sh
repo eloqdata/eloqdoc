@@ -154,7 +154,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     log_info "Installing mimalloc"
     cd $TEMP_DIR
     if [ ! -d "mimalloc" ]; then
-        git clone https://github.com/monographdb/mimalloc.git mimalloc
+        git clone https://github.com/eloqdata/mimalloc.git mimalloc
     fi
     cd mimalloc && \
     git checkout monograph-v2.1.2 && \
@@ -208,7 +208,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     log_info "Installing glog"
     cd $TEMP_DIR
     if [ ! -d "glog" ]; then
-        git clone https://github.com/monographdb/glog.git glog
+        git clone https://github.com/eloqdata/glog.git glog
     fi
     cd glog && \
     cmake -S . -B build -G "Unix Makefiles" && \
@@ -232,7 +232,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     log_info "Installing brpc"
     cd $TEMP_DIR
     if [ ! -d "brpc" ]; then
-        git clone https://github.com/monographdb/brpc.git brpc
+        git clone https://github.com/eloqdata/brpc.git brpc
     fi
     cd brpc && \
     mkdir -p build && cd build && \
@@ -247,7 +247,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     log_info "Installing braft"
     cd $TEMP_DIR
     if [ ! -d "braft" ]; then
-        git clone https://github.com/monographdb/braft.git braft
+        git clone https://github.com/eloqdata/braft.git braft
     fi
     cd braft && \
     sed -i 's/libbrpc.a//g' CMakeLists.txt && \
@@ -261,7 +261,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     log_info "Installing cuckoo filter"
     cd $TEMP_DIR
     if [ ! -d "cuckoofilter" ]; then
-        git clone https://github.com/monographdb/cuckoofilter.git cuckoofilter
+        git clone https://github.com/eloqdata/cuckoofilter.git cuckoofilter
     fi
     cd cuckoofilter && \
     sudo make install
@@ -326,9 +326,9 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     # ------------- RocksDB-Cloud installation -------------
     log_info "Installing rocksdb-cloud"
     cd $WORKSPACE
-    git clone git@github.com:monographdb/rocksdb-cloud.git && \
+    git clone git@github.com:eloqdata/rocksdb-cloud.git && \
     cd rocksdb-cloud && \
-    git checkout monographdb_main && \
+    git checkout main && \
     LIBNAME=librocksdb-cloud-aws USE_RTTI=1 USE_AWS=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j8 && \
     LIBNAME=librocksdb-cloud-aws PREFIX=`pwd`/output make install-shared && \
     sudo mkdir -p /usr/local/include/rocksdb_cloud_header && \

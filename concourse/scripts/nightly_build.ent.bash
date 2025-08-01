@@ -38,7 +38,6 @@ if [[ "$OS_ID" == rhel* ]]; then
         INSTALL_MONGO_DEPENDENCY="sudo dnf install -y build-essential libssl-dev libcurl4-openssl-dev liblzma-dev python2 python-dev"
         # detected dubious ownership
         git config --global --add safe.directory ${WORKSPACE}/eloqdoc_src
-        git config --global --add safe.directory ${WORKSPACE}/eloq_engine_src
         git config --global --add safe.directory ${WORKSPACE}/logservice_src
         git config --global --add safe.directory ${WORKSPACE}/raft_host_manager_src
         ;;

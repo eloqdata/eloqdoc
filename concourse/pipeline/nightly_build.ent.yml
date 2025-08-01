@@ -101,18 +101,18 @@ resources:
   - name: eloqdoc_src
     type: git
     source:
-      branch: eloqdoc-4.0.3
+      branch: main
       private_key: ((git-key))
-      uri: git@github.com:monographdb/eloqdoc.git
+      uri: git@github.com:eloqdata/eloqdoc.git
   - name: raft_host_manager_src
     type: git
     source:
       branch: main
-      uri: git@github.com:monographdb/raft_host_manager.git
+      uri: git@github.com:eloqdata/raft_host_manager.git
       private_key: ((git-key))
   - name: eloq_logservice_src
     type: git
     source:
       branch: main
-      uri: git@github.com:monographdb/log_service.git
+      uri: git@github.com:eloqdata/log_service.git
       private_key: ((git-key))

@@ -5,7 +5,6 @@ image_resource:
   type: registry-image
 inputs:
   - name: eloqdoc_src
-  - name: eloq_engine_src
   - name: raft_host_manager_src
   - name: eloq_logservice_src
 params:
@@ -18,4 +17,4 @@ params:
 run:
   path: /bin/bash
   args:
-    - eloq_engine_src/concourse/scripts/nightly_build.ent.bash
+    - concourse/scripts/nightly_build.ent.bash
