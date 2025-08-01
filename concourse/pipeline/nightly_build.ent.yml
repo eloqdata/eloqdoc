@@ -1,0 +1,118 @@
+aws-access: &aws-access
+  AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+  AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+  AWS_DEFAULT_REGION: ((aws-region))
+
+jobs:
+  - name: ubuntu2004
+    serial: true
+    plan:
+      - get: night
+        trigger: true
+        version: every
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqdoc_src
+              params:
+                submodules: all
+            - get: raft_host_manager_src
+            - get: eloq_logservice_src
+            - get: image_ubuntu2004
+      - task: rocksdb-cloud
+        image: image_ubuntu2004
+        params:
+          KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          BUILD_LOG_SRV: true
+          <<: *aws-access
+        file: eloqdoc_src/concourse/tasks/nightly_build.ent.yml
+  - name: ubuntu2204
+    serial: true
+    plan:
+      - get: night
+        trigger: true
+        version: every
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqdoc_src
+              params:
+                submodules: all
+            - get: raft_host_manager_src
+            - get: eloq_logservice_src
+            - get: image_ubuntu2204
+      - task: rocksdb-cloud
+        image: image_ubuntu2204
+        params:
+          KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          BUILD_LOG_SRV: true
+          <<: *aws-access
+        file: eloqdoc_src/concourse/tasks/nightly_build.ent.yml
+  - name: ubuntu2404
+    serial: true
+    plan:
+      - get: night
+        trigger: true
+        version: every
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqdoc_src
+              params:
+                submodules: all
+            - get: raft_host_manager_src
+            - get: eloq_logservice_src
+            - get: image_ubuntu2404
+      - task: rocksdb-cloud
+        image: image_ubuntu2404
+        params:
+          KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          BUILD_LOG_SRV: true
+          <<: *aws-access
+        file: eloqdoc_src/concourse/tasks/nightly_build.ent.yml
+resources:
+  - name: night
+    type: time
+    source:
+      interval: 24h
+      start: 4:00
+      stop: 5:00
+      location: Asia/Shanghai
+
+  - name: image_ubuntu2004
+    type: registry-image
+    source:
+      password: ((docker-secret-key))
+      repository: monographdb/monograph-dev-ci-ubuntu2004
+      username: monographdb
+  - name: image_ubuntu2204
+    type: registry-image
+    source:
+      password: ((docker-secret-key))
+      repository: monographdb/monograph-dev-ci-ubuntu2204
+      username: monographdb
+  - name: image_ubuntu2404
+    type: registry-image
+    source:
+      password: ((docker-secret-key))
+      repository: monographdb/monograph-dev-ci-ubuntu2404
+      username: monographdb
+
+  - name: eloqdoc_src
+    type: git
+    source:
+      branch: eloqdoc-4.0.3
+      private_key: ((git-key))
+      uri: git@github.com:monographdb/eloqdoc.git
+  - name: raft_host_manager_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:monographdb/raft_host_manager.git
+      private_key: ((git-key))
+  - name: eloq_logservice_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:monographdb/log_service.git
+      private_key: ((git-key))
