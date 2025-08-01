@@ -17,4 +17,4 @@ params:
 run:
   path: /bin/bash
   args:
-    - concourse/scripts/nightly_build.ent.bash
+    - eloqdoc_src/concourse/scripts/nightly_build.ent.bash
