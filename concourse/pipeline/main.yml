@@ -14,6 +14,14 @@ resources:
     uri: git@github.com:eloqdata/log_service.git
     private_key: ((git-key))
 
+- name: py_tpcc_src
+  type: git
+  source:
+    branch: production
+    uri: git@github.com:eloqdata/py-tpcc.git
+    private_key: ((git-key))
+
+
 - name: mono_ubuntu_2404
   type: registry-image
   source:
@@ -32,6 +40,7 @@ jobs:
       - get: eloqdoc_src
         trigger: true
       - get: logservice_src
+      - get: raft_host_manager_src
       - get: mono_ubuntu_2404
   - task: compile-test-task
     image: mono_ubuntu_2404

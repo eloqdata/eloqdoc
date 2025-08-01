@@ -198,3 +198,17 @@ run_jstests() {
       env PATH=$PREFIX/bin:$PATH \
       python2 buildscripts/resmoke.py --mongo=$PREFIX/bin/mongo --suites=eloq_basic,eloq_core --shellPort=27017 --continueOnFailure
 }
+
+run_tpcc() {
+      pushd /home/mono/workspace/py-tpcc/pytpcc
+      echo "install pymongo"
+      pip3 install pymongo
+      echo "pytpcc reset"
+      ln -s /home/mono/workspace/mongo/concourse/scripts/pytpcc.cfg mongodb.config
+      python3 tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
+      echo "pytpcc load"
+      python3 tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb 
+      echo "pytpcc run"
+      python3 tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 --duration 600 mongodb
+      popd
+}

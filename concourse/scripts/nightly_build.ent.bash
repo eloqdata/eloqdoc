@@ -230,7 +230,7 @@ patchelf --set-rpath '$ORIGIN/../lib' ${MONGO_SRC}/install/bin/mongo
 patchelf --set-rpath '$ORIGIN/../lib' ${MONGO_SRC}/install/bin/mongod
 
 mkdir -p ${MONGO_SRC}/install/etc
-cp ${MONGO_SRC}/src/mongo/db/modules/eloq/concourse/scripts/mongod.conf ${MONGO_SRC}/install/etc
+cp ${MONGO_SRC}/concourse/scripts/mongod.conf ${MONGO_SRC}/install/etc
 
 cd $HOME
 tar -czf eloqdoc.tar.gz -C $MONGO_SRC/install .

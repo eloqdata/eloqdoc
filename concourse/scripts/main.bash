@@ -20,6 +20,7 @@ sudo chmod 777 /var/crash
 
 sudo chown -R mono /home/mono/workspace
 cd /home/mono/workspace
+ln -s $WORKSPACE/py_tpcc_src py-tpcc
 ln -s $WORKSPACE/eloqdoc_src mongo
 cd mongo
 git submodule sync
@@ -38,4 +39,5 @@ cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_jstests
+run_tpcc
 cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"

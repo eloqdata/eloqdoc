@@ -22,6 +22,7 @@ pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="h
 
 sudo chown -R mono /home/mono/workspace
 cd /home/mono/workspace
+ln -s $WORKSPACE/py_tpcc_src py-tpcc
 ln -s $WORKSPACE/eloqdoc_pr mongo
 cd mongo
 git config remote.origin.fetch "+refs/heads/${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
@@ -54,4 +55,5 @@ cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod_fast "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_jstests
+run_tpcc
 cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
