@@ -394,7 +394,9 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
                 uasserted(ErrorCodes::InternalError, "failAllInserts failpoint active!");
             }
 
-            collection.emplace(opCtx, wholeOp.getNamespace(), MODE_IX);
+            // EloqDoc's write-intent doesn't block read.
+            // collection.emplace(opCtx, wholeOp.getNamespace(), MODE_IX);
+            collection.emplace(opCtx, wholeOp.getNamespace(), MODE_X);
             if (collection->getCollection())
                 break;
 
@@ -643,10 +645,11 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
             uasserted(ErrorCodes::InternalError, "failAllUpdates failpoint active!");
         }
 
+
         collection.emplace(opCtx,
                            ns,
                            MODE_IX,  // DB is always IX, even if collection is X.
-                           MODE_IX);
+                           MODE_X);  // EloqDoc's write-intent doesn't block read.
         if (collection->getCollection() || !op.getUpsert())
             break;
 
