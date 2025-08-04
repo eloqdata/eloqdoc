@@ -18,7 +18,7 @@ ulimit -c unlimited
 
 # Prepare the build and execution environment
 export ASAN_OPTIONS=abort_on_error=1:leak_check_at_exit=0
-export PREFIX="/home/mono/workspace/mongo/install"
+export PREFIX="/home/eloq/workspace/mongo/install"
 
 cleanup_all_buckets() {
       if [ $# -lt 2 ]; then
@@ -200,11 +200,11 @@ run_jstests() {
 }
 
 run_tpcc() {
-      pushd /home/mono/workspace/py-tpcc/pytpcc
+      pushd /home/$current_user/workspace/py-tpcc/pytpcc
       echo "install pymongo"
       pip3 install pymongo
       echo "pytpcc reset"
-      ln -s /home/mono/workspace/mongo/concourse/scripts/pytpcc.cfg mongodb.config
+      ln -s /home/$current_user/workspace/mongo/concourse/scripts/pytpcc.cfg mongodb.config
       python3 tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
       echo "pytpcc load"
       python3 tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb 
