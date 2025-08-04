@@ -37,10 +37,10 @@ resources:
     uri: git@github.com:eloqdata/py-tpcc.git
     private_key: ((git-key))
 
-- name: mono_ubuntu_2404
+- name: eloq_ubuntu_2404
   type: registry-image
   source:
-    repository: monographdb/monograph-dev-ci-ubuntu2404
+    repository: eloqdata/monograph-dev-ci-ubuntu2404
     username: monographdb
     password: ((docker-secret-key))
 
@@ -58,13 +58,13 @@ jobs:
             - get: eloq_logservice_src
             - get: raft_host_manager_src
             - get: py_tpcc_src
-            - get: mono_ubuntu_2404
+            - get: eloq_ubuntu_2404
       - put: eloqdoc_pr
         params:
           path: eloqdoc_pr
           status: pending
       - task: compile-test-task
-        image: mono_ubuntu_2404
+        image: eloq_ubuntu_2404
         file: eloqdoc_pr/concourse/tasks/pr.ent.yml
         vars:
           cass-host: ((cassandra-host))
