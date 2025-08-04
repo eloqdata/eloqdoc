@@ -34,7 +34,7 @@ pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 
-cd /home/mono/workspace/mongo
+cd /home/$current_user/workspace/mongo
 
 # Generate unique bucket names for main test
 BUCKET_NAME="main-test"

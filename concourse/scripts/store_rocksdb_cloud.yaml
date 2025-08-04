@@ -1,7 +1,7 @@
 systemLog:
   verbosity: 0
   destination: file
-  path: "/home/mono/workspace/mongo/install/log/mongod.log"
+  path: "/home/eloq/workspace/mongo/install/log/mongod.log"
   component:
     ftdc:
       verbosity: 0
@@ -10,7 +10,7 @@ net:
   bindIp: "0.0.0.0"
   serviceExecutor: "adaptive"
 storage:
-  dbPath: "/home/mono/workspace/mongo/install/data/"
+  dbPath: "/home/eloq/workspace/mongo/install/data/"
   engine: "eloq"
   eloq:
     enableCoroutine: true
@@ -29,7 +29,7 @@ storage:
       # txlogServiceList: ["127.0.0.1:8500"]
       # txlogGroupReplicaNum: 1
       # skipRedoLog: true
-      txlogRocksDBStoragePath: "/home/mono/workspace/mongo/install/data/log_service_rocksdb"
+      txlogRocksDBStoragePath: "/home/eloq/workspace/mongo/install/data/log_service_rocksdb"
     metrics:
       enableMetrics: true
       metricsPort: 18081
@@ -43,7 +43,7 @@ storage:
     storage:
       dataStoreServiceConfigFilePath: ""
       # dssPeerNode: "127.0.0.1:9100"
-      rocksdbCloudStoragePath: "/home/mono/workspace/mongo/install/data/dss_rocksdb_cloud"
+      rocksdbCloudStoragePath: "/home/eloq/workspace/mongo/install/data/dss_rocksdb_cloud"
       rocksdbCloudSstFileCacheSize: "5GB"
       awsAccessKeyId: "35cxOCh64Ef1Mk5U1bgU"
       awsSecretKey: "M6oJQWdFCr27TUUS40wS6POQzbKhbFTHG9bRayoC"

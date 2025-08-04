@@ -29,7 +29,7 @@ git submodule update --init --recursive
 
 cd src/mongo/db/modules/eloq
 
-cd /home/mono/workspace/mongo
+cd /home/$current_user/workspace/mongo
 
 # Generate unique bucket names for main oss test
 BUCKET_NAME="main-oss-test"
