@@ -360,7 +360,8 @@ txservice::TxErrorCode EloqRecoveryUnit::setKV(const txservice::TableName& table
                               keySchemaVersion,
                               txservice::TxKey(std::move(key)),
                               std::move(record),
-                              operationType);
+                              operationType,
+                              checkUnique);
     if (err != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "txservice TxUpsert failed"
                      << "ErrorCode" << err;
@@ -465,15 +466,15 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
     batchReadTxReq.Wait();
     txservice::TxErrorCode err = batchReadTxReq.ErrorCode();
     if (err == txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "EloqRecoveryUnit BatchReadEntry tableName: " << tableName.StringView()
+        MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView()
                      << " NO_ERROR";
     } else if (err == txservice::TxErrorCode::DEAD_LOCK_ABORT ||
                err == txservice::TxErrorCode::READ_WRITE_CONFLICT ||
                err == txservice::TxErrorCode::WRITE_WRITE_CONFLICT) {
-        MONGO_LOG(0) << "EloqRecoveryUnit BatchReadEntry tableName: " << tableName.StringView()
-                     << ", " << batchReadTxReq.ErrorMsg();
+        MONGO_LOG(0) << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
+                     << batchReadTxReq.ErrorMsg();
     } else {
-        error() << "EloqRecoveryUnit BatchReadEntry tableName: " << tableName.StringView() << ", "
+        error() << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
                 << batchReadTxReq.ErrorMsg();
     }
     return err;

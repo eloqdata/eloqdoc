@@ -716,7 +716,8 @@ void EloqUniqueIndex::unindex(OperationContext* opCtx,
                                            keySchemaVersion,
                                            std::move(mongoKey),
                                            nullptr,
-                                           txservice::OperationType::Delete);
+                                           txservice::OperationType::Delete,
+                                           false);
     uassertStatusOK(TxErrorCodeToMongoStatus(err));
 }
 
@@ -769,7 +770,8 @@ Status EloqStandardIndex::insert(OperationContext* opCtx,
                                            keySchemaVersion,
                                            std::move(mongoKey),
                                            std::move(mongoRecord),
-                                           txservice::OperationType::Insert);
+                                           txservice::OperationType::Insert,
+                                           false);
     return TxErrorCodeToMongoStatus(err);
 }
 
@@ -790,7 +792,8 @@ void EloqStandardIndex::unindex(OperationContext* opCtx,
                                            keySchemaVersion,
                                            std::move(mongoKey),
                                            nullptr,
-                                           txservice::OperationType::Delete);
+                                           txservice::OperationType::Delete,
+                                           false);
     uassertStatusOK(TxErrorCodeToMongoStatus(err));
 }
 

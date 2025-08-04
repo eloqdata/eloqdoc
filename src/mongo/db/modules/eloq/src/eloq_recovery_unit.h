@@ -145,7 +145,7 @@ public:
                                                std::unique_ptr<Eloq::MongoKey> key,
                                                std::unique_ptr<Eloq::MongoRecord> record,
                                                txservice::OperationType operationType,
-                                               bool checkUnique = false);
+                                               bool checkUnique);
     [[nodiscard]] std::pair<bool, txservice::TxErrorCode> getKV(
         OperationContext* opCtx,
         const txservice::TableName& tableName,
