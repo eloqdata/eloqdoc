@@ -68,6 +68,7 @@ jobs:
         file: eloqdoc_pr/concourse/tasks/pr.ent.yml
         vars:
           cass-host: ((cassandra-host))
+          git_ssh_key: ((git-key))
         privileged: true
         on_failure:
           put: eloqdoc_pr
