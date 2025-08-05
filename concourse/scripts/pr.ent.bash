@@ -43,6 +43,13 @@ popd
 
 pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
+pushd raft_host_manager
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
+popd
 popd
 
 cd /home/$current_user/workspace/mongo
