@@ -41,6 +41,7 @@ jobs:
         trigger: true
       - get: logservice_src
       - get: raft_host_manager_src
+      - get: py_tpcc_src
       - get: eloq_ubuntu_2404
   - task: compile-test-task
     image: eloq_ubuntu_2404

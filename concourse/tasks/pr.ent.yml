@@ -5,6 +5,7 @@ inputs:
   - name: eloq_logservice_src
   - name: eloqdoc_pr
   - name: raft_host_manager_src
+  - name: py_tpcc_src
 run:
   path: eloqdoc_pr/concourse/scripts/pr.ent.bash
   args: ["((cass-host))"]

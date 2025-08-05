@@ -4,6 +4,7 @@ image_resource:
 inputs:
   - name: logservice_src
   - name: eloqdoc_src
+  - name: py_tpcc_src
 run:
   path: eloqdoc_src/concourse/scripts/main.bash
   args: ["((cass-host))"]
