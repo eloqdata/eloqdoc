@@ -98,9 +98,10 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR WITH_DATA_STORE ST
         store_handler/eloq_data_store_service/data_store_service.cpp
         store_handler/eloq_data_store_service/data_store_fault_inject.cpp
         store_handler/eloq_data_store_service/data_store_service_config.cpp
+        store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
         store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp
-        # ds_request.pb.cc will be added from DS_COMPILED_PROTO_FILES
         store_handler/eloq_data_store_service/rocksdb_config.cpp
+        # ds_request.pb.cc will be added from DS_COMPILED_PROTO_FILES
     )
     if(DS_COMPILED_PROTO_FILES) 
         list(APPEND _ELOQDSS_SOURCES_LIST ${DS_COMPILED_PROTO_FILES})
