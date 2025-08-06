@@ -2,7 +2,7 @@
 set -exo pipefail
 
 export WORKSPACE=$PWD
-sudo chown -R mono $PWD
+sudo chown -R eloq $PWD
 cd $HOME
 ln -s ${WORKSPACE}/eloqdoc_src eloqdoc
 ln -s ${WORKSPACE}/raft_host_manager_src eloqdoc/src/mongo/db/modules/eloq/tx_service/raft_host_manager
