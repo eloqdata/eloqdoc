@@ -57,7 +57,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqForkHostManager",
                            moe::Bool,
                            "Enable forking host manager process.")
-        .setDefault(moe::Value(true));
+        .setDefault(moe::Value(false));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.hmIP",
                            "eloqHMIP",
