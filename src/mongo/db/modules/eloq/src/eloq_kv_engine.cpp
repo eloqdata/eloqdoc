@@ -196,7 +196,10 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     uint16_t hmPort = eloqGlobalOptions.hostManagerAddr.port();
     const std::string& hmBinPath = eloqGlobalOptions.hostManagerBinPath;
 #ifdef FORK_HM_PROCESS
-    bool forkHostManager = !bootstrap;
+    // If the Eloqdoc is under bootstrap mode, we will not fork host manager.
+    // Otherwise, we will fork host manager if the option is enabled.
+    // Currently, when deploying on the cloud we do not fork host manager.
+    bool forkHostManager = !bootstrap && eloqGlobalOptions.forkHostManager;
 #else
     bool forkHostManager = false;
 #endif

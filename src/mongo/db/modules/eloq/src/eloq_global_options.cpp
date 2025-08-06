@@ -53,6 +53,12 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                                   moe::StringVector,
                                   "IP address of the tx log service node");
     eloqOptions
+        .addOptionChaining("storage.eloq.txService.forkHostManager",
+                           "eloqForkHostManager",
+                           moe::Bool,
+                           "Enable forking host manager process.")
+        .setDefault(moe::Value(true));
+    eloqOptions
         .addOptionChaining("storage.eloq.txService.hmIP",
                            "eloqHMIP",
                            moe::String,
@@ -477,6 +483,13 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
             }
         }
     }
+    if (params.count("storage.eloq.txService.forkHostManager")) {
+        eloqGlobalOptions.forkHostManager =
+            params["storage.eloq.txService.forkHostManager"].as<bool>();
+    } else {
+        eloqGlobalOptions.forkHostManager = true;
+    }
+
     if (params.count("storage.eloq.txService.hmIP") &&
         params.count("storage.eloq.txService.hmPort")) {
         auto hmIP = params["storage.eloq.txService.hmIP"].as<std::string>();
