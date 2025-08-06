@@ -82,21 +82,15 @@ resources:
   - name: image_ubuntu2004
     type: registry-image
     source:
-      password: ((docker-secret-key))
       repository: eloqdata/monograph-dev-ci-ubuntu2004
-      username: monographdb
   - name: image_ubuntu2204
     type: registry-image
     source:
-      password: ((docker-secret-key))
       repository: eloqdata/monograph-dev-ci-ubuntu2204
-      username: monographdb
   - name: image_ubuntu2404
     type: registry-image
     source:
-      password: ((docker-secret-key))
       repository: eloqdata/monograph-dev-ci-ubuntu2404
-      username: monographdb
 
   - name: eloqdoc_src
     type: git
