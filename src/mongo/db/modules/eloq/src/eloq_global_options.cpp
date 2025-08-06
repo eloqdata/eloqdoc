@@ -486,8 +486,6 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.forkHostManager")) {
         eloqGlobalOptions.forkHostManager =
             params["storage.eloq.txService.forkHostManager"].as<bool>();
-    } else {
-        eloqGlobalOptions.forkHostManager = true;
     }
 
     if (params.count("storage.eloq.txService.hmIP") &&
