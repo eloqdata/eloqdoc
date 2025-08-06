@@ -3,15 +3,7 @@ message(STATUS "WITH_DATA_STORE: ${WITH_DATA_STORE}") # WITH_DATA_STORE is a glo
 set(LOCAL_DATA_STORE_LIBRARY "") # Initialize
 set(LOCAL_DATA_STORE_INCLUDE_DIRS "")
 
-if(WITH_DATA_STORE STREQUAL "CASSANDRA")
-    set(KV_STORAGE_VAL 0 CACHE STRING "cassandra" FORCE)
-    add_compile_definitions(DATA_STORE_TYPE_CASSANDRA)
-    message(STATUS "DataStore: Configured for CASSANDRA. KV_STORAGE_VAL=0. Added DATA_STORE_TYPE_CASSANDRA definition.")
-    include(cmake/build_cass_driver.cmake) # Assumes this sets CASSANDRA_LIBRARIES and CASSANDRA_INCLUDE_DIRS
-    set(LOCAL_DATA_STORE_LIBRARY ${CASSANDRA_LIBRARIES}) # Use a consistent variable
-    set(LOCAL_DATA_STORE_INCLUDE_DIRS ${CASSANDRA_INCLUDE_DIRS})
-    message(STATUS "DataStore: Cassandra driver libs: ${LOCAL_DATA_STORE_LIBRARY}, includes: ${LOCAL_DATA_STORE_INCLUDE_DIRS}")
-elseif(WITH_DATA_STORE STREQUAL "DYNAMODB")
+if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     set(KV_STORAGE_VAL 1 CACHE STRING "dynamodb" FORCE)
     add_compile_definitions(DATA_STORE_TYPE_DYNAMODB)
     message(STATUS "DataStore: Configured for DYNAMODB. KV_STORAGE_VAL=1. Added DATA_STORE_TYPE_DYNAMODB definition.")
@@ -79,15 +71,8 @@ list(APPEND LOCAL_DATA_STORE_INCLUDE_DIRS ${DATA_STORE_BASE_INCLUDE_DIR} ${Proto
 message(STATUS "DataStore: Appended common includes (store_handler, mimalloc, protobuf) to LOCAL_DATA_STORE_INCLUDE_DIRS.")
 
 
-if(WITH_DATA_STORE STREQUAL "CASSANDRA")
-    set(DATA_STORE_SOURCES
-        ${DATA_STORE_SOURCES}
-        store_handler/cass_scanner.cpp
-        store_handler/cass_handler.cpp
-        store_handler/cass_big_number.cpp
-    )
     # LOCAL_DATA_STORE_LIBRARY already set
-elseif(WITH_DATA_STORE STREQUAL "DYNAMODB")
+if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     set(DATA_STORE_SOURCES ${DATA_STORE_SOURCES}
         store_handler/dynamo_handler.cpp
         store_handler/dynamo_scanner.cpp)

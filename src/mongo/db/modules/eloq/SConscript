@@ -46,7 +46,6 @@ env.InjectMongoIncludePaths()
 env["ELOQ_ENGINE_ROOT"]="#src/mongo/db/modules/eloq"
 
 
-DATA_STORE_TYPE_CASSANDRA     = 0
 DATA_STORE_TYPE_DYNAMODB      = 1
 DATA_STORE_TYPE_BIGTABLE      = 2
 DATA_STORE_TYPE_ROCKSDB_CLOUD = 3
@@ -59,9 +58,7 @@ ROCKSDB_CLOUD_FS_TYPE_GCS = 2
 data_store_type_str = os.environ.get("WITH_DATA_STORE", "ELOQDSS_ROCKSDB_CLOUD_S3").upper()
 
 # Map the environment variable value to the corresponding constant
-if data_store_type_str == "CASSANDRA":
-    data_store_type = DATA_STORE_TYPE_CASSANDRA
-elif data_store_type_str == "DYNAMODB":
+if data_store_type_str == "DYNAMODB":
     data_store_type = DATA_STORE_TYPE_DYNAMODB
 elif data_store_type_str == "BIGTABLE":
     data_store_type = DATA_STORE_TYPE_BIGTABLE
@@ -74,9 +71,7 @@ else:
     print("Warning: Unknown DATA_STORE_TYPE '{}'. Defaulting to ROCKSDB_CLOUD.".format(data_store_type_str))
     data_store_type = DATA_STORE_TYPE_ROCKSDB_CLOUD
 
-if data_store_type == DATA_STORE_TYPE_CASSANDRA:
-    pass
-elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
+if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
     env.Append(CPPDEFINES=[
         "DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3",
         ("ROCKSDB_CLOUD_FS_TYPE", ROCKSDB_CLOUD_FS_TYPE_S3)

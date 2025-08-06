@@ -43,9 +43,9 @@ if (OPEN_LOG_SERVICE)
    add_compile_definitions(OPEN_LOG_SERVICE=1)
 endif()
 
-# --- Data Store Configuration (Set externally, e.g., -DWITH_DATA_STORE=CASSANDRA) ---
+# --- Data Store Configuration (Set externally, e.g., -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3) ---
 # WITH_DATA_STORE: Specifies the backend data store.
-# Supported values: CASSANDRA, DYNAMODB, BIGTABLE, ELOQDSS_ROCKSDB_CLOUD_S3, etc.
+# Supported values: DYNAMODB, BIGTABLE, ELOQDSS_ROCKSDB_CLOUD_S3, ELOQDSS_ROCKSDB_CLOUD_GCS, ELOQDSS_ROCKSDB, etc.
 # This variable is not an option() but a cache variable that drives major build paths.
 # Its handling is primarily in build_data_store.cmake and find_dependencies.cmake for SDKs.
 set(WITH_DATA_STORE "ELOQDSS_ROCKSDB_CLOUD_S3" CACHE STRING "The KV data store for EloqDoc")
