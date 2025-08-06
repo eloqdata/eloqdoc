@@ -61,7 +61,6 @@ namespace Eloq {
 extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
 }
 namespace mongo {
-extern AtomicInt32 internalInsertMaxBatchSize;
 thread_local std::random_device r;
 thread_local std::default_random_engine randomEngine{r()};
 thread_local std::uniform_int_distribution<int> uniformDist{1, 500};
@@ -1082,8 +1081,7 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         return {ErrorCodes::BadValue, "object to insert exceeds cappedMaxSize"};
     }
 
-    const size_t maxBatchSize = internalInsertMaxBatchSize.load();
-    auto batchEntries = std::make_unique<BatchReadEntry[]>(maxBatchSize);
+    auto batchEntries = std::make_unique<BatchReadEntry[]>(nRecords);
     std::vector<txservice::ScanBatchTuple> batchTuples;
     batchTuples.reserve(nRecords);
     for (size_t i = 0; i < nRecords; i++) {
