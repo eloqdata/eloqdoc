@@ -32,33 +32,15 @@ def clean_up(minio_endpoint_url, minio_access_key, minio_secret_key, bucket_name
         if not client.bucket_exists(bucket_name):
             print(f"minio cleanup: bucket {bucket_name} not exists")
             continue
-        del_objects = [
-            minio.deleteobjects.DeleteObject(x.object_name)
-            for x in client.list_objects(
-                bucket_name, prefix=".rockset/", recursive=True
-            )
-        ]
-        if del_objects:
-            errors = client.remove_objects(bucket_name, del_objects)
-            for e in errors:
-                raise e
+        del_objects = [minio.deleteobjects.DeleteObject(x.object_name)
+                       for x in client.list_objects(bucket_name,
+                                                    recursive=True)]
+        errors = client.remove_objects(bucket_name, del_objects)
+        for e in errors:
+            raise e
 
-        del_objects = [
-            minio.deleteobjects.DeleteObject(x.object_name)
-            for x in client.list_objects(
-                bucket_name, prefix="rocksdb_cloud/", recursive=True
-            )
-        ]
-        if del_objects:
-            errors = client.remove_objects(bucket_name, del_objects)
-            for e in errors:
-                raise e
-
-        try:
-            client.remove_bucket(bucket_name)
-            print(f"rocksdbcloud bucket#{bucket_name} has been cleaned up.")
-        except Exception as e:
-            print(f"Error removing bucket {bucket_name}: {e}")
+        client.remove_bucket(bucket_name)
+        print(f"rocksdbcloud bucket#{bucket_name} has been cleaned up.")
 
 
 if __name__ == "__main__":
