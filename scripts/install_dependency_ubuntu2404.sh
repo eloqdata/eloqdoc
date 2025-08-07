@@ -157,7 +157,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
         git clone https://github.com/eloqdata/mimalloc.git mimalloc
     fi
     cd mimalloc && \
-    git checkout monograph-v2.1.2 && \
+    git checkout eloq-v2.1.2 && \
     mkdir -p bld && cd bld && \
     cmake .. && \
     make -j$COMPILE_JOBS && \
