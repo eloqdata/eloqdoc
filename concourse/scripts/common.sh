@@ -202,7 +202,7 @@ run_jstests() {
 run_tpcc() {
       pushd /home/$current_user/workspace/py-tpcc/pytpcc
       echo "install pymongo"
-      pip3 install pymongo
+      pip3 install pymongo==4.13.2
       echo "pytpcc reset"
       ln -s /home/$current_user/workspace/mongo/concourse/scripts/pytpcc.cfg mongodb.config
       python3 tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
