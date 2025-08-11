@@ -6,7 +6,7 @@ pyenv global 2.7.18
 
 # Set MinIO credentials and endpoint
 pip3 install minio
-MINIO_ENDPOINT="http://172.31.5.203:9900"
+MINIO_ENDPOINT="http://172.17.0.1:9000"
 MINIO_ACCESS_KEY="35cxOCh64Ef1Mk5U1bgU"
 MINIO_SECRET_KEY="M6oJQWdFCr27TUUS40wS6POQzbKhbFTHG9bRayoC"
 
@@ -153,6 +153,7 @@ launch_mongod() {
       echo "launch mongod with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       export LD_PRELOAD=/usr/local/lib/libmimalloc.so
       mkdir -p "$PREFIX/log" "$PREFIX/data"
+      sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
       nohup $PREFIX/bin/mongod --config ./concourse/scripts/store_rocksdb_cloud.yaml --eloqRocksdbCloudBucketName="$bucket_name" --eloqRocksdbCloudBucketPrefix="$bucket_prefix" &>$PREFIX/log/mongod.out &
 }
 
@@ -167,6 +168,7 @@ launch_mongod_fast() {
       echo "launch mongod fast with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       export LD_PRELOAD=/usr/local/lib/libmimalloc.so
       mkdir -p "$PREFIX/log" "$PREFIX/data"
+      sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
       nohup $PREFIX/bin/mongod --eloqSkipRedoLog=1 --config ./concourse/scripts/store_rocksdb_cloud.yaml --eloqRocksdbCloudBucketName="$bucket_name" --eloqRocksdbCloudBucketPrefix="$bucket_prefix" &>$PREFIX/log/mongod.out &
 }
 
