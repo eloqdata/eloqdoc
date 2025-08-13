@@ -19,7 +19,6 @@
 
 #include <cstdint>
 #include <sys/types.h>
-
 #include "mongo/util/net/hostandport.h"
 #include "mongo/util/options_parser/startup_option_init.h"
 #include "mongo/util/options_parser/startup_options.h"
