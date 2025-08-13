@@ -1097,8 +1097,6 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         BatchReadEntry& entry = batchEntries[i];
         entry.resetToKey(idObj);
         record.id = RecordId{entry.keyString.getBuffer(), entry.keyString.getSize()};
-        MONGO_LOG(1) << ">> Insert with id: " << record.id.getStringView()
-                     << ", record: " << record.data.toBson();
         batchTuples.emplace_back(txservice::TxKey(entry.mongoKey.get()), &entry.mongoRecord);
     }
 
