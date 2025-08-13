@@ -310,7 +310,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         rocksdb_cloud_config.sst_file_cache_size_ =
             txlog::parse_size(eloqGlobalOptions.txlogRocksDBCloudSstFileCacheSize);
         rocksdb_cloud_config.sst_file_cache_num_shard_bits_ =
-            eloqGlobalOptions.rocksdbCloudSstFileCacheNumShardBits;
+            eloqGlobalOptions.txlogRocksDBCloudSstFileCacheNumShardBits;
         rocksdb_cloud_config.db_ready_timeout_us_ =
             eloqGlobalOptions.rocksdbCloudReadyTimeout * 1000 * 1000;
         rocksdb_cloud_config.db_file_deletion_delay_ =
