@@ -433,6 +433,47 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .validRange(1, 1024)
         .setDefault(moe::Value(1));
 
+    // EloqStore Options
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreWorkerCount",
+                           "eloqEloqStoreWorkerCount",
+                           moe::Int,
+                           "EloqStore worker count")
+        .validRange(1, 1024)
+        .setDefault(moe::Value(1));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreStoragePath",
+                           "eloqEloqStoreStoragePath",
+                           moe::String,
+                           "EloqStore storage path")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreOpenFilesLimit",
+                           "eloqEloqStoreOpenFilesLimit",
+                           moe::Int,
+                           "EloqStore open files limit")
+        .validRange(1, 1024)
+        .setDefault(moe::Value(1024));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreCloudStorePath",
+                           "eloqEloqStoreCloudStorePath",
+                           moe::String,
+                           "EloqStore cloud store path (Disable cloud store if empty)")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreGcThreads",
+                           "eloqEloqStoreGcThreads",
+                           moe::Int,
+                           "EloqStore gc threads (Must be 0 if cloud store is enabled)")
+        .validRange(0, 1024)
+        .setDefault(moe::Value(1));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreCloudWorkerCount",
+                           "eloqEloqStoreCloudWorkerCount",
+                           moe::Int,
+                           "EloqStore cloud worker count")
+        .validRange(1, 1024)
+        .setDefault(moe::Value(1));
 
     // Options for metrics
     eloqOptions
@@ -812,6 +853,31 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
             params["storage.eloq.storage.rocksdbMaxSubCompactions"].as<int>();
     }
 
+    // EloqStore Options
+    if (params.count("storage.eloq.storage.eloqStoreWorkerCount")) {
+        eloqGlobalOptions.eloqStoreWorkerCount =
+            params["storage.eloq.storage.eloqStoreWorkerCount"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreStoragePath")) {
+        eloqGlobalOptions.eloqStoreStoragePath =
+            params["storage.eloq.storage.eloqStoreStoragePath"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreOpenFilesLimit")) {
+        eloqGlobalOptions.eloqStoreOpenFilesLimit =
+            params["storage.eloq.storage.eloqStoreOpenFilesLimit"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreCloudStorePath")) {
+        eloqGlobalOptions.eloqStoreCloudStorePath =
+            params["storage.eloq.storage.eloqStoreCloudStorePath"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreGcThreads")) {
+        eloqGlobalOptions.eloqStoreGcThreads =
+            params["storage.eloq.storage.eloqStoreGcThreads"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreCloudWorkerCount")) {
+        eloqGlobalOptions.eloqStoreCloudWorkerCount =
+            params["storage.eloq.storage.eloqStoreCloudWorkerCount"].as<int>();
+    }
 
     // Parse metrics options
 

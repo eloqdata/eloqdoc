@@ -57,6 +57,23 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
     set(DS_COMPILED_PROTO_FILES ${COMPILED_PROTO_CC_FILES})
     message(STATUS "DataStore: ELOQDSS compiled protos: ${DS_COMPILED_PROTO_FILES}")
     list(APPEND LOCAL_DATA_STORE_INCLUDE_DIRS ${ELOQ_DSS_PROTO_DIR_PATH}) # Add proto dir to includes for this target
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    set(KV_STORAGE_VAL 4 CACHE STRING "eloq_ds_eloqstore" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
+    message(STATUS "DataStore: Configured for ELOQDSS_ELOQSTORE.")
+    # Proto compilation for ELOQDSS
+    set(ELOQ_DSS_PROTO_DIR_PATH ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service)
+    message(NOTICE "data store service proto dir: ${ELOQ_DSS_PROTO_DIR_PATH}")
+    compile_protos_in_directory(${ELOQ_DSS_PROTO_DIR_PATH})
+    set(DS_COMPILED_PROTO_FILES ${COMPILED_PROTO_CC_FILES})
+    message(STATUS "DataStore: ELOQDSS compiled protos: ${DS_COMPILED_PROTO_FILES}")
+    list(APPEND LOCAL_DATA_STORE_INCLUDE_DIRS ${ELOQ_DSS_PROTO_DIR_PATH}) # Add proto dir to includes for this target
+
+    option(WITH_TXSERVICE "Whether compile eloqstore with txservice" ON)
+    set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
+    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/build_eloq_store.cmake)
+
+    list(APPEND LOCAL_DATA_STORE_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/eloqstore)
 else()
     message(FATAL_ERROR "Unset or unsupported WITH_DATA_STORE: ${WITH_DATA_STORE}")
 endif()
@@ -114,6 +131,23 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR WITH_DATA_STORE ST
     endif()
     set(DATA_STORE_SOURCES ${_ELOQDSS_SOURCES_LIST})
     # LOCAL_DATA_STORE_LIBRARY (ROCKSDB_GLOBAL_LIBRARIES) already set
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    set(_ELOQDSS_SOURCES_LIST
+        store_handler/data_store_service_client.cpp
+        store_handler/data_store_service_client_closure.cpp
+        store_handler/data_store_service_scanner.cpp
+        store_handler/store_util.cpp
+        store_handler/eloq_data_store_service/thread_worker_pool.cpp
+        store_handler/eloq_data_store_service/data_store_service.cpp
+        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+        store_handler/eloq_data_store_service/data_store_service_config.cpp
+        store_handler/eloq_data_store_service/eloq_store_data_store.cpp)
+
+    if(DS_COMPILED_PROTO_FILES)
+        list(APPEND _ELOQDSS_SOURCES_LIST ${DS_COMPILED_PROTO_FILES})
+        message(STATUS "DataStore: Appended DS_COMPILED_PROTO_FILES to _ELOQDSS_SOURCES_LIST.")
+    endif()
+    set(DATA_STORE_SOURCES ${_ELOQDSS_SOURCES_LIST})
 else()
     message(FATAL_ERROR "Unset or unsupported WITH_DATA_STORE for sources: ${WITH_DATA_STORE}")
 endif()

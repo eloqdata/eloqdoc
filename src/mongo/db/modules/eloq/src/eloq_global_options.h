@@ -116,6 +116,14 @@ public:
     uint32_t rocksdbMaxBackgroundJobs{4};
     uint32_t rocksdbMaxSubCompactions{1};  // no subcompactions
 
+    // eloqstore
+    uint32_t eloqStoreWorkerCount{1};
+    std::string eloqStoreStoragePath;
+    uint32_t eloqStoreOpenFilesLimit{1024};
+    std::string eloqStoreCloudStorePath;
+    uint32_t eloqStoreGcThreads{1};
+    uint32_t eloqStoreCloudWorkerCount{1};
+
     // metrics
     bool enableMetrics{false};
     uint16_t metricsPort{18081};

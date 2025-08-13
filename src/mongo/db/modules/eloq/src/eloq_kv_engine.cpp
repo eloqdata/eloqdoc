@@ -79,6 +79,8 @@
 #elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
 #include "store_handler/eloq_data_store_service/rocksdb_config.h"
 #include "store_handler/eloq_data_store_service/rocksdb_data_store_factory.h"
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
+#include "store_handler/eloq_data_store_service/eloq_store_data_store_factory.h"
 #endif
 #else
 #endif
@@ -578,6 +580,22 @@ void EloqKVEngine::initDataStoreService() {
         fake_config_reader.GetBoolean("local", "enable_cache_replacement", false);
     auto ds_factory = std::make_unique<EloqDS::RocksDBDataStoreFactory>(rocksdb_config,
                                                                         enable_cache_replacement_);
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
+    EloqDS::EloqStoreConfig eloq_store_config;
+    eloq_store_config.worker_count_ = eloqGlobalOptions.eloqStoreWorkerCount;
+    eloq_store_config.storage_path_ = eloqGlobalOptions.eloqStoreStoragePath;
+    if (eloq_store_config.storage_path_.empty()) {
+        eloq_store_config.storage_path_ = _dbPath + "/dss_eloqstore";
+    }
+    eloq_store_config.open_files_limit_ = eloqGlobalOptions.eloqStoreOpenFilesLimit;
+    eloq_store_config.cloud_store_path_ = eloqGlobalOptions.eloqStoreCloudStorePath;
+    if (!eloq_store_config.cloud_store_path_.empty()) {
+        log() << "EloqStore cloud store enabled";
+    }
+    eloq_store_config.gc_threads_ =
+        eloq_store_config.cloud_store_path_.empty() ? eloqGlobalOptions.eloqStoreGcThreads : 0;
+    eloq_store_config.cloud_worker_count_ = eloqGlobalOptions.eloqStoreCloudWorkerCount;
+    auto ds_factory = std::make_unique<EloqDS::EloqStoreDataStoreFactory>(eloq_store_config);
 #endif
 
     Eloq::dataStoreService = std::make_unique<EloqDS::DataStoreService>(
@@ -601,6 +619,30 @@ void EloqKVEngine::initDataStoreService() {
                                                              enable_cache_replacement_,
                                                              shard_id,
                                                              Eloq::dataStoreService.get());
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
+        ::eloqstore::KvOptions store_config;
+        store_config.num_threads = eloq_store_config.worker_count_;
+        store_config.store_path.emplace_back()
+            .append(eloq_store_config.storage_path_)
+            .append("/ds_")
+            .append(std::to_string(shard_id));
+        store_config.fd_limit = eloq_store_config.open_files_limit_;
+        if (!eloq_store_config.cloud_store_path_.empty()) {
+            store_config.cloud_store_path.append(eloq_store_config.cloud_store_path_)
+                .append("/ds_")
+                .append(std::to_string(shard_id));
+        }
+        store_config.num_gc_threads = eloq_store_config.gc_threads_;
+        store_config.rclone_threads = eloq_store_config.cloud_worker_count_;
+
+        DLOG(INFO) << "Create EloqStore storage with workers: " << store_config.num_threads
+                   << ", store path: " << store_config.store_path.front()
+                   << ", open files limit: " << store_config.fd_limit
+                   << ", cloud store path: " << store_config.cloud_store_path
+                   << ", gc threads: " << store_config.num_gc_threads
+                   << ", cloud worker count: " << store_config.rclone_threads;
+        auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
+            shard_id, Eloq::dataStoreService.get(), store_config);
 #endif
         ds->Initialize();
 

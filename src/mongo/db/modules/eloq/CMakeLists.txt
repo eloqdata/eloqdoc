@@ -48,7 +48,7 @@ endif()
 # This variable is not an option() but a cache variable that drives major build paths.
 # Its handling is primarily in build_data_store.cmake and find_dependencies.cmake for SDKs.
 set(WITH_DATA_STORE "ELOQDSS_ROCKSDB_CLOUD_S3" CACHE STRING "The KV data store for EloqDoc")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB" "ELOQDSS_ELOQSTORE")
 if(DEFINED WITH_DATA_STORE)
     message(STATUS "WITH_DATA_STORE is set to: ${WITH_DATA_STORE}")
 else()
