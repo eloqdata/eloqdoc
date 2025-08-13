@@ -18,7 +18,6 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
 # --- Transaction Service Options ---
 option(EXT_TX_PROC_ENABLED "Allows external threads to move forward the tx service." ON)
 option(FORK_HM_PROCESS "Whether to fork a separate Host Manager process for Raft." OFF)
-option(RANGE_PARTITION_ENABLED "Whether to enable range partitioning features in the tx service." ON)
 option(STATISTICS "Whether to enable table statistics collection in the tx service." ON)
 
 # --- Log Service Options ---
@@ -67,7 +66,7 @@ if(FORK_HM_PROCESS)
     message(STATUS "Global: FORK_HM_PROCESS definition added.")
 endif()
 
-# RANGE_PARTITION_ENABLED, STATISTICS, SMALL_RANGE definitions are handled in build_tx_service.cmake
+#  STATISTICS, SMALL_RANGE definitions are handled in build_tx_service.cmake
 # USE_ROCKSDB_LOG_STATE definition is handled in build_log_service.cmake
 
 if(USE_ASAN)

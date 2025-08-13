@@ -96,7 +96,6 @@ if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
 
 env.Append(CPPDEFINES=[
     "OVERRIDE_GFLAGS_NAMESPACE",
-    "RANGE_PARTITION_ENABLED",
     "BRPC_WITH_GLOG",
     "USE_ROCKSDB_LOG_STATE",
     # "BRPC_ENABLE_CPU_PROFILER",

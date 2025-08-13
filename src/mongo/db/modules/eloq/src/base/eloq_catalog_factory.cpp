@@ -114,7 +114,6 @@ std::unique_ptr<txservice::TableRangeEntry> MongoCatalogFactory::CreateTableRang
 
 std::unique_ptr<txservice::CcScanner> MongoCatalogFactory::CreatePkCcmScanner(
     txservice::ScanDirection direction, const txservice::KeySchema* key_schema) {
-#ifdef RANGE_PARTITION_ENABLED
     if (direction == txservice::ScanDirection::Forward) {
         return std::make_unique<txservice::RangePartitionedCcmScanner<MongoKey, MongoRecord, true>>(
             direction, txservice::ScanIndexType::Primary, key_schema);
@@ -123,15 +122,10 @@ std::unique_ptr<txservice::CcScanner> MongoCatalogFactory::CreatePkCcmScanner(
             txservice::RangePartitionedCcmScanner<MongoKey, MongoRecord, false>>(
             direction, txservice::ScanIndexType::Primary, key_schema);
     }
-#else
-    return std::make_unique<txservice::TemplateCcScanner<MongoKey, MongoRecord>>(
-        direction, txservice::ScanIndexType::Primary, key_schema);
-#endif
 }
 
 std::unique_ptr<txservice::CcScanner> MongoCatalogFactory::CreateSkCcmScanner(
     txservice::ScanDirection direction, const txservice::KeySchema* compound_key_schema) {
-#ifdef RANGE_PARTITION_ENABLED
     if (direction == txservice::ScanDirection::Forward) {
         return std::make_unique<txservice::RangePartitionedCcmScanner<MongoKey, MongoRecord, true>>(
             direction, txservice::ScanIndexType::Secondary, compound_key_schema);
@@ -140,10 +134,6 @@ std::unique_ptr<txservice::CcScanner> MongoCatalogFactory::CreateSkCcmScanner(
             txservice::RangePartitionedCcmScanner<MongoKey, MongoRecord, false>>(
             direction, txservice::ScanIndexType::Secondary, compound_key_schema);
     }
-#else
-    return std::make_unique<txservice::TemplateCcScanner<MongoKey, MongoRecord>>(
-        direction, txservice::ScanIndexType::Secondary, compound_key_schema);
-#endif
 }
 
 std::unique_ptr<txservice::CcScanner> MongoCatalogFactory::CreateRangeCcmScanner(

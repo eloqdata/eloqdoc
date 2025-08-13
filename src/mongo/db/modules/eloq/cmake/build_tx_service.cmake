@@ -10,11 +10,6 @@ set(ABSEIL
 )
 
 # Apply compile definitions based on global options
-if(RANGE_PARTITION_ENABLED)
-    add_compile_definitions(RANGE_PARTITION_ENABLED)
-    message(STATUS "TxService: Added compile definition RANGE_PARTITION_ENABLED.")
-endif()
-
 if(SMALL_RANGE) 
     add_compile_definitions(SMALL_RANGE)
     message(STATUS "TxService: Added compile definition SMALL_RANGE.")

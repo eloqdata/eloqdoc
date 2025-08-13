@@ -59,7 +59,6 @@ compile_and_install() {
             -DCMAKE_CXX_STANDARD=17 \
             -DCMAKE_CXX_FLAGS_DEBUG_INIT="-Wno-error -fPIC" \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DRANGE_PARTITION_ENABLED=ON \
             -DEXT_TX_PROC_ENABLED=ON \
             -DSTATISTICS=ON \
             -DUSE_ASAN=OFF \
@@ -108,7 +107,6 @@ compile_and_install_ent() {
             -DCMAKE_CXX_STANDARD=17 \
             -DCMAKE_CXX_FLAGS_DEBUG_INIT="-Wno-error -fPIC" \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DRANGE_PARTITION_ENABLED=ON \
             -DEXT_TX_PROC_ENABLED=ON \
             -DSTATISTICS=ON \
             -DUSE_ASAN=OFF \

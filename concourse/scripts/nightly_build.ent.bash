@@ -113,7 +113,6 @@ if [ $BUILD_TYPE = "Debug" ]; then
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_FLAGS_DEBUG_INIT="-march=x86-64 -mtune=generic -Wno-error -fPIC" \
           -DCMAKE_BUILD_TYPE=Debug \
-          -DRANGE_PARTITION_ENABLED=ON \
           -DCOROUTINE_ENABLED=ON \
           -DEXT_TX_PROC_ENABLED=ON \
           -DWITH_LOG_SERVICE=ON \
@@ -150,7 +149,6 @@ elif [ $BUILD_TYPE = "RelWithDebInfo" ]; then
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_FLAGS_RELWITHDEBINFO_INIT="-march=x86-64 -mtune=generic -Wno-error -fPIC" \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-          -DRANGE_PARTITION_ENABLED=ON \
           -DCOROUTINE_ENABLED=ON \
           -DEXT_TX_PROC_ENABLED=ON \
           -DWITH_LOG_SERVICE=ON \
@@ -188,7 +186,6 @@ elif [ $BUILD_TYPE = "Release" ]; then
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_FLAGS_RELEASE_INIT="-march=x86-64 -mtune=generic -Wno-error -fPIC" \
           -DCMAKE_BUILD_TYPE=Release \
-          -DRANGE_PARTITION_ENABLED=ON \
           -DCOROUTINE_ENABLED=ON \
           -DEXT_TX_PROC_ENABLED=ON \
           -DWITH_LOG_SERVICE=ON \
