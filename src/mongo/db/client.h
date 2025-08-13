@@ -158,8 +158,17 @@ public:
     // Ensures stability of the client's OperationContext. When the client is locked,
     // the OperationContext will not disappear.
     void lock() {
+#ifndef D_USE_CORO_SYNC
         _lock.lock();
+#else
+        while (!_lock.try_lock()) {
+            const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+            (*coro.longResumeFuncPtr)();
+            (*coro.yieldFuncPtr)();
+        }
+#endif
     }
+
     void unlock() {
         _lock.unlock();
     }
