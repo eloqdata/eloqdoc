@@ -184,10 +184,11 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
 
     // txlog
     eloqOptions
-        .addOptionChaining("storage.eloq.txService.txlogRocksDBStoragePath",
-                           "eloqTxlogRocksDBStoragePath",
-                           moe::String,
-                           "The path for tx log service rocksdb storage")
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBStoragePath",
+            "eloqTxlogRocksDBStoragePath",
+            moe::String,
+            "The local file system path for RocksDB Cloud instance which stores the tx log state.")
         .setDefault(moe::Value(""));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.txlogRocksDBScanThreadNum",
@@ -195,7 +196,72 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::Int,
                            "Number of rocksdb scan threads")
         .setDefault(moe::Value(1));
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudRegion",
+            "eloqTxlogRocksDBCloudRegion",
+            moe::String,
+            "The cloud region for RocksDB Cloud instance which stores the tx log state.")
+        .setDefault(moe::Value("ap-northeast-1"));
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudBucketName",
+            "eloqTxlogRocksDBCloudBucketName",
+            moe::String,
+            "The bucket name for RocksDB Cloud instance which stores the tx log state.")
+        .setDefault(moe::Value(""));
 
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudBucketPrefix",
+            "eloqTxlogRocksDBCloudBucketPrefix",
+            moe::String,
+            "The bucket name prefix for RocksDB Cloud instance which stores the tx log state.")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudObjectPath",
+                           "eloqTxlogRocksDBCloudObjectPath",
+                           moe::String,
+                           "The object file path in the bucket for RocksDB Cloud instance which "
+                           "stores the tx log state.")
+        .setDefault(moe::Value(""));
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudEndpointUrl",
+            "eloqTxlogRocksDBCloudEndpointUrl",
+            moe::String,
+            "The S3-Compatible service endpoint url for RocksDB Cloud instance which "
+            "stores the tx log state.")
+        .setDefault(moe::Value(""));
+
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudSstFileCacheSize",
+                           "eloqTxlogRocksDBCloudSstFileCacheSize",
+                           moe::String,
+                           "RocksDB Cloud SST file cache size for instance which "
+                           "stores the tx log state.")
+        .setDefault(moe::Value("1GB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudSstFileCacheNumShardBits",
+                           "eloqTxlogRocksDBCloudSstFileCacheNumShardBits",
+                           moe::Int,
+                           "RocksDB Cloud SST file cache num shard bits for instance which stores "
+                           "the tx log state.")
+        .setDefault(moe::Value(5));
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudReadyTimeout",
+            "eloqTxlogRocksDBCloudReadyTimeout",
+            moe::Int,
+            "RocksDB Cloud ready timeout(seconds) for instance which stores the tx log state.")
+        .setDefault(moe::Value(0));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudFileDeletionDelay",
+                           "eloqTxlogRocksDBCloudFileDeletionDelay",
+                           moe::Int,
+                           "RocksDB Cloud file deletion delay (seconds) for instance which stores "
+                           "the tx log state.")
+        .setDefault(moe::Value(0));
 
     // Eloq Storage Options
     eloqOptions
@@ -594,6 +660,42 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.txlogRocksDBScanThreadNum")) {
         eloqGlobalOptions.txlogRocksDBScanThreads =
             params["storage.eloq.txService.txlogRocksDBScanThreadNum"].as<int>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudRegion")) {
+        eloqGlobalOptions.txlogRocksDBCloudRegion =
+            params["storage.eloq.txService.txlogRocksDBCloudRegion"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudBucketName")) {
+        eloqGlobalOptions.txlogRocksDBCloudBucketName =
+            params["storage.eloq.txService.txlogRocksDBCloudBucketName"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudBucketPrefix")) {
+        eloqGlobalOptions.txlogRocksDBCloudBucketPrefix =
+            params["storage.eloq.txService.txlogRocksDBCloudBucketPrefix"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudObjectPath")) {
+        eloqGlobalOptions.txlogRocksDBCloudObjectPath =
+            params["storage.eloq.txService.txlogRocksDBCloudObjectPath"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudEndpointUrl")) {
+        eloqGlobalOptions.txlogRocksDBCloudEndpointUrl =
+            params["storage.eloq.txService.txlogRocksDBCloudEndpointUrl"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudSstFileCacheSize")) {
+        eloqGlobalOptions.txlogRocksDBCloudSstFileCacheSize =
+            params["storage.eloq.txService.txlogRocksDBCloudSstFileCacheSize"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudSstFileCacheNumShardBits")) {
+        eloqGlobalOptions.txlogRocksDBCloudSstFileCacheNumShardBits =
+            params["storage.eloq.txService.txlogRocksDBCloudSstFileCacheNumShardBits"].as<int>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudReadyTimeout")) {
+        eloqGlobalOptions.txlogRocksDBCloudReadyTimeout =
+            params["storage.eloq.txService.txlogRocksDBCloudReadyTimeout"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudFileDeletionDelay")) {
+        eloqGlobalOptions.txlogRocksDBCloudFileDeletionDelay =
+            params["storage.eloq.txService.txlogRocksDBCloudFileDeletionDelay"].as<uint32_t>();
     }
 
     // Eloq Storage Options

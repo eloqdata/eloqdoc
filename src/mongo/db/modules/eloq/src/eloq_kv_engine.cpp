@@ -302,13 +302,13 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         rocksdb_cloud_config.aws_access_key_id_ = eloqGlobalOptions.awsAccessKeyId;
         rocksdb_cloud_config.aws_secret_key_ = eloqGlobalOptions.awsSecretKey;
 #endif /* WITH_ROCKSDB_CLOUD == CS_TYPE_S3 */
-        rocksdb_cloud_config.bucket_name_ = eloqGlobalOptions.rocksdbCloudBucketName;
-        rocksdb_cloud_config.bucket_prefix_ = eloqGlobalOptions.rocksdbCloudBucketPrefix;
-        rocksdb_cloud_config.object_path_ = eloqGlobalOptions.rocksdbCloudObjectPath + "_log";
-        rocksdb_cloud_config.region_ = eloqGlobalOptions.rocksdbCloudRegion;
-        rocksdb_cloud_config.endpoint_url_ = eloqGlobalOptions.rocksdbCloudEndpointUrl;
+        rocksdb_cloud_config.bucket_name_ = eloqGlobalOptions.txlogRocksDBCloudBucketName;
+        rocksdb_cloud_config.bucket_prefix_ = eloqGlobalOptions.txlogRocksDBCloudBucketPrefix;
+        rocksdb_cloud_config.object_path_ = eloqGlobalOptions.txlogRocksDBCloudObjectPath;
+        rocksdb_cloud_config.region_ = eloqGlobalOptions.txlogRocksDBCloudRegion;
+        rocksdb_cloud_config.endpoint_url_ = eloqGlobalOptions.txlogRocksDBCloudEndpointUrl;
         rocksdb_cloud_config.sst_file_cache_size_ =
-            txlog::parse_size(eloqGlobalOptions.rocksdbCloudSstFileCacheSize);
+            txlog::parse_size(eloqGlobalOptions.txlogRocksDBCloudSstFileCacheSize);
         rocksdb_cloud_config.sst_file_cache_num_shard_bits_ =
             eloqGlobalOptions.rocksdbCloudSstFileCacheNumShardBits;
         rocksdb_cloud_config.db_ready_timeout_us_ =
@@ -560,10 +560,11 @@ void EloqKVEngine::initDataStoreService() {
     rocksdb_cloud_config.sst_file_cache_size_ =
         txlog::parse_size(eloqGlobalOptions.rocksdbCloudSstFileCacheSize);
     rocksdb_cloud_config.sst_file_cache_num_shard_bits_ =
-        eloqGlobalOptions.rocksdbCloudSstFileCacheNumShardBits;
+        eloqGlobalOptions.txlogRocksDBCloudSstFileCacheNumShardBits;
     rocksdb_cloud_config.db_ready_timeout_us_ =
-        eloqGlobalOptions.rocksdbCloudReadyTimeout * 1000 * 1000;
-    rocksdb_cloud_config.db_file_deletion_delay_ = eloqGlobalOptions.rocksdbCloudFileDeletionDelay;
+        eloqGlobalOptions.txlogRocksDBCloudReadyTimeout * 1000 * 1000;
+    rocksdb_cloud_config.db_file_deletion_delay_ =
+        eloqGlobalOptions.txlogRocksDBCloudFileDeletionDelay;
 
     bool enable_cache_replacement_ =
         fake_config_reader.GetBoolean("local", "enable_cache_replacement", false);

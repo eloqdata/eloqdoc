@@ -18,12 +18,14 @@
 #pragma once
 
 #include <cstdint>
+#include <sys/types.h>
 
 #include "mongo/util/net/hostandport.h"
 #include "mongo/util/options_parser/startup_option_init.h"
 #include "mongo/util/options_parser/startup_options.h"
 
 #include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
+
 
 namespace mongo {
 
@@ -68,6 +70,15 @@ public:
     std::string txlogRocksDBStoragePath;
     uint16_t txlogRocksDBScanThreads{1};
     std::vector<mongo::HostAndPort> txlogServiceAddrs;
+    std::string txlogRocksDBCloudRegion;
+    std::string txlogRocksDBCloudBucketName;
+    std::string txlogRocksDBCloudBucketPrefix;
+    std::string txlogRocksDBCloudObjectPath;
+    std::string txlogRocksDBCloudEndpointUrl;
+    std::string txlogRocksDBCloudSstFileCacheSize;
+    int txlogRocksDBCloudSstFileCacheNumShardBits{5};
+    uint32_t txlogRocksDBCloudReadyTimeout{0};
+    uint32_t txlogRocksDBCloudFileDeletionDelay{0};
 
     // storage
     std::string keyspaceName;
