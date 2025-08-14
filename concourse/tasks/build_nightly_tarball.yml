@@ -1,15 +1,15 @@
 platform: linux
-container_limits:
-  memory: 16GB
 image_resource:
   type: registry-image
 inputs:
   - name: eloqdoc_src
-  - name: eloq_logservice_src
   - name: raft_host_manager_src
+  - name: eloq_logservice_src
 outputs:
   - name: the-output
 run:
   path: /bin/bash
   args:
     - eloqdoc_src/concourse/scripts/build_tarball.bash
+
+

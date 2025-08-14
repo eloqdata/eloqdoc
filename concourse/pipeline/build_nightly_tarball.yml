@@ -22,10 +22,11 @@ jobs:
       - task: rocksdb-cloud
         image: image_ubuntu2004
         params:
-          KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
           BUILD_LOG_SRV: true
+          GIT_SSH_KEY: ((git-key))
           <<: *aws-access
-        file: eloqdoc_src/concourse/tasks/nightly_build.ent.yml
+        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
   - name: ubuntu2204
     serial: true
     plan:
@@ -44,10 +45,11 @@ jobs:
       - task: rocksdb-cloud
         image: image_ubuntu2204
         params:
-          KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
           BUILD_LOG_SRV: true
+          GIT_SSH_KEY: ((git-key))
           <<: *aws-access
-        file: eloqdoc_src/concourse/tasks/nightly_build.ent.yml
+        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
   - name: ubuntu2404
     serial: true
     plan:
@@ -66,10 +68,11 @@ jobs:
       - task: rocksdb-cloud
         image: image_ubuntu2404
         params:
-          KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
           BUILD_LOG_SRV: true
+          GIT_SSH_KEY: ((git-key))
           <<: *aws-access
-        file: eloqdoc_src/concourse/tasks/nightly_build.ent.yml
+        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
 resources:
   - name: night
     type: time
@@ -110,3 +113,5 @@ resources:
       branch: main
       uri: git@github.com:eloqdata/eloq_log_service.git
       private_key: ((git-key))
+
+
