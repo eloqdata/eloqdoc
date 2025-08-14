@@ -10,6 +10,9 @@ MINIO_ENDPOINT="http://172.17.0.1:9000"
 MINIO_ACCESS_KEY="35cxOCh64Ef1Mk5U1bgU"
 MINIO_SECRET_KEY="M6oJQWdFCr27TUUS40wS6POQzbKhbFTHG9bRayoC"
 
+# Setup Minio mc Client command
+mc alias set minio_server ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}
+
 # Make coredump dir writable.
 if [ ! -d "/var/crash" ]; then sudo mkdir -p /var/crash; fi
 sudo chmod 777 /var/crash
@@ -34,13 +37,7 @@ cleanup_all_buckets() {
       local full_bucket_name="${bucket_prefix}${bucket_name}"
       
       echo "Cleaning buckets: $full_bucket_name"
-      
-      # pwd is mongo/
-      python3 concourse/scripts/cleanup_minio_bucket.py \
-            --minio_endpoint="${MINIO_ENDPOINT}" \
-            --minio_access_key="${MINIO_ACCESS_KEY}" \
-            --minio_secret_key="${MINIO_SECRET_KEY}" \
-            --bucket_names="${full_bucket_name}"
+      mc rb minio_server/${full_bucket_name} --force
 }
 
 compile_and_install() {
