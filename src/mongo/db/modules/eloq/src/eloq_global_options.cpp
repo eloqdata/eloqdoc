@@ -131,14 +131,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "Use key cache in primary key to avoid kv read if key does not exists.")
         .setDefault(moe::Value(false));
     eloqOptions
-        .addOptionChaining("storage.eloq.txService.enableMVCC",
-                           "eloqEnableMVCC",
-                           moe::Bool,
-                           "When enabled, use muliti-versions. Repeatable Read isolation level "
-                           "will be converted to "
-                           "Snapshot isolation level")
-        .setDefault(moe::Value(true));
-    eloqOptions
         .addOptionChaining("storage.eloq.txService.ccProtocol",
                            "eloqCcProtocol",
                            moe::String,
@@ -605,9 +597,6 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     }
     if (params.count("storage.eloq.txService.useKeyCache")) {
         eloqGlobalOptions.useKeyCache = params["storage.eloq.txService.useKeyCache"].as<bool>();
-    }
-    if (params.count("storage.eloq.txService.enableMVCC")) {
-        eloqGlobalOptions.enableMVCC = params["storage.eloq.txService.enableMVCC"].as<bool>();
     }
     if (params.count("storage.eloq.txService.ccProtocol")) {
         const std::string& s = params["storage.eloq.txService.ccProtocol"].as<std::string>();

@@ -61,7 +61,6 @@ public:
     uint32_t nodeGroupReplicaNum{0};
     uint16_t bthreadWorkerNum{0};
     bool useKeyCache{false};
-    bool enableMVCC{true};
     txservice::CcProtocol ccProtocol{txservice::CcProtocol::OccRead};
     bool skipRedoLog{false};
     bool kickoutDataForTest{false};

@@ -24,7 +24,6 @@ storage:
       realtimeSampling: true
       collectActiveTxTsIntervalSec: 2
       checkpointerDelaySec: 5
-      enableMVCC: true
       ccProtocol: "OccRead"
       # txlogServiceList: ["127.0.0.1:8500"]
       # txlogGroupReplicaNum: 1

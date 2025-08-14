@@ -109,8 +109,7 @@ public:
 
     void setEndPosition(const BSONObj& key, bool inclusive) override {
         MONGO_LOG(1) << "EloqIndexCursor::setEndPosition " << _indexName->StringView()
-                     << ". endKey: " << key << ". inclusive: " << inclusive
-                     << ", client: " << (void*)Client::getCurrent();
+                     << ". endKey: " << key << ". inclusive: " << inclusive;
         if (key.isEmpty()) {
             // This means scan to end of index.
             _endPosition.reset();
@@ -130,7 +129,7 @@ public:
                                         bool inclusive,
                                         RequestedInfo parts = kKeyAndLoc) override {
         MONGO_LOG(1) << "EloqIndexCursor::seek " << _indexName->StringView() << ". key: " << key
-                     << ". inclusive: " << inclusive << ", client: " << (void*)Client::getCurrent();
+                     << ". inclusive: " << inclusive;
         // dassert(_opCtx->lockState()->isReadLocked());
 
         // if ((!_endPosition) && (inclusive) && (_indexType == IndexCursorType::ID)) {
@@ -151,8 +150,7 @@ public:
 
     boost::optional<IndexKeyEntry> seek(const IndexSeekPoint& seekPoint,
                                         RequestedInfo parts = kKeyAndLoc) override {
-        MONGO_LOG(1) << "EloqIndexCursor::seek with seekPoint. " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::seek with seekPoint. " << _indexName->StringView();
 
         // dassert(_opCtx->lockState()->isReadLocked());
         // TODO(starrysky): don't go to a bson obj then to a KeyString, go straight
@@ -174,13 +172,12 @@ public:
                                              RequestedInfo parts = kKeyAndLoc) override {
 
         MONGO_LOG(1) << "EloqIndexCursor::seekExact " << _indexName->StringView()
-                     << ". key: " << key << ", client: " << (void*)Client::getCurrent();
+                     << ". key: " << key;
         return _idRead(key, parts);
     }
 
     boost::optional<IndexKeyEntry> next(RequestedInfo parts = kKeyAndLoc) override {
-        MONGO_LOG(1) << "EloqIndexCursor::next " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::next " << _indexName->StringView();
         if (_eof) {
             return {};
         }
@@ -189,21 +186,18 @@ public:
     }
 
     void save() override {
-        MONGO_LOG(1) << "EloqIndexCursor::save " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::save " << _indexName->StringView();
         _cursor.reset();
     }
 
     void saveUnpositioned() override {
-        MONGO_LOG(1) << "EloqIndexCursor::saveUnpositioned " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::saveUnpositioned " << _indexName->StringView();
 
         _cursor.reset();
     }
 
     void restore() override {
-        MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView();
         if (_eof) {
             return;
         }
@@ -214,16 +208,14 @@ public:
     }
 
     void detachFromOperationContext() override {
-        MONGO_LOG(1) << "EloqIndexCursor::detachFromOperationContext, client: "
-                     << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::detachFromOperationContext";
         assert(_opCtx);
         _opCtx = nullptr;
         _ru = nullptr;
     }
 
     void reattachToOperationContext(OperationContext* opCtx) override {
-        MONGO_LOG(1) << "EloqIndexCursor::reattachToOperationContext, client: "
-                     << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::reattachToOperationContext";
         assert(!_opCtx);
         _opCtx = opCtx;
         _ru = EloqRecoveryUnit::get(_opCtx);
@@ -233,8 +225,7 @@ private:
     butil::Timer _timer;
     boost::optional<IndexKeyEntry> _idRead(const BSONObj& key, RequestedInfo parts) {
         MONGO_LOG(1) << "EloqIndexCursor::_idRead " << _indexName->StringView()
-                     << ". key: " << key.jsonString()
-                     << ", client: " << (void*)Client::getCurrent();
+                     << ". key: " << key.jsonString();
 
         _eof = false;
 
@@ -262,8 +253,7 @@ private:
 
     // Seeks to query. Returns true on exact match.
     bool _seekCursor(const KeyString& query, bool startInclusive) {
-        MONGO_LOG(1) << "EloqIndexCursor::_seekCursor " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::_seekCursor " << _indexName->StringView();
 
         _cursor.emplace(_opCtx);
 
@@ -301,7 +291,7 @@ private:
 
     void _updatePosition(bool inNext = true) {
         MONGO_LOG(1) << "EloqIndexCursor::_updatePosition " << _indexName->StringView()
-                     << ". inNext" << inNext << ", client: " << (void*)Client::getCurrent();
+                     << ". inNext" << inNext;
         _eof = false;
 
         if (inNext) {
@@ -315,10 +305,6 @@ private:
             if (scanTuple != nullptr) {
                 _scanTupleKey = scanTuple->key_.GetKey<Eloq::MongoKey>();
                 _scanTupleRecord = static_cast<const Eloq::MongoRecord*>(scanTuple->record_);
-                MONGO_LOG(1) << ">> _scanTupleKey: " << (void*)_scanTupleKey
-                             << ", client: " << (void*)Client::getCurrent();
-            } else {
-                MONGO_LOG(1) << ">> scanTuple nullptr, client: " << (void*)Client::getCurrent();
             }
         }
 
@@ -338,8 +324,7 @@ private:
     }
 
     void _updateIdAndTypeBits() {
-        MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits " << _indexName->StringView();
 
         switch (_indexType) {
             case IndexCursorType::ID: {
@@ -372,8 +357,7 @@ private:
     }
 
     boost::optional<IndexKeyEntry> _curr(RequestedInfo parts) const {
-        MONGO_LOG(1) << "EloqIndexCursor::_curr " << _indexName->StringView()
-                     << ", client: " << (void*)Client::getCurrent();
+        MONGO_LOG(1) << "EloqIndexCursor::_curr " << _indexName->StringView();
         if (_eof) {
             return {};
         }
@@ -390,7 +374,7 @@ private:
 
     bool _atOrPastEndPointAfterSeeking() const {
         MONGO_LOG(1) << "EloqIndexCursor::_atOrPastEndPointAfterSeeking "
-                     << _indexName->StringView() << ", client: " << (void*)Client::getCurrent();
+                     << _indexName->StringView();
         if (_eof) {
             return true;
         }

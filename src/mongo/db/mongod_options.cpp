@@ -340,6 +340,11 @@ Status addMongodOptions(moe::OptionSection* options) {
                                       "how often to group/batch commit (ms)",
                                       "storage.mmapv1.journal.commitIntervalMs");
 
+    storage_options
+        .addOptionChaining(
+            "storage.eloq.enableMVCC", "eloqEnableMVCC", moe::Bool, "EloqDoc enable MVCC")
+        .setDefault(moe::Value(true));
+
     // Deprecated option that we don't want people to use for performance reasons
     storage_options
         .addOptionChaining("storage.mmapv1.journal.nopreallocj",
@@ -912,8 +917,7 @@ Status storeMongodOptions(const moe::Environment& params) {
             storageGlobalParams.syncdelay > StorageGlobalParams::kMaxSyncdelaySecs) {
             return Status(ErrorCodes::BadValue,
                           str::stream() << "syncdelay out of allowed range (0-"
-                                        << StorageGlobalParams::kMaxSyncdelaySecs
-                                        << "s)");
+                                        << StorageGlobalParams::kMaxSyncdelaySecs << "s)");
         }
     }
 
@@ -955,10 +959,13 @@ Status storeMongodOptions(const moe::Environment& params) {
         if (journalCommitIntervalMs < 1 ||
             journalCommitIntervalMs > StorageGlobalParams::kMaxJournalCommitIntervalMs) {
             return Status(ErrorCodes::BadValue,
-                          str::stream() << "--journalCommitInterval out of allowed range (1-"
-                                        << StorageGlobalParams::kMaxJournalCommitIntervalMs
-                                        << "ms)");
+                          str::stream()
+                              << "--journalCommitInterval out of allowed range (1-"
+                              << StorageGlobalParams::kMaxJournalCommitIntervalMs << "ms)");
         }
+    }
+    if (params.count("storage.eloq.enableMVCC")) {
+        storageGlobalParams.enableMVCC = params["storage.eloq.enableMVCC"].as<bool>();
     }
     if (params.count("storage.mmapv1.journal.debugFlags")) {
         mmapv1GlobalOptions.journalOptions = params["storage.mmapv1.journal.debugFlags"].as<int>();

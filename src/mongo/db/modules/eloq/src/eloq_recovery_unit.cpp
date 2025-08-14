@@ -906,10 +906,9 @@ void EloqRecoveryUnit::_commit() {
 void EloqRecoveryUnit::_txnOpen(txservice::IsolationLevel isolationLevel) {
     MONGO_LOG(1) << "EloqRecoveryUnit::_txnOpen";
     invariant(!_active);
-    // if (_inMultiDocumentTransation) {
-    //     isolationLevel = txservice::IsolationLevel::Snapshot;
-    // }
-    isolationLevel = txservice::IsolationLevel::Snapshot;
+    if (_inMultiDocumentTransation) {
+        isolationLevel = txservice::IsolationLevel::Snapshot;
+    }
     MONGO_LOG(1) << "Opening transaction with isolation level: " << isolationLevel;
     _txm = txservice::NewTxInit(
         _txService, isolationLevel, eloqGlobalOptions.ccProtocol, UINT32_MAX, localThreadId);

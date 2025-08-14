@@ -419,7 +419,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                                                         clusterConfigVersion,
                                                         Eloq::storeHandler.get(),
                                                         _logAgent.get(),
-                                                        eloqGlobalOptions.enableMVCC,
+                                                        storageGlobalParams.enableMVCC,
                                                         eloqGlobalOptions.skipRedoLog,
                                                         false,
                                                         true,

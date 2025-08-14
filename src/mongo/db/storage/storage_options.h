@@ -115,6 +115,8 @@ struct StorageGlobalParams {
     // an existing underlying MongoDB database level resource if possible. This can improve
     // workloads that rely heavily on creating many collections within a database.
     bool groupCollections;
+
+    bool enableMVCC{true};
 };
 
 extern StorageGlobalParams storageGlobalParams;

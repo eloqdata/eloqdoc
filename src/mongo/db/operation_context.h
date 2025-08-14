@@ -508,7 +508,12 @@ public:
             level == repl::ReadConcernLevel::kLinearizableReadConcern ||
             level == repl::ReadConcernLevel::kAvailableReadConcern ||
             level == repl::ReadConcernLevel::kSnapshotReadConcern) {
-            level = repl::ReadConcernLevel::kEloqReadCommittedIsolationLevel;
+            if (storageGlobalParams.enableMVCC) {
+                // level = repl::ReadConcernLevel::kEloqSnapshotIsolationLevel;
+                level = repl::ReadConcernLevel::kEloqReadCommittedIsolationLevel;
+            } else {
+                level = repl::ReadConcernLevel::kEloqReadCommittedIsolationLevel;
+            }
         }
         _isolationLevel = static_cast<int>(level);
     }

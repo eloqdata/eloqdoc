@@ -137,20 +137,12 @@ txservice::TxErrorCode EloqCursor::nextBatchTuple() {
                  << ". _isLastScanBatch: " << _isLastScanBatch
                  << ". _scanBatchVector.size(): " << _scanBatchVector.size();
     txservice::TxErrorCode txErr = txservice::TxErrorCode::NO_ERROR;
-    Client* client = Client::getCurrent();
+
     for (_currentBatchTuple = nullptr;
          !_currentBatchTuple || _currentBatchTuple->status_ != txservice::RecordStatus::Normal;) {
         // move iterator
         if (_scanBatchIdx < _scanBatchVector.size()) {
             _currentBatchTuple = &_scanBatchVector[_scanBatchIdx++];
-            if (_currentBatchTuple) {
-                MONGO_LOG(1) << ">> client: " << (void*)client
-                             << ", status: " << (int)_currentBatchTuple->status_
-                             << ", key: " << _currentBatchTuple->key_.ToString()
-                             << ", ts: " << _currentBatchTuple->version_ts_
-                             << ", cce: " << (void*)_currentBatchTuple->cce_addr_.ExtractCce()
-                             << ", txn: " << _ru->getTxm()->TxNumber();
-            }
             continue;
         }
 
@@ -158,49 +150,26 @@ txservice::TxErrorCode EloqCursor::nextBatchTuple() {
         if (_isLastScanBatch) {
             invariant(txErr == txservice::TxErrorCode::NO_ERROR);
             _currentBatchTuple = nullptr;
-            if (_currentBatchTuple) {
-                MONGO_LOG(1) << ">> _isLastScanBatch client: " << (void*)client
-                             << ", status: " << (int)_currentBatchTuple->status_;
-            }
             break;
         }
 
         txErr = _fetchBatchTuples();
         if (txErr != txservice::TxErrorCode::NO_ERROR) {
             _currentBatchTuple = nullptr;
-            MONGO_LOG(1) << ">> txErr client: " << (void*)client;
             break;
         } else {
             if (!_scanBatchVector.empty()) {
                 _currentBatchTuple = &_scanBatchVector[_scanBatchIdx++];
-                if (_currentBatchTuple) {
-                    MONGO_LOG(1) << ">> client: " << (void*)client
-                                 << ", status: " << (int)_currentBatchTuple->status_
-                                 << ", key: " << _currentBatchTuple->key_.ToString()
-                                 << ", ts: " << _currentBatchTuple->version_ts_
-                                 << ", cce: " << (void*)_currentBatchTuple->cce_addr_.ExtractCce()
-                                 << ", txn: " << _ru->getTxm()->TxNumber();
-                }
                 continue;
             } else {
                 // reach the end
                 assert(_isLastScanBatch);
                 _currentBatchTuple = nullptr;
-                MONGO_LOG(1) << ">> reach the end, client: " << (void*)client;
                 break;
             }
         }
     }
-    if (_currentBatchTuple &&
-        _scanOpenTxReq.tab_name_->StringView() ==
-            "tpcc.DISTRICT*$$D_W_ID_1_D_ID_1_D_NEXT_O_ID_1_D_TAX_1") {
-        MONGO_LOG(1) << ">> client: " << (void*)client
-                     << ", status: " << (int)_currentBatchTuple->status_
-                     << ", key: " << _currentBatchTuple->key_.ToString()
-                     << ", ts: " << _currentBatchTuple->version_ts_
-                     << ", cce: " << (void*)_currentBatchTuple->cce_addr_.ExtractCce()
-                     << ", txn: " << _ru->getTxm()->TxNumber();
-    }
+
     return txErr;
 }
 
@@ -223,14 +192,10 @@ txservice::TxErrorCode EloqCursor::_fetchBatchTuples() {
                      << ". ErrorCode: " << scanBatchTxReq.ErrorCode()
                      << ". ErrorMsg: " << scanBatchTxReq.ErrorMsg();
     } else {
-        _isLastScanBatch = scanBatchTxReq.Result();
         MONGO_LOG(1) << "EloqCursor::_fetchBatchTuples ScanBatchTxRequest succeed. "
                      << _scanOpenTxReq.tab_name_->StringView()
-                     << ", tuples: " << _scanBatchVector.size()
-                     << ", last batch: " << _isLastScanBatch
-                     << ", end_key: " << _scanOpenTxReq.EndKey()->ToString()
-                     << ", client: " << (void*)Client::getCurrent();
-
+                     << ", tuples: " << _scanBatchVector.size();
+        _isLastScanBatch = scanBatchTxReq.Result();
         ++_scanBatchCnt;
     }
 
