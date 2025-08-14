@@ -260,8 +260,6 @@ cp ${ELOQDOC_SRC}/concourse/scripts/mongod.conf ${DEST_DIR}/etc
 cd $HOME
 tar -czvf eloqdoc.tar.gz -C $DEST_DIR .
 
-BUILD_TYPE_LOWER=$(echo ${BUILD_TYPE:-RelWithDebInfo} | tr '[:upper:]' '[:lower:]')
-
 # Tarball naming and upload (align with eloqkv)
 if [ -n "${TAGGED:-}" ]; then
     DOC_TARBALL="eloqdoc-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
@@ -270,7 +268,6 @@ if [ -n "${TAGGED:-}" ]; then
     SQL="INSERT INTO doc_release VALUES ('eloqdoc', '${ARCH}', '${OS_ID}', '${DATA_STORE_ID}', $(echo ${TAGGED} | tr '.' ',')) ON CONFLICT DO NOTHING"
     psql postgresql://${PG_CONN}/eloq_release?sslmode=require -c "${SQL}" || true
 else
-    OUT_NAME=${OUT_NAME:-${BUILD_TYPE_LOWER}}
     DOC_TARBALL="eloqdoc-${OUT_NAME}-${OS_ID}-${ARCH}.tar.gz"
 fi
 aws s3 cp eloqdoc.tar.gz ${S3_PREFIX}/${DATA_STORE_ID}/${DOC_TARBALL}

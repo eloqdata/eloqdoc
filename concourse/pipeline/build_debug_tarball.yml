@@ -1,0 +1,93 @@
+resources:
+- name: eloqdoc_src_main
+  type: git
+  source:
+    branch: main
+    uri: git@github.com:eloqdata/eloqdoc.git
+    private_key: ((git-key))
+
+- name: image_ubuntu2204_main
+  type: registry-image
+  source:
+    repository: eloqdata/eloq-build-ubuntu2204
+
+- name: eloq_logservice_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/eloq_log_service.git
+
+- name: raft_host_manager_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/raft_host_manager.git
+
+jobs:
+- name: ubuntu2204-main
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: eloqdoc_src
+        resource: eloqdoc_src_main
+      - get: eloq_logservice_src
+        resource: eloq_logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_ubuntu2204
+        resource: image_ubuntu2204_main
+
+  - task: build-rocksdb-cloud-s3-type
+    file: eloqdoc_src/concourse/tasks/build_debug_tarball.yml
+    image: image_ubuntu2204
+    params:
+      ASAN: "ON"
+      TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: Debug
+      DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      OUT_NAME: debug
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-rocksdb-cloud-gcs-type
+    file: eloqdoc_src/concourse/tasks/build_debug_tarball.yml
+    image: image_ubuntu2204
+    params:
+      ASAN: "ON"
+      TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: Debug
+      DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_GCS
+      OUT_NAME: debug
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-eloqdss-rocksdb-type
+    file: eloqdoc_src/concourse/tasks/build_debug_tarball.yml
+    image: image_ubuntu2204
+    params:
+      ASAN: "ON"
+      TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: Debug
+      DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      OUT_NAME: debug
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true
+
+
