@@ -23,6 +23,7 @@ jobs:
         image: image_ubuntu2004
         params:
           DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          BUILD_TYPE: Debug
           BUILD_LOG_SRV: true
           GIT_SSH_KEY: ((git-key))
           <<: *aws-access
@@ -46,6 +47,7 @@ jobs:
         image: image_ubuntu2204
         params:
           DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          BUILD_TYPE: Debug
           BUILD_LOG_SRV: true
           GIT_SSH_KEY: ((git-key))
           <<: *aws-access
@@ -69,6 +71,7 @@ jobs:
         image: image_ubuntu2404
         params:
           DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          BUILD_TYPE: Debug
           BUILD_LOG_SRV: true
           GIT_SSH_KEY: ((git-key))
           <<: *aws-access
@@ -98,7 +101,7 @@ resources:
   - name: eloqdoc_src
     type: git
     source:
-      branch: main
+      branch: fix_build_pipeline_zx
       private_key: ((git-key))
       uri: git@github.com:eloqdata/eloqdoc.git
   - name: raft_host_manager_src
