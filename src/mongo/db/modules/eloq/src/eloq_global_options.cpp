@@ -210,7 +210,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
             moe::String,
             "The bucket name for RocksDB Cloud instance which stores the tx log state.")
         .setDefault(moe::Value(""));
-
     eloqOptions
         .addOptionChaining(
             "storage.eloq.txService.txlogRocksDBCloudBucketPrefix",

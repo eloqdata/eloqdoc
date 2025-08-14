@@ -20,6 +20,9 @@ ulimit -c unlimited
 export ASAN_OPTIONS=abort_on_error=1:leak_check_at_exit=0
 export PREFIX="/home/eloq/workspace/mongo/install"
 
+# Clears data for the log and storage services from the shared RocksDB Cloud bucket.
+# A single bucket with distinct path prefixes is used for both services
+# to bypass bucket creation rate limits and global name uniqueness constraints.
 cleanup_all_buckets() {
       if [ $# -lt 2 ]; then
             echo "Error: bucket_name and bucket_prefix parameters are required"
@@ -29,16 +32,15 @@ cleanup_all_buckets() {
       local bucket_name="$1"
       local bucket_prefix="$2"
       local full_bucket_name="${bucket_prefix}${bucket_name}"
-      local full_bucket_name_log="${bucket_prefix}${bucket_name}-log"
       
-      echo "Cleaning buckets: $full_bucket_name, $full_bucket_name_log"
+      echo "Cleaning buckets: $full_bucket_name"
       
       # pwd is mongo/
       python3 concourse/scripts/cleanup_minio_bucket.py \
             --minio_endpoint="${MINIO_ENDPOINT}" \
             --minio_access_key="${MINIO_ACCESS_KEY}" \
             --minio_secret_key="${MINIO_SECRET_KEY}" \
-            --bucket_names="${full_bucket_name},${full_bucket_name_log}"
+            --bucket_names="${full_bucket_name}"
 }
 
 compile_and_install() {
@@ -152,7 +154,14 @@ launch_mongod() {
       export LD_PRELOAD=/usr/local/lib/libmimalloc.so
       mkdir -p "$PREFIX/log" "$PREFIX/data"
       sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
-      nohup $PREFIX/bin/mongod --config ./concourse/scripts/store_rocksdb_cloud.yaml --eloqRocksdbCloudBucketName="$bucket_name" --eloqRocksdbCloudBucketPrefix="$bucket_prefix" &>$PREFIX/log/mongod.out &
+      sed -i "s|eloqTxlogRocksDBCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|eloqTxlogRocksDBCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
+      nohup $PREFIX/bin/mongod \
+            --config ./concourse/scripts/store_rocksdb_cloud.yaml \
+            --eloqRocksdbCloudBucketName="$bucket_name" \
+            --eloqRocksdbCloudBucketPrefix="$bucket_prefix" \
+            --txlogRocksDBCloudBucketName="$bucket_name" \
+            --txlogRocksDBCloudBucketPrefix="$bucket_prefix" \
+            &>$PREFIX/log/mongod.out &
 }
 
 launch_mongod_fast() {
@@ -167,7 +176,15 @@ launch_mongod_fast() {
       export LD_PRELOAD=/usr/local/lib/libmimalloc.so
       mkdir -p "$PREFIX/log" "$PREFIX/data"
       sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
-      nohup $PREFIX/bin/mongod --eloqSkipRedoLog=1 --config ./concourse/scripts/store_rocksdb_cloud.yaml --eloqRocksdbCloudBucketName="$bucket_name" --eloqRocksdbCloudBucketPrefix="$bucket_prefix" &>$PREFIX/log/mongod.out &
+      sed -i "s|eloqTxlogRocksDBCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|eloqTxlogRocksDBCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
+      nohup $PREFIX/bin/mongod \
+            --config ./concourse/scripts/store_rocksdb_cloud.yaml \
+            --eloqSkipRedoLog=1 \
+            --eloqRocksdbCloudBucketName="$bucket_name" \
+            --eloqRocksdbCloudBucketPrefix="$bucket_prefix" \
+            --txlogRocksDBCloudBucketName="$bucket_name" \
+            --txlogRocksDBCloudBucketPrefix="$bucket_prefix" \
+            &>$PREFIX/log/mongod.out &
 }
 
 try_connect() {

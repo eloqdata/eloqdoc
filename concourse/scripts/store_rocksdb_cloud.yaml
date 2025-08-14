@@ -30,6 +30,11 @@ storage:
       # txlogGroupReplicaNum: 1
       # skipRedoLog: true
       txlogRocksDBStoragePath: "/home/eloq/workspace/mongo/install/data/log_service_rocksdb"
+      txlogRocksDBCloudRegion: "ap-northeast-1"
+      txlogRocksDBCloudBucketName: "eloqdoc-storage"
+      txlogRocksDBCloudBucketPrefix: "rocksdb-cloud-"
+      txlogRocksDBCloudObjectPath: "eloqdoc_txlog"
+      txlogRocksDBCloudEndpointUrl: "http://172.31.5.203:9900"
     metrics:
       enableMetrics: true
       metricsPort: 18081

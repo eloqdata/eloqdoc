@@ -29,6 +29,11 @@ storage:
       # txlogGroupReplicaNum: 1
       # skipRedoLog: true
       txlogRocksDBStoragePath: "./eloqdoc_test/log_service_rocksdb"
+      txlogRocksDBCloudRegion: "ap-northeast-1"
+      txlogRocksDBCloudBucketName: "eloqdoc-storage"
+      txlogRocksDBCloudBucketPrefix: "rocksdb-cloud-"
+      txlogRocksDBCloudObjectPath: "eloqdoc_txlog"
+      txlogRocksDBCloudEndpointUrl: "http://127.0.0.1:9000"
     metrics:
       enableMetrics: true
       metricsPort: 18081
