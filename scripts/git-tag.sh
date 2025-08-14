@@ -46,17 +46,6 @@ if git show-ref --verify --quiet "refs/heads/$REL_BRANCH" || \
 fi
 git checkout -b "$REL_BRANCH" main
 
-# Update version string in source if this project tracks a version file
-if [ -f src/mongo/db/modules/eloq/version.h ]; then
-  sed -i "s/constexpr char VERSION\[\] = \".*\";/constexpr char VERSION[] = \"${TAG}\";/" src/mongo/db/modules/eloq/version.h || true
-  if [ -n "$(git diff --name-only src/mongo/db/modules/eloq/version.h)" ]; then
-    git add src/mongo/db/modules/eloq/version.h
-    git commit -m "New tag ${TAG}"
-  fi
-fi
-
-git push origin "$REL_BRANCH"
-
 # Create release branches for submodules if present
 create_and_push_release_branch "src/mongo/db/modules/eloq/eloq_log_service" "$REL_BRANCH"
 create_and_push_release_branch "src/mongo/db/modules/eloq/tx_service/raft_host_manager" "$REL_BRANCH"
