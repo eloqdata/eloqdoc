@@ -1,0 +1,14 @@
+2025-08-14T12:43:29.161+0800 D NETWORK  [main] fd limit hard:1048576 soft:1048576 max conn: 838860
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] MongoDB starting : pid=33512 port=27017 dbpath=./eloqdoc_test 64-bit host=luzhan
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] db version v4.0.3
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] git version: 7773749be797cde3986019e1bf8bf31d48dc5404
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] allocator: system
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] modules: eloq 
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] build environment:
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten]     distarch: x86_64
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten]     target_arch: x86_64
+2025-08-14T12:43:29.162+0800 I CONTROL  [initandlisten] options: { config: "config/store_rocksdb_cloud.yaml", net: { bindIp: "0.0.0.0", port: 27017, serviceExecutor: "adaptive" }, setParameter: { diagnosticDataCollectionEnabled: "false", disableLogicalSessionCacheRefresh: "true", ttlMonitorEnabled: "false" }, storage: { dbPath: "./eloqdoc_test", eloq: { adaptiveThreadNum: 1, enableCoroutine: true, metrics: { busyRoundThreshold: 10, collectMemoryUsageRound: 10000, collectTxDurationRound: 100, enableBusyRoundMetrics: true, enableCacheHitRate: true, enableMemoryUsage: true, enableMetrics: true, enableTxMetrics: true, metricsPort: 18081 }, reservedThreadNum: 2, storage: { awsAccessKeyId: "pstJJurylOvuNpIJacG7", awsSecretKey: "d78pZI8btixlnC7kHhtjEX573paLSm9R2lWwVfmu", dataStoreServiceConfigFilePath: true, rocksdbCloudBucketName: "eloqdoc-storage", rocksdbCloudBucketPrefix: "rocksdb-cloud-", rocksdbCloudEndpointUrl: "http://127.0.0.1:9000", rocksdbCloudObjectPath: "eloqdoc_db", rocksdbCloudRegion: "ap-northeast-1", rocksdbCloudSstFileCacheSize: "5GB", rocksdbCloudStoragePath: "./eloqdoc_test/dss_rocksdb_cloud" }, txService: { ccProtocol: "OCC", checkpointerDelaySec: 5, checkpointerIntervalSec: 10, collectActiveTxTsIntervalSec: 2, nodeMemoryLimitMB: 8192, realtimeSampling: true, txlogRocksDBCloudBucketName: "eloqdoc-storage", txlogRocksDBCloudBucketPrefix: "rocksdb-cloud-", txlogRocksDBCloudEndpointUrl: "http://127.0.0.1:9000", txlogRocksDBCloudObjectPath: "eloqdoc_txlog", txlogRocksDBCloudRegion: "ap-northeast-1", txlogRocksDBStoragePath: "./eloqdoc_test/log_service_rocksdb" } }, engine: "eloq" }, systemLog: { component: { ftdc: { verbosity: 0 } }, destination: "file", path: "./eloqdoc_test/log.json", verbosity: 1 } }
+2025-08-14T12:43:29.162+0800 D NETWORK  [initandlisten] fd limit hard:1048576 soft:1048576 max conn: 838860
+2025-08-14T12:43:29.164+0800 I STORAGE  [initandlisten] AWS init
+2025-08-14T12:43:29.328+0800 I STORAGE  [initandlisten] Starting Eloq storage engine. dbPath: ./eloqdoc_test
+2025-08-14T12:43:29.328+0800 I STORAGE  [initandlisten] Data Store Service Config File Path: ./eloqdoc_test/dss_config.ini

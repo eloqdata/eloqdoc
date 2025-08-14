@@ -251,16 +251,16 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .addOptionChaining(
             "storage.eloq.txService.txlogRocksDBCloudReadyTimeout",
             "eloqTxlogRocksDBCloudReadyTimeout",
-            moe::Int,
+            moe::Unsigned,
             "RocksDB Cloud ready timeout(seconds) for instance which stores the tx log state.")
-        .setDefault(moe::Value(0));
+        .setDefault(moe::Value(0u));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudFileDeletionDelay",
                            "eloqTxlogRocksDBCloudFileDeletionDelay",
-                           moe::Int,
+                           moe::Unsigned,
                            "RocksDB Cloud file deletion delay (seconds) for instance which stores "
                            "the tx log state.")
-        .setDefault(moe::Value(0));
+        .setDefault(moe::Value(0u));
 
     // Eloq Storage Options
     eloqOptions
