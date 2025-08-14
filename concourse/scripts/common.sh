@@ -159,8 +159,8 @@ launch_mongod() {
             --config ./concourse/scripts/store_rocksdb_cloud.yaml \
             --eloqRocksdbCloudBucketName="$bucket_name" \
             --eloqRocksdbCloudBucketPrefix="$bucket_prefix" \
-            --txlogRocksDBCloudBucketName="$bucket_name" \
-            --txlogRocksDBCloudBucketPrefix="$bucket_prefix" \
+            --eloqTxlogRocksDBCloudBucketName="$bucket_name" \
+            --eloqTxlogRocksDBCloudBucketPrefix="$bucket_prefix" \
             &>$PREFIX/log/mongod.out &
 }
 
@@ -182,8 +182,8 @@ launch_mongod_fast() {
             --eloqSkipRedoLog=1 \
             --eloqRocksdbCloudBucketName="$bucket_name" \
             --eloqRocksdbCloudBucketPrefix="$bucket_prefix" \
-            --txlogRocksDBCloudBucketName="$bucket_name" \
-            --txlogRocksDBCloudBucketPrefix="$bucket_prefix" \
+            --eloqTxlogRocksDBCloudBucketName="$bucket_name" \
+            --eloqTxlogRocksDBCloudBucketPrefix="$bucket_prefix" \
             &>$PREFIX/log/mongod.out &
 }
 
