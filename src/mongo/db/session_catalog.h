@@ -141,7 +141,11 @@ private:
 
         // Signaled when the state becomes available. Uses the transaction table's mutex to protect
         // the state transitions.
+#ifndef D_USE_CORO_SYNC
         stdx::condition_variable availableCondVar;
+#else
+        coro::ConditionVariable availableCondVar;
+#endif
 
         // Must only be accessed when the state is kInUse and only by the operation context, which
         // currently has it checked out
@@ -163,11 +167,14 @@ private:
 
     /**
      * Makes a session, previously checked out through 'checkoutSession', available again.
-     * void _releaseSession(const LogicalSessionId& lsid);
      */
-    void _releaseSession(OperationContext* opCtx, const LogicalSessionId& lsid);
+    void _releaseSession(const LogicalSessionId& lsid);
 
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _mutex;
+#else
+    coro::Mutex _mutex;
+#endif
     SessionRuntimeInfoMap _txnTable;
 };
 
@@ -215,7 +222,7 @@ public:
 
     ~ScopedCheckedOutSession() {
         if (_scopedSession) {
-            SessionCatalog::get(_opCtx)->_releaseSession(_opCtx, _scopedSession->getSessionId());
+            SessionCatalog::get(_opCtx)->_releaseSession(_scopedSession->getSessionId());
         }
     }
 

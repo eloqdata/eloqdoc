@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "mongo/base/status_with.h"
+#include "mongo/db/client.h"
 #include "mongo/db/kill_sessions.h"
 #include "mongo/stdx/condition_variable.h"
 #include "mongo/stdx/functional.h"
@@ -124,15 +125,25 @@ private:
         std::shared_ptr<boost::optional<Result>> result;
     };
 
+#ifndef D_USE_CORO_SYNC
     void _periodicKill(OperationContext* opCtx, stdx::unique_lock<stdx::mutex>& lk);
+#else
+    void _periodicKill(OperationContext* opCtx, stdx::unique_lock<coro::Mutex>& lk);
+#endif
 
     KillFunc _killFunc;
 
     stdx::thread _thread;
 
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _mutex;
     stdx::condition_variable _callerCV;
     stdx::condition_variable _killerCV;
+#else
+    coro::Mutex _mutex;
+    coro::ConditionVariable _callerCV;
+    coro::ConditionVariable _killerCV;
+#endif
 
     UniformRandomBitGenerator _urbg;
 

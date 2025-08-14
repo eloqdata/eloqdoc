@@ -58,7 +58,7 @@ public:
      * block).
      */
     explicit operator bool() const {
-        stdx::unique_lock<stdx::mutex> lock(_mutex);
+        stdx::unique_lock lock(_mutex);
         return !!_value;
     }
 
@@ -67,7 +67,7 @@ public:
      * If the wait is interrupted, throws an exception.
      */
     T& get(OperationContext* opCtx) {
-        stdx::unique_lock<stdx::mutex> lock(_mutex);
+        stdx::unique_lock lock(_mutex);
         opCtx->waitForConditionOrInterrupt(_condVar, lock, [this]() -> bool { return !!_value; });
         return _value.get();
     }
@@ -77,7 +77,7 @@ public:
      * This variant of get cannot be interrupted.
      */
     T& get() {
-        stdx::unique_lock<stdx::mutex> lock(_mutex);
+        stdx::unique_lock lock(_mutex);
         while (!_value) {
             _condVar.wait(lock);
         }
@@ -90,7 +90,7 @@ public:
      * call. Must only be called once for the lifetime of the notification.
      */
     void set(T value) {
-        stdx::lock_guard<stdx::mutex> lock(_mutex);
+        stdx::lock_guard lock(_mutex);
         invariant(!_value);
         _value = std::move(value);
         _condVar.notify_all();
@@ -103,14 +103,19 @@ public:
      * If the wait is interrupted, throws an exception.
      */
     bool waitFor(OperationContext* opCtx, Milliseconds waitTimeout) {
-        stdx::unique_lock<stdx::mutex> lock(_mutex);
+        stdx::unique_lock lock(_mutex);
         return opCtx->waitForConditionOrInterruptFor(
             _condVar, lock, waitTimeout, [&]() { return !!_value; });
     }
 
 private:
+#ifndef D_USE_CORO_SYNC
     mutable stdx::mutex _mutex;
     stdx::condition_variable _condVar;
+#else
+    mutable coro::Mutex _mutex;
+    coro::ConditionVariable _condVar;
+#endif
 
     // Protected by mutex and only moves from not-set to set once
     boost::optional<T> _value{boost::none};

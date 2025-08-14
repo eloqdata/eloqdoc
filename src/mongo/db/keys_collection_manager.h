@@ -170,9 +170,14 @@ private:
                                 std::string threadName,
                                 Milliseconds refreshInterval);
 
+#ifndef D_USE_CORO_SYNC
         stdx::mutex _mutex;  // protects all the member variables below.
-        std::shared_ptr<Notification<void>> _refreshRequest;
         stdx::condition_variable _refreshNeededCV;
+#else
+        coro::Mutex _mutex;
+        coro::ConditionVariable _refreshNeededCV;
+#endif
+        std::shared_ptr<Notification<void>> _refreshRequest;
 
         stdx::thread _backgroundThread;
         std::shared_ptr<RefreshFunc> _doRefresh;

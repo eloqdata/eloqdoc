@@ -217,7 +217,7 @@ void CondVarLockGrantNotification::clear() {
 }
 
 LockResult CondVarLockGrantNotification::wait(Milliseconds timeout) {
-    stdx::unique_lock<stdx::mutex> lock(_mutex);
+    stdx::unique_lock lock(_mutex);
     return _cond.wait_for(
                lock, timeout.toSystemDuration(), [this] { return _result != LOCK_INVALID; })
         ? _result
@@ -226,7 +226,7 @@ LockResult CondVarLockGrantNotification::wait(Milliseconds timeout) {
 
 LockResult CondVarLockGrantNotification::wait(OperationContext* opCtx, Milliseconds timeout) {
     invariant(opCtx);
-    stdx::unique_lock<stdx::mutex> lock(_mutex);
+    stdx::unique_lock lock(_mutex);
     return opCtx->waitForConditionOrInterruptFor(
                _cond, lock, timeout, [this] { return _result != LOCK_INVALID; })
         ? _result
@@ -234,7 +234,7 @@ LockResult CondVarLockGrantNotification::wait(OperationContext* opCtx, Milliseco
 }
 
 void CondVarLockGrantNotification::notify(ResourceId resId, LockResult result) {
-    stdx::unique_lock<stdx::mutex> lock(_mutex);
+    stdx::unique_lock lock(_mutex);
     invariant(_result == LOCK_INVALID);
     _result = result;
 
@@ -333,8 +333,7 @@ void LockerImpl<IsForMMAPV1>::reacquireTicket(OperationContext* opCtx) {
     auto acquireTicketResult = _acquireTicket(opCtx, _modeForTicket, Date_t::max());
     uassert(ErrorCodes::LockTimeout,
             str::stream() << "Unable to acquire ticket with mode '" << _modeForTicket
-                          << "' within a max lock request timeout of '"
-                          << _maxLockTimeout.get()
+                          << "' within a max lock request timeout of '" << _maxLockTimeout.get()
                           << "' milliseconds.",
             acquireTicketResult == LOCK_OK || !_maxLockTimeout);
     // If no deadline is specified we should always get a ticket.
@@ -940,8 +939,7 @@ LockResult LockerImpl<IsForMMAPV1>::lockComplete(
                 uasserted(ErrorCodes::LockTimeout,
                           str::stream() << "Unable to acquire lock '" << resId.toString()
                                         << "' within a max lock request timeout of '"
-                                        << _maxLockTimeout.get()
-                                        << "' milliseconds.");
+                                        << _maxLockTimeout.get() << "' milliseconds.");
             }
             break;
         }

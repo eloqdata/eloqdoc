@@ -33,6 +33,8 @@
 
 #include "mongo/base/disallow_copying.h"
 #include "mongo/base/global_initializer_registerer.h"
+#include "mongo/base/local_thread_state.h"
+#include "mongo/db/coro_sync.h"
 #include "mongo/db/logical_session_id.h"
 #include "mongo/db/storage/storage_engine.h"
 #include "mongo/platform/atomic_word.h"
@@ -48,6 +50,8 @@
 #include "mongo/util/decorable.h"
 #include "mongo/util/periodic_runner.h"
 #include "mongo/util/tick_source.h"
+
+#define D_USE_CORO_SYNC  // Use coroutine cooperative-poll sync, instead of pthread sync.
 
 namespace mongo {
 
@@ -161,7 +165,11 @@ public:
         Client* next();
 
     private:
+#ifndef D_USE_CORO_SYNC
         stdx::unique_lock<stdx::mutex> _lock;
+#else
+        std::unique_lock<coro::Mutex> _lock;
+#endif
         ClientSet::const_iterator _curr;
         ClientSet::const_iterator _end;
     };
@@ -304,7 +312,7 @@ public:
      */
     UniqueClient makeClient(std::string desc,
                             transport::SessionHandle session = nullptr,
-                            ServiceStateMachine* stm = nullptr);
+                            const CoroutineFunctors& coro = CoroutineFunctors::Unavailable);
 
     /**
      * Creates a new OperationContext on "client".
@@ -531,7 +539,11 @@ private:
         std::unique_ptr<ClientObserver> _observer;
     };
 
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _mutex;
+#else
+    coro::Mutex _mutex;
+#endif
 
     /**
      * The storage engine, if any.
@@ -592,7 +604,11 @@ private:
     AtomicUInt32 _nextOpId{1};
 
     bool _startupComplete = false;
+#ifndef D_USE_CORO_SYNC
     stdx::condition_variable _startupCompleteCondVar;
+#else
+    coro::ConditionVariable _startupCompleteCondVar;
+#endif
 };
 
 /**

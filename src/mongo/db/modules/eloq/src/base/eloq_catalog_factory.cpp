@@ -38,7 +38,6 @@ namespace Eloq {
 txservice::TableSchema::uptr MongoCatalogFactory::CreateTableSchema(
     const txservice::TableName& table_name, const std::string& catalog_image, uint64_t version) {
     if (table_name == txservice::Sequences::table_name_) {
-        DLOG(INFO) << "===create sequence table schema";
         return std::make_unique<txservice::SequenceTableSchema>(table_name, catalog_image, version);
     }
 

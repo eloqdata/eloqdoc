@@ -170,14 +170,13 @@ public:
         _sessionHandle = nullptr;
     }
 
-    void migrateThreadGroup(uint16_t threadGroupId);
-
 private:
     /*
      * A class that wraps up lifetime management of the _dbClient and _threadName for runNext();
      */
     class ThreadGuard;
     friend class ThreadGuard;
+    friend CoroutineFunctors makeCoroutineFunctors(const ServiceStateMachine& stm);
 
     /*
      * Terminates the associated transport Session if status indicate error.
@@ -299,7 +298,7 @@ private:
         kCanaryByte,
     };
 
-    boost::context::stack_context coroStackContext() {
+    boost::context::stack_context _coroStackContext() {
         boost::context::stack_context sc;
         sc.size = kCoroStackSize;
         // Because stack grows downwards from high address?
@@ -309,11 +308,14 @@ private:
         return sc;
     }
 
-    void abortIfStackOverflow() {
+    void _abortIfStackOverflow() {
         if (std::memcmp(_coroStack, kCanaryBytes, kCanarySize) != 0) {
             std::abort();
         }
     }
+
+    void _migrateThreadGroup(uint16_t threadGroupId);
+
 
     boost::context::continuation _source;
     char _coroStack[kCoroStackSize];
@@ -323,6 +325,7 @@ private:
     std::function<void()> _coroYield;
     std::function<void()> _coroResume;
     std::function<void()> _coroLongResume;
+    std::function<void(uint16_t threadGroupId)> _coroMigrateThreadGroup;
     std::function<void()> _resumeTask;
     std::atomic<bool> _migrating{false};
     std::atomic<uint16_t> _threadGroupId{0};

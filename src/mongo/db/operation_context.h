@@ -51,11 +51,7 @@
 #include "mongo/util/time_support.h"
 #include "mongo/util/timer.h"
 
-#define D_USE_CORO_SYNC  // Use coroutine busy-poll sync, instead of blocking sync.
-
 namespace mongo {
-
-extern thread_local int16_t localThreadId;
 
 class Client;
 class CurOp;
@@ -66,14 +62,6 @@ class StringData;
 namespace repl {
 class UnreplicatedWritesBlock;
 }  // namespace repl
-
-struct CoroutineFunctors {
-    const std::function<void()>* yieldFuncPtr{nullptr};
-    const std::function<void()>* resumeFuncPtr{nullptr};
-    const std::function<void()>* longResumeFuncPtr{nullptr};
-
-    const static CoroutineFunctors Unavailable;
-};
 
 /**
  * This class encompasses the state required by an operation and lives from the time a network
@@ -177,7 +165,13 @@ public:
      * expiration, raises a AssertionException with an error code indicating the interruption type.
      */
     void waitForConditionOrInterrupt(stdx::condition_variable& cv,
-                                     stdx::unique_lock<stdx::mutex>& m);
+                                     stdx::unique_lock<stdx::mutex>& m) {
+        return waitForConditionOrInterrupt(reinterpret_cast<coro::ConditionVariable&>(cv),
+                                           reinterpret_cast<std::unique_lock<coro::Mutex>&>(m));
+    }
+
+    void waitForConditionOrInterrupt(coro::ConditionVariable& cv,
+                                     stdx::unique_lock<coro::Mutex>& m);
 
     /**
      * Waits on condition "cv" for "pred" until "pred" returns true, or this operation
@@ -187,6 +181,15 @@ public:
     template <typename Pred>
     void waitForConditionOrInterrupt(stdx::condition_variable& cv,
                                      stdx::unique_lock<stdx::mutex>& m,
+                                     Pred pred) {
+        waitForConditionOrInterrupt(reinterpret_cast<coro::ConditionVariable&>(cv),
+                                    reinterpret_cast<std::unique_lock<coro::Mutex>&>(m),
+                                    std::move(pred));
+    }
+
+    template <typename Pred>
+    void waitForConditionOrInterrupt(coro::ConditionVariable& cv,
+                                     stdx::unique_lock<coro::Mutex>& m,
                                      Pred pred) {
         while (!pred()) {
             waitForConditionOrInterrupt(cv, m);
@@ -198,7 +201,14 @@ public:
      * a DBException to report interruption.
      */
     Status waitForConditionOrInterruptNoAssert(stdx::condition_variable& cv,
-                                               stdx::unique_lock<stdx::mutex>& m) noexcept;
+                                               stdx::unique_lock<stdx::mutex>& m) noexcept {
+        return waitForConditionOrInterruptNoAssert(
+            reinterpret_cast<coro::ConditionVariable&>(cv),
+            reinterpret_cast<std::unique_lock<coro::Mutex>&>(m));
+    }
+
+    Status waitForConditionOrInterruptNoAssert(coro::ConditionVariable& cv,
+                                               stdx::unique_lock<coro::Mutex>& m) noexcept;
 
     /**
      * Waits for condition "cv" to be signaled, or for the given "deadline" to expire, or
@@ -210,6 +220,14 @@ public:
      */
     stdx::cv_status waitForConditionOrInterruptUntil(stdx::condition_variable& cv,
                                                      stdx::unique_lock<stdx::mutex>& m,
+                                                     Date_t deadline) {
+        return waitForConditionOrInterruptUntil(reinterpret_cast<coro::ConditionVariable&>(cv),
+                                                reinterpret_cast<std::unique_lock<coro::Mutex>&>(m),
+                                                deadline);
+    }
+
+    stdx::cv_status waitForConditionOrInterruptUntil(coro::ConditionVariable& cv,
+                                                     stdx::unique_lock<coro::Mutex>& m,
                                                      Date_t deadline);
 
     /**
@@ -224,6 +242,17 @@ public:
     template <typename Pred>
     bool waitForConditionOrInterruptUntil(stdx::condition_variable& cv,
                                           stdx::unique_lock<stdx::mutex>& m,
+                                          Date_t deadline,
+                                          Pred pred) {
+        return waitForConditionOrInterruptUntil(reinterpret_cast<coro::ConditionVariable&>(cv),
+                                                reinterpret_cast<std::unique_lock<coro::Mutex>&>(m),
+                                                deadline,
+                                                std::move(pred));
+    }
+
+    template <typename Pred>
+    bool waitForConditionOrInterruptUntil(coro::ConditionVariable& cv,
+                                          stdx::unique_lock<coro::Mutex>& m,
                                           Date_t deadline,
                                           Pred pred) {
         while (!pred()) {
@@ -243,8 +272,19 @@ public:
                                         stdx::unique_lock<stdx::mutex>& m,
                                         Milliseconds duration,
                                         Pred pred) {
+        return waitForConditionOrInterruptFor(reinterpret_cast<coro::ConditionVariable&>(cv),
+                                              reinterpret_cast<std::unique_lock<coro::Mutex>&>(m),
+                                              duration,
+                                              std::move(pred));
+    }
+
+    template <typename Pred>
+    bool waitForConditionOrInterruptFor(coro::ConditionVariable& cv,
+                                        stdx::unique_lock<coro::Mutex>& m,
+                                        Milliseconds duration,
+                                        Pred pred) {
         return waitForConditionOrInterruptUntil(
-            cv, m, getExpirationDateForWaitForValue(duration), pred);
+            cv, m, getExpirationDateForWaitForValue(duration), std::move(pred));
     }
 
     /**
@@ -252,7 +292,15 @@ public:
      * non-ok status indicates the error instead of a DBException.
      */
     StatusWith<stdx::cv_status> waitForConditionOrInterruptNoAssertUntil(
-        stdx::condition_variable& cv, stdx::unique_lock<stdx::mutex>& m, Date_t deadline) noexcept;
+        stdx::condition_variable& cv, stdx::unique_lock<stdx::mutex>& m, Date_t deadline) noexcept {
+        return waitForConditionOrInterruptNoAssertUntil(
+            reinterpret_cast<coro::ConditionVariable&>(cv),
+            reinterpret_cast<std::unique_lock<coro::Mutex>&>(m),
+            deadline);
+    }
+
+    StatusWith<stdx::cv_status> waitForConditionOrInterruptNoAssertUntil(
+        coro::ConditionVariable& cv, stdx::unique_lock<coro::Mutex>& m, Date_t deadline) noexcept;
 
     /**
      * Returns the service context under which this operation context runs, or nullptr if there is
@@ -450,18 +498,6 @@ public:
      */
     Microseconds getRemainingMaxTimeMicros() const;
 
-    void setCoroutineFunctors(const CoroutineFunctors& coroFunctors) {
-        _coroFunctors = coroFunctors;
-    }
-
-    const CoroutineFunctors& getCoroutineFunctors() const {
-        if (localThreadId != -1) {
-            return _coroFunctors;
-        } else {
-            return CoroutineFunctors::Unavailable;
-        }
-    }
-
     int getIsolationLevel() const {
         return _isolationLevel;
     }
@@ -554,8 +590,13 @@ private:
     // If non-null, _waitMutex and _waitCV are the (mutex, condition variable) pair that the
     // operation is currently waiting on inside a call to waitForConditionOrInterrupt...().
     // All access guarded by the Client's lock.
+#ifndef D_USE_CORO_SYNC
     stdx::mutex* _waitMutex = nullptr;
     stdx::condition_variable* _waitCV = nullptr;
+#else
+    coro::Mutex* _waitMutex = nullptr;
+    coro::ConditionVariable* _waitCV = nullptr;
+#endif
 
     // If _waitMutex and _waitCV are non-null, this is the number of threads in a call to markKilled
     // actively attempting to kill the operation. If this value is non-zero, the operation is inside
@@ -583,7 +624,6 @@ private:
 
     bool _writesAreReplicated = true;
 
-    CoroutineFunctors _coroFunctors;
     int _isolationLevel{0};
     bool _isUpsert{false};
 
@@ -593,18 +633,6 @@ private:
 
 template <>
 void deinit(OperationContext* ptr);
-
-void coroWait(std::unique_lock<std::mutex>& lock, OperationContext* opCtx);
-void coroWait(std::unique_lock<std::mutex>& lock,
-              OperationContext* opCtx,
-              const std::function<bool()>& pred);
-std::cv_status coroWaitUntil(std::unique_lock<std::mutex>& lock,
-                             OperationContext* opCtx,
-                             Date_t deadline);
-bool coroWaitUntil(std::unique_lock<std::mutex>& lock,
-                   OperationContext* opCtx,
-                   Date_t deadline,
-                   const std::function<bool()>& pred);
 
 namespace repl {
 /**

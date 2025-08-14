@@ -62,7 +62,7 @@ void SessionCatalog::reset() {
 }
 
 SessionCatalog::~SessionCatalog() {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     for (const auto& entry : _txnTable) {
         auto& sri = entry.second;
         invariant(!sri->checkedOut);
@@ -70,7 +70,7 @@ SessionCatalog::~SessionCatalog() {
 }
 
 void SessionCatalog::reset_forTest() {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     _txnTable.clear();
 }
 
@@ -131,16 +131,7 @@ ScopedCheckedOutSession SessionCatalog::checkOutSession(OperationContext* opCtx)
 
     const auto lsid = *opCtx->getLogicalSessionId();
 
-#ifndef D_USE_CORO_SYNC
-    stdx::unique_lock<stdx::mutex> ul(_mutex);
-#else
-    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
-    stdx::unique_lock<stdx::mutex> ul(_mutex, std::defer_lock);
-    while (!ul.try_lock()) {
-        (*coro.longResumeFuncPtr)();
-        (*coro.yieldFuncPtr)();
-    }
-#endif
+    stdx::unique_lock ul(_mutex);
 
     invariant(localThreadId >= 0);
     uint16_t threadGroupId = localThreadId;
@@ -162,8 +153,8 @@ ScopedCheckedOutSession SessionCatalog::checkOutSession(OperationContext* opCtx)
         log() << "Migrate session " << session.getSessionId().getId() << ". Current ThreadGroup "
               << threadGroupId << ". Original ThreadGroup " << orig;
         Client* client = Client::getCurrent();
-        ServiceStateMachine* ssm = client->getServiceStateMachine();
-        ssm->migrateThreadGroup(orig);
+        const CoroutineFunctors& coro = client->coroutineFunctors();
+        (*coro.migrateThreadGroupFuncPtr)(orig);
         log() << "Migrate session " << session.getSessionId().getId() << " done.";
         invariant(Client::getCurrent() == client);
     }
@@ -178,16 +169,7 @@ ScopedSession SessionCatalog::getOrCreateSession(OperationContext* opCtx,
     invariant(!opCtx->getTxnNumber());
 
     auto ss = [&] {
-#ifndef D_USE_CORO_SYNC
-        stdx::unique_lock<stdx::mutex> ul(_mutex);
-#else
-        const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
-        stdx::unique_lock<stdx::mutex> ul(_mutex, std::defer_lock);
-        while (!ul.try_lock()) {
-            (*coro.longResumeFuncPtr)();
-            (*coro.yieldFuncPtr)();
-        }
-#endif
+        stdx::unique_lock ul(_mutex);
         invariant(localThreadId >= 0);
         uint16_t threadGroupId = localThreadId;
         return ScopedSession(_getOrCreateSessionRuntimeInfo(ul, opCtx, lsid, threadGroupId));
@@ -222,16 +204,7 @@ void SessionCatalog::invalidateSessions(OperationContext* opCtx,
         }
     };
 
-#ifndef D_USE_CORO_SYNC
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
-#else
-    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
-    stdx::unique_lock<stdx::mutex> lg(_mutex, std::defer_lock);
-    while (!lg.try_lock()) {
-        (*coro.longResumeFuncPtr)();
-        (*coro.yieldFuncPtr)();
-    }
-#endif
+    stdx::lock_guard lg(_mutex);
 
     if (singleSessionDoc) {
         const auto lsid = LogicalSessionId::parse(IDLParserErrorContext("lsid"),
@@ -252,7 +225,7 @@ void SessionCatalog::invalidateSessions(OperationContext* opCtx,
 void SessionCatalog::scanSessions(OperationContext* opCtx,
                                   const SessionKiller::Matcher& matcher,
                                   stdx::function<void(OperationContext*, Session*)> workerFn) {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
 
     LOG(2) << "Beginning scanSessions. Scanning " << _txnTable.size() << " sessions.";
 
@@ -279,17 +252,8 @@ std::shared_ptr<SessionCatalog::SessionRuntimeInfo> SessionCatalog::_getOrCreate
     return it->second;
 }
 
-void SessionCatalog::_releaseSession(OperationContext* opCtx, const LogicalSessionId& lsid) {
-#ifndef D_USE_CORO_SYNC
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
-#else
-    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
-    stdx::unique_lock<stdx::mutex> lg(_mutex, std::defer_lock);
-    while (!lg.try_lock()) {
-        (*coro.longResumeFuncPtr)();
-        (*coro.yieldFuncPtr)();
-    }
-#endif
+void SessionCatalog::_releaseSession(const LogicalSessionId& lsid) {
+    stdx::lock_guard lg(_mutex);
 
     auto it = _txnTable.find(lsid);
     invariant(it != _txnTable.end());

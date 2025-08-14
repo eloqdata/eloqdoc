@@ -87,8 +87,12 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
             auto client = Client::releaseCurrent();
 
             std::function<void()> yieldFunc, resumeFunc, longResumeFunc;
-            opCtx->setCoroutineFunctors(
-                CoroutineFunctors{&yieldFunc, &resumeFunc, &longResumeFunc});
+            client->setCoroutineFunctors(CoroutineFunctors{
+                &yieldFunc,
+                &resumeFunc,
+                &longResumeFunc,
+                nullptr,
+            });
             transport::ServiceExecutor* serviceExecutor =
                 getGlobalServiceContext()->getServiceEntryPoint()->getServiceExecutor();
 

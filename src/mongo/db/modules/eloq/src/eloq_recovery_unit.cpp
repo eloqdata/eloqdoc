@@ -285,7 +285,7 @@ EloqRecoveryUnit* EloqRecoveryUnit::get(OperationContext* opCtx) {
 }
 
 txservice::TransactionExecution* EloqRecoveryUnit::getTxm() {
-    MONGO_LOG(1) << "EloqRecoveryUnit::getTxm";
+    MONGO_LOG(3) << "EloqRecoveryUnit::getTxm";
     if (!_active) {
         auto isolationLevel = static_cast<txservice::IsolationLevel>(_opCtx->getIsolationLevel());
         _txnOpen(isolationLevel);
@@ -325,7 +325,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
     getTxm();
 
     txservice::TxKey catalogTxKey{&catalogKey};
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
     // readlocal=true when read catalog
     txservice::ReadTxRequest readTxReq(&txservice::catalog_ccm_name,
                                        0,
@@ -381,7 +381,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                  << ". tableName: " << tableName.StringView() << ". mongoKey: " << key->ToString();
     getTxm();
     txservice::TxKey txKey(key);
-    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     while (true) {
         txservice::ReadTxRequest readTxReq(&tableName,
@@ -449,7 +449,7 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                                                     bool isForWrite) {
     MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV. tableName: " << tableName.StringView()
                  << ", batch size: " << batch.size();
-    const CoroutineFunctors& coro = opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     bool isForShare = false;
     bool readLocal = false;
@@ -485,7 +485,7 @@ void EloqRecoveryUnit::notifyReloadCache(OperationContext* opCtx) {
 
     getTxm();
 
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
     txservice::ReloadCacheTxRequest reloadTxReq(coro.yieldFuncPtr, coro.resumeFuncPtr, _txm);
     _txm->Execute(&reloadTxReq);
     reloadTxReq.Wait();
@@ -506,7 +506,7 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
     std::string kvInfo = Eloq::storeHandler->CreateKVCatalogInfo(&tempSchema);
     std::string emptyImage{""};
     std::string newImage = EloqDS::SerializeSchemaImage(std::string{metadata}, kvInfo, "");
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     txservice::UpsertTableTxRequest upsertTableTxReq{&tableName,
                                                      &emptyImage,
@@ -550,7 +550,7 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
     getTxm();
 
     std::string emptyImage{""};
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     txservice::UpsertTableTxRequest dropTableTxReq{&tableName,
                                                    &catalogRecord.Schema()->SchemaImage(),
@@ -658,7 +658,7 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
         MONGO_LOG(1) << "OperationType::Update";
     }
 
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     if (_txm->DataWriteSetSize() > 0) {
         *insideDmlTxn = true;
@@ -921,7 +921,7 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
 
     closeAllCursors();
 
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     bool succeed = true;
     txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;

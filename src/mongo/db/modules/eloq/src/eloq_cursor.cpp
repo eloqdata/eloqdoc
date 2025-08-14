@@ -56,7 +56,7 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
                                bool is_for_write) {
     MONGO_LOG(1) << "EloqCursor::indexScanOpen " << tableName->StringView();
     _txm = _ru->getTxm();
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     bool is_ckpt = false;
     bool is_for_share = false;
@@ -177,7 +177,7 @@ txservice::TxErrorCode EloqCursor::_fetchBatchTuples() {
     MONGO_LOG(1) << "EloqCursor::fetchBatchTuples " << _scanOpenTxReq.tab_name_->StringView();
     _scanBatchIdx = 0;
     _scanBatchVector.clear();
-    const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
     txservice::ScanBatchTxRequest scanBatchTxReq(_scanAlias,
                                                  *_scanOpenTxReq.tab_name_,
                                                  &_scanBatchVector,

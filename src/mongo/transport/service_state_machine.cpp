@@ -250,7 +250,8 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
       _serviceExecutor(_serviceContext->getServiceExecutor()),
       _sessionHandle(session),
       _threadName{str::stream() << "conn" << _session()->id()},
-      _dbClient{svcContext->makeClient(_threadName, std::move(session), this)},
+      _dbClient{
+          svcContext->makeClient(_threadName, std::move(session), makeCoroutineFunctors(*this))},
       _dbClientPtr{_dbClient.get()},
       _threadGroupId(groupId) {
     MONGO_LOG(1) << "ServiceStateMachine::ServiceStateMachine";
@@ -268,8 +269,15 @@ void ServiceStateMachine::reset(ServiceContext* svcContext,
     _serviceExecutor = _serviceContext->getServiceExecutor();
     _sessionHandle = session;
     // _threadName = str::stream() << "conn" << _session()->id();
-    _dbClient = svcContext->makeClient(_threadName, std::move(session), this);
+    _dbClient =
+        svcContext->makeClient(_threadName, std::move(session), makeCoroutineFunctors(*this));
     _dbClientPtr = _dbClient.get();
+    _coroStatus = CoroStatus::Empty;
+    _coroYield = {};
+    _coroResume = {};
+    _coroLongResume = {};
+    _coroMigrateThreadGroup = {};
+    _resumeTask = {};
     _migrating.store(false, std::memory_order_relaxed);
     _threadGroupId.store(groupId, std::memory_order_relaxed);
     _owned.store(Ownership::kUnowned);
@@ -430,11 +438,6 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
 
         // MONGO_LOG(0) << "Operation Context decorations memeory usage: " << opCtx->sizeBytes();
 
-        if (serverGlobalParams.enableCoroutine) {
-            opCtx->setCoroutineFunctors(
-                CoroutineFunctors{&_coroYield, &_coroResume, &_coroLongResume});
-        }
-
         // The handleRequest is implemented in a subclass for mongod/mongos and actually all the
         // database work for this request.
         dbresponse = _sep->handleRequest(opCtx.get(), _inMessage);
@@ -539,8 +542,10 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                             _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
                         _coroLongResume = _serviceExecutor->coroutineLongResumeFunctor(
                             _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
+                        _coroMigrateThreadGroup = std::bind(
+                            &ServiceStateMachine::_migrateThreadGroup, this, std::placeholders::_1);
 
-                        boost::context::stack_context sc = coroStackContext();
+                        boost::context::stack_context sc = _coroStackContext();
                         boost::context::preallocated prealloc(sc.sp, sc.size, sc);
                         _source = boost::context::callcc(
                             std::allocator_arg,
@@ -550,11 +555,11 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                                 _coroYield = [this, &sink]() {
                                     MONGO_LOG(3) << "call yield";
                                     _dbClient = Client::releaseCurrent();
-                                    abortIfStackOverflow();
+                                    _abortIfStackOverflow();
                                     sink = sink.resume();
                                 };
                                 _processMessage(std::move(guard));
-                                abortIfStackOverflow();
+                                _abortIfStackOverflow();
                                 return std::move(sink);
                             });
 
@@ -572,7 +577,7 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         //         _coroYield = [this, &sink]() {
                         //             MONGO_LOG(1) << "call yield";
                         //             _dbClient = Client::releaseCurrent();
-                        //             abortIfStackOverflow();
+                        //             _abortIfStackOverflow();
                         //             sink = sink.resume();
                         //         };
                         //         _processMessage(std::move(guard));
@@ -580,7 +585,7 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         //     });
                     } else if (_coroStatus == CoroStatus::OnGoing) {
                         MONGO_LOG(1) << "coroutine ongoing";
-                        abortIfStackOverflow();
+                        _abortIfStackOverflow();
                         _source = _source.resume();
                     }
                 }
@@ -612,7 +617,7 @@ void ServiceStateMachine::_runResumeProcess() {
     MONGO_LOG(3) << "ServiceStateMachine::_resumeRun";
     if (_coroStatus == CoroStatus::OnGoing) {
         MONGO_LOG(3) << "coroutine ongoing";
-        abortIfStackOverflow();
+        _abortIfStackOverflow();
         _source = _source.resume();
     }
 }
@@ -703,7 +708,7 @@ void ServiceStateMachine::setThreadGroupId(size_t id) {
     _threadGroupId.store(id, std::memory_order_release);
 }
 
-void ServiceStateMachine::migrateThreadGroup(uint16_t threadGroupId) {
+void ServiceStateMachine::_migrateThreadGroup(uint16_t threadGroupId) {
     dassert(_owned.loadRelaxed() == Ownership::kOwned);
     _threadGroupId.store(threadGroupId, std::memory_order_relaxed);
     _coroResume = _serviceExecutor->coroutineResumeFunctor(threadGroupId, _resumeTask);
@@ -736,6 +741,19 @@ void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
     // By ignoring the return value of Client::releaseCurrent() we destroy the session.
     // _dbClient is now nullptr and _dbClientPtr is invalid and should never be accessed.
     Client::releaseCurrent();
+}
+
+CoroutineFunctors makeCoroutineFunctors(const ServiceStateMachine& stm) {
+    if (serverGlobalParams.enableCoroutine) {
+        return CoroutineFunctors{
+            &stm._coroYield,
+            &stm._coroResume,
+            &stm._coroLongResume,
+            &stm._coroMigrateThreadGroup,
+        };
+    } else {
+        return CoroutineFunctors::Unavailable;
+    }
 }
 
 }  // namespace mongo

@@ -30,8 +30,8 @@
 
 #include <queue>
 
-#include "mongo/db/concurrency/lock_manager.h"
 #include "mongo/db/concurrency/fast_map_noalloc.h"
+#include "mongo/db/concurrency/lock_manager.h"
 #include "mongo/db/concurrency/locker.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/platform/atomic_word.h"
@@ -73,9 +73,14 @@ public:
 private:
     virtual void notify(ResourceId resId, LockResult result);
 
-    // These two go together to implement the conditional variable pattern.
+// These two go together to implement the conditional variable pattern.
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _mutex;
     stdx::condition_variable _cond;
+#else
+    coro::Mutex _mutex;
+    coro::ConditionVariable _cond;
+#endif
 
     // Result from the last call to notify
     LockResult _result;

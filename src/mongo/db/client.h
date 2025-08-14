@@ -39,7 +39,9 @@
 #include <boost/optional.hpp>
 
 #include "mongo/base/disallow_copying.h"
+#include "mongo/base/local_thread_state.h"
 #include "mongo/db/client.h"
+#include "mongo/db/coro_sync.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/service_context.h"
 #include "mongo/platform/random.h"
@@ -54,7 +56,6 @@ namespace mongo {
 
 class Collection;
 class OperationContext;
-class ServiceStateMachine;
 
 typedef long long ConnectionId;
 
@@ -158,15 +159,7 @@ public:
     // Ensures stability of the client's OperationContext. When the client is locked,
     // the OperationContext will not disappear.
     void lock() {
-#ifndef D_USE_CORO_SYNC
         _lock.lock();
-#else
-        while (!_lock.try_lock()) {
-            const CoroutineFunctors& coro = _opCtx->getCoroutineFunctors();
-            (*coro.longResumeFuncPtr)();
-            (*coro.yieldFuncPtr)();
-        }
-#endif
     }
 
     void unlock() {
@@ -226,8 +219,12 @@ public:
         return _prng;
     }
 
-    ServiceStateMachine* getServiceStateMachine() {
-        return _stm;
+    const CoroutineFunctors& coroutineFunctors() const {
+        return _coro;
+    }
+
+    void setCoroutineFunctors(const CoroutineFunctors& coro) {
+        _coro = coro;
     }
 
 private:
@@ -235,7 +232,7 @@ private:
     Client(std::string desc,
            ServiceContext* serviceContext,
            transport::SessionHandle session,
-           ServiceStateMachine* stm);
+           const CoroutineFunctors& coro);
 
     ServiceContext* const _serviceContext;
     const transport::SessionHandle _session;
@@ -247,7 +244,11 @@ private:
     const ConnectionId _connectionId;
 
     // Protects the contents of the Client (such as changing the OperationContext, etc)
+#ifndef D_USE_CORO_SYNC
     SpinLock _lock;
+#else
+    coro::Mutex _lock;
+#endif
 
     // Whether this client is running as DBDirectClient
     bool _inDirectClient = false;
@@ -258,7 +259,7 @@ private:
     PseudoRandom _prng;
 
     // Points to the ServiceStateMachine if it is a remote client.
-    ServiceStateMachine* _stm = nullptr;
+    CoroutineFunctors _coro;
 };
 
 /**
