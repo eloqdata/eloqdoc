@@ -44,6 +44,4 @@ jobs:
   - task: compile-test-task
     image: eloq_ubuntu_2404
     file: eloqdoc_src/concourse/tasks/main.yml
-    vars:
-      cass-host: ((cassandra-host))
     privileged: true

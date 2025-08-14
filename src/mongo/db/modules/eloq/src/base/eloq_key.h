@@ -156,6 +156,16 @@ public:
         return sizeof(uint16_t) + packed_key_.size();
     }
 
+    std::string_view KVSerialize() const
+    {
+        assert(false);
+        return std::string_view();
+    }
+    void KVDeserialize(const char *buf, size_t len)
+    {
+        assert(false);
+    }
+
     void Deserialize(const char* buf, size_t& offset, const txservice::KeySchema* schema) {
         uint16_t len = *reinterpret_cast<const uint16_t*>(buf + offset);
         offset += sizeof(uint16_t);

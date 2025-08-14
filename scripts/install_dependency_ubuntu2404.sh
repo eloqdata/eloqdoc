@@ -124,7 +124,6 @@ fi
 log_info "Detected $CPU_COUNT CPU cores, will use $COMPILE_JOBS for parallel compilation"
 
 export DEBIAN_FRONTEND=noninteractive
-export CASSANDRA_VERSION=4.0.6
 
 if [ "$SKIP_ELOQ_COMMON" = false ]; then
     # ------------- System packages installation -------------
@@ -139,16 +138,6 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
         libbz2-dev liblz4-dev libzstd-dev libboost-context-dev ca-certificates \
         libc-ares-dev libc-ares2 m4 pkg-config tar libreadline-dev libsqlite3-dev \
         llvm xz-utils tk-dev libffi-dev liblzma-dev
-
-    # ------------- Cassandra installation -------------
-    log_info "Installing Apache Cassandra ${CASSANDRA_VERSION}"
-    cd $TEMP_DIR
-    if [ ! -d "apache-cassandra" ]; then
-        wget https://archive.apache.org/dist/cassandra/${CASSANDRA_VERSION}/apache-cassandra-${CASSANDRA_VERSION}-bin.tar.gz &&
-            tar xzvf apache-cassandra-${CASSANDRA_VERSION}-bin.tar.gz &&
-            mv apache-cassandra-${CASSANDRA_VERSION} apache-cassandra &&
-            rm -rf apache-cassandra-${CASSANDRA_VERSION}-bin.tar.gz
-    fi
 
     # ------------- Mimalloc installation -------------
     log_info "Installing mimalloc"

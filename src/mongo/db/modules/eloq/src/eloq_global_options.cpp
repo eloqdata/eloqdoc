@@ -269,52 +269,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::String,
                            "Keyspace of KV Storage")
         .setDefault(moe::Value("mono_mongo"));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.cassHosts",
-                           "eloqCassHosts",
-                           moe::String,
-                           "Contact points of Cassandra")
-        .setDefault(moe::Value("127.0.0.1"));
-    eloqOptions
-        .addOptionChaining(
-            "storage.eloq.storage.cassPort", "eloqCassPort", moe::Int, "Port of Cassandra")
-        .validRange(1, UINT16_MAX)
-        .setDefault(moe::Value(9042));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.cassQueueSizeIO",
-                           "eloqCassQueueSizeIO",
-                           moe::Int,
-                           "Queue_size_io of Cassandra client")
-        .validRange(0, INT_MAX)
-        .setDefault(moe::Value(300000));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.cassKeyspaceClass",
-                           "eloqCassKeyspaceClass",
-                           moe::String,
-                           "Keyspace class of Cassandra")
-        .setDefault(moe::Value("SimpleStrategy"));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.cassReplicationFactor",
-                           "eloqCassReplicationFactor",
-                           moe::String,
-                           "Keyspace replication factor of Cassandra")
-        .setDefault(moe::Value("1"));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.cassHighCompressionRatio",
-                           "eloqCassHighCompressionRatio",
-                           moe::Bool,
-                           "Cassandra enable high compression ratio")
-        .setDefault(moe::Value(false));
-    eloqOptions
-        .addOptionChaining(
-            "storage.eloq.storage.cassUser", "eloqCassUser", moe::String, "Cassandra username")
-        .setDefault(moe::Value("cassandra"));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.cassPassword",
-                           "eloqCassPassword",
-                           moe::String,
-                           "Cassandra password")
-        .setDefault(moe::Value("cassandra"));
     // Eloq DataStoreService Options
     eloqOptions
         .addOptionChaining("storage.eloq.storage.dataStoreServiceConfigFilePath",

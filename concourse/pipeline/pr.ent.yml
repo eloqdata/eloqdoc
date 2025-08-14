@@ -64,8 +64,6 @@ jobs:
       - task: compile-test-task
         image: eloq_ubuntu_2404
         file: eloqdoc_pr/concourse/tasks/pr.ent.yml
-        vars:
-          cass-host: ((cassandra-host))
         params:
           GIT_SSH_KEY: ((git-key))
         privileged: true

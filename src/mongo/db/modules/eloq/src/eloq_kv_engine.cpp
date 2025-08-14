@@ -61,9 +61,7 @@
 #define ELOQDS 1
 #endif
 
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-#include "store_handler/cass_handler.h"
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#if defined(DATA_STORE_TYPE_DYNAMODB)
 #include "store_handler/dynamo_handler.h"
 #elif defined(DATA_STORE_TYPE_BIGTABLE)
 #include "store_handler/bigtable_handler.h"
@@ -406,7 +404,12 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     }
 
     _logAgent = std::make_unique<Eloq::MongoLogAgent>(eloqGlobalOptions.txlogGroupReplicaNum);
-    _txService = std::make_unique<txservice::TxService>(&_catalogFactory,
+    txservice::CatalogFactory *catalog_factories[3] = {
+        nullptr,
+        nullptr,
+        &_catalogFactory
+    };
+    _txService = std::make_unique<txservice::TxService>(catalog_factories,
                                                         &_mongoSystemHandler,
                                                         txServiceConf,
                                                         nodeId,
@@ -466,30 +469,6 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
 void EloqKVEngine::initDataStoreService() {
     auto localIp = eloqGlobalOptions.localAddr.host();
     auto localPort = eloqGlobalOptions.localAddr.port();
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-    bool storeBootstrap = false;
-    bool storeDdlSkipKv = false;
-
-    Eloq::storeHandler =
-        std::make_unique<EloqDS::CassHandler>(eloqGlobalOptions.cassHosts,
-                                              eloqGlobalOptions.cassPort,
-                                              eloqGlobalOptions.cassUser,
-                                              eloqGlobalOptions.cassPassword,
-                                              eloqGlobalOptions.keyspaceName,
-                                              eloqGlobalOptions.cassKeyspaceClass,
-                                              eloqGlobalOptions.cassReplicationFactor,
-                                              eloqGlobalOptions.cassHighCompressionRatio,
-                                              eloqGlobalOptions.cassQueueSizeIO,
-                                              storeBootstrap,
-                                              storeDdlSkipKv);
-
-
-    if (!Eloq::storeHandler->Connect()) {
-        error() << "Failed to connect to cassandra server. Terminated.";
-        throw std::runtime_error("Failed to connect to cassandra server. Terminated.");
-    }
-    return;
-#endif
 
     bool opt_bootstrap = serverGlobalParams.bootstrap;
     // TODO(starrysky)
