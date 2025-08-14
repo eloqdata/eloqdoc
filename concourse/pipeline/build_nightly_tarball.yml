@@ -155,7 +155,7 @@ resources:
   - name: eloqdoc_src
     type: git
     source:
-      branch: fix_build_pipeline_zx
+      branch: main
       private_key: ((git-key))
       uri: git@github.com:eloqdata/eloqdoc.git
   - name: raft_host_manager_src
