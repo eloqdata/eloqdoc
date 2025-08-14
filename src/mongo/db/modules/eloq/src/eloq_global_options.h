@@ -17,11 +17,11 @@
  */
 #pragma once
 
-#include <cstdint>
-#include <sys/types.h>
 #include "mongo/util/net/hostandport.h"
 #include "mongo/util/options_parser/startup_option_init.h"
 #include "mongo/util/options_parser/startup_options.h"
+#include <cstdint>
+#include <sys/types.h>
 
 #include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
 

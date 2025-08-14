@@ -82,7 +82,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 esac
 
 # Checkout to the latest tag if TAGGED is set, aligning submodules to release branches
-if [ -n "${TAGGED:-}" ]; then
+if [ "${TAGGED}" = "true" ]; then
     TAGGED=$(git tag --sort=-v:refname | head -n 1)
     if [ -z "${TAGGED}" ]; then
         echo "No tags found but TAGGED requested"
