@@ -27,7 +27,7 @@ git fetch --tags
 latest=$(git tag --sort=-version:refname | head -n 1)
 
 if [[ -z "$latest" ]]; then
-    digits=(0 4 14)  # Initialize with 0.4.14 if no tags exist
+    digits=(0 2 3)  # Initialize with 0.4.14 if no tags exist
 else
     IFS='.' read -ra digits <<<"$latest"
 fi
