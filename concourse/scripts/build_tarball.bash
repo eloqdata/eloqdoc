@@ -101,21 +101,16 @@ if [ -z "${DATA_STORE_TYPE:-}" ]; then
 fi
 
 # Validate and normalize DATA_STORE_TYPE and derive DATA_STORE_ID
-case "${DATA_STORE_TYPE}" in
-  ELOQDSS_ROCKSDB_CLOUD_S3)
-    DATA_STORE_ID="rocks_s3"
-    ;;
-  ELOQDSS_ROCKSDB_CLOUD_GCS)
-    DATA_STORE_ID="rocks_gcs"
-    ;;
-  ELOQDSS_ROCKSDB)
-    DATA_STORE_ID="eloqdss_rocksdb"
-    ;;
-  *)
-    echo "Unsupported DATA_STORE_TYPE: ${DATA_STORE_TYPE}. Supported: ELOQDSS_ROCKSDB_CLOUD_S3, ELOQDSS_ROCKSDB_CLOUD_GCS, ELOQDSS_ROCKSDB"
-    exit 1
-    ;;
-esac
+if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+  DATA_STORE_ID="rocks_s3"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
+  DATA_STORE_ID="rocks_gcs"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
+  DATA_STORE_ID="eloqdss_rocksdb"
+else
+  echo "Unsupported DATA_STORE_TYPE: ${DATA_STORE_TYPE}. Supported: ELOQDSS_ROCKSDB_CLOUD_S3, ELOQDSS_ROCKSDB_CLOUD_GCS, ELOQDSS_ROCKSDB"
+  exit 1
+fi
 
 if [ "${ASAN:-OFF}" = "ON" ]; then
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0
@@ -213,7 +208,7 @@ cmake -G "Unix Makefiles" \
       -DFORK_HM_PROCESS=ON \
       -DOPEN_LOG_SERVICE=OFF \
       ${CMAKE_EXTRA_ARGS}
-cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j${NCORE:-4}
+cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j${NCORE}
 cmake --install $ELOQDOC_SRC/src/mongo/db/modules/eloq/build
 
 # Construct variables file
@@ -248,7 +243,7 @@ python2 buildscripts/scons.py \
     --link-model=dynamic \
     --install-mode=hygienic \
     --disable-warnings-as-errors \
-    -j${NCORE:-4} \
+    -j${NCORE} \
     install-core
 
 # Collect runtime libraries for binaries
