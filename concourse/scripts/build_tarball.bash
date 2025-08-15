@@ -184,10 +184,9 @@ export OPEN_LOG_SERVICE=0 FORK_HM_PROCESS=1
 # Configure and build engine via CMake
 # Extra cmake args for log service RocksDB cloud backend selection
 CMAKE_EXTRA_ARGS=""
-if [ "${DATA_STORE_TYPE:-}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
   CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=S3"
-  export WITH_ROCKSDB_CLOUD=S3
-elif [ "${DATA_STORE_TYPE:-}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
   CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=GCS"
   export WITH_ROCKSDB_CLOUD=GCS
 else
@@ -200,11 +199,12 @@ cmake -G "Unix Makefiles" \
       -B $ELOQDOC_SRC/src/mongo/db/modules/eloq/build \
       -DCMAKE_INSTALL_PREFIX=$DEST_DIR \
       -DCMAKE_CXX_STANDARD=17 \
-      -DCMAKE_BUILD_TYPE=${BUILD_TYPE:-RelWithDebInfo} \
+      -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+      -DCOROUTINE_ENABLED=ON \
       -DEXT_TX_PROC_ENABLED=ON \
       -DSTATISTICS=ON \
       -DUSE_ASAN=${ASAN:-OFF} \
-      -DWITH_DATA_STORE=${DATA_STORE_TYPE:-ELOQDSS_ROCKSDB_CLOUD_S3} \
+      -DWITH_DATA_STORE=${DATA_STORE_TYPE} \
       -DFORK_HM_PROCESS=ON \
       -DOPEN_LOG_SERVICE=OFF \
       ${CMAKE_EXTRA_ARGS}
@@ -222,10 +222,7 @@ fi
 
 # Build and install MongoDB binaries via scons
 export WITH_DATA_STORE=${DATA_STORE_TYPE}
-SCONS_VARIANT=${BUILD_TYPE:-RelWithDebInfo}
-export CXX=`which g++`
-export CC=`which gcc`
-
+SCONS_VARIANT=${BUILD_TYPE}
 python2 buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
@@ -237,8 +234,8 @@ python2 buildscripts/scons.py \
     $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \
     --build-dir=#build \
     --prefix=$DEST_DIR \
-    $( [ "${BUILD_TYPE:-RelWithDebInfo}" = "Debug" ] && echo --dbg=on --opt=off || echo --dbg=off --opt=on ) \
-    $( [ "${BUILD_TYPE:-RelWithDebInfo}" = "Release" ] && echo --release --lto || true ) \
+    $( [ "${BUILD_TYPE}" = "Debug" ] && echo --dbg=on --opt=off || echo --dbg=off --opt=on ) \
+    $( [ "${BUILD_TYPE}" = "Release" ] && echo --release --lto || true ) \
     --allocator=system \
     --link-model=dynamic \
     --install-mode=hygienic \
@@ -272,7 +269,7 @@ cd $HOME
 tar -czvf eloqdoc.tar.gz -C $DEST_DIR .
 
 # Tarball naming and upload (align with eloqkv)
-if [ -n "${TAGGED:-}" ]; then
+if [ "${TAGGED}" = "true" ]; then
     DOC_TARBALL="eloqdoc-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
     # optional record
     eval ${INSTALL_PSQL}
