@@ -54,8 +54,6 @@ namespace {
 thread_local ServiceContext::UniqueClient currentClient;
 }  // namespace
 
-extern thread_local int16_t localThreadId;
-
 void Client::initThreadIfNotAlready(StringData desc) {
     if (currentClient)
         return;

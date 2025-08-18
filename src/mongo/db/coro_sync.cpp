@@ -16,6 +16,9 @@ void Mutex::lock() {
         if (client) {
             const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
             if (coro != CoroutineFunctors::Unavailable) {
+                // By C++ standard, the return value of std::mutex::try_lock is undefined when
+                // called repeatedly. By GCC/Clang implementation, the return value of
+                // std::mutex::try_lock is definitely false when called repeatedly.
                 while (!_mux.try_lock()) {
                     (*coro.longResumeFuncPtr)();
                     (*coro.yieldFuncPtr)();
