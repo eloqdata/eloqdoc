@@ -404,9 +404,10 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     }
 
     _logAgent = std::make_unique<Eloq::MongoLogAgent>(eloqGlobalOptions.txlogGroupReplicaNum);
-    txservice::CatalogFactory *catalog_factories[3] = {
+    txservice::CatalogFactory *catalog_factories[4] = {
         nullptr,
         nullptr,
+        &_catalogFactory,
         &_catalogFactory
     };
     _txService = std::make_unique<txservice::TxService>(catalog_factories,
