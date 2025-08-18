@@ -74,6 +74,8 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
     INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/build_eloq_store.cmake)
 
     list(APPEND LOCAL_DATA_STORE_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/eloqstore)
+    set(ELOQSTORE_LIBRARY eloqstore)
+    set(LOCAL_DATA_STORE_LIBRARY ${ELOQSTORE_LIBRARY})
 else()
     message(FATAL_ERROR "Unset or unsupported WITH_DATA_STORE: ${WITH_DATA_STORE}")
 endif()
@@ -163,7 +165,17 @@ target_include_directories(DATA_STORE_SERVICE_OBJ PUBLIC ${LOCAL_DATA_STORE_INCL
 
 # Create shared library from object library
 add_library(datastore_shared SHARED $<TARGET_OBJECTS:DATA_STORE_SERVICE_OBJ>)
-target_link_libraries(datastore_shared PUBLIC ${LOCAL_DATA_STORE_LIBRARY} ${PROTOBUF_LIBRARIES}) # Add PROTOBUF_LIBRARIES if protos are used
+
+set(DATA_STORE_LINKER_FLAGS "")
+# Add explicit dependency to ensure eloqstore_static is built before datastore_shared
+if(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    add_dependencies(datastore_shared ${ELOQSTORE_LIBRARY})
+    # Add --whole-archive flag to link eloqstore static library, if no this flag, not all the symbols in eloqstore will be linked.
+    set(DATA_STORE_LINKER_FLAGS "-Wl,--whole-archive")
+endif()
+
+target_link_libraries(datastore_shared PUBLIC ${PROTOBUF_LIBRARIES} ${DATA_STORE_LINKER_FLAGS} ${LOCAL_DATA_STORE_LIBRARY} -Wl,--no-whole-archive) # Add PROTOBUF_LIBRARIES if protos are used
+
 set_target_properties(datastore_shared PROPERTIES OUTPUT_NAME datastore)
 set_target_properties(datastore_shared PROPERTIES INSTALL_RPATH "$ORIGIN")
 # ... (message logging for shared lib)
