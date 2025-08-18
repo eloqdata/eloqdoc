@@ -72,8 +72,8 @@ Follow these steps to build and run EloqDoc from source.
 It is recommended to use our Docker image with pre-installed dependencies for a quick build and run of EloqDoc.
 
 ```bash
-docker pull eloqdata/eloqdoc-build-ubuntu2404:latest
-docker run -it --name eloqdoc eloqdata/eloqdoc-build-ubuntu2404
+docker pull eloqdata/eloq-dev-ci-ubuntu2404:latest
+docker run -it --name eloqdoc eloqdata/eloq-dev-ci-ubuntu2404
 git clone https://github.com/eloqdata/eloqdoc.git
 cd eloqdoc
 ```
