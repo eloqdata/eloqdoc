@@ -746,10 +746,10 @@ void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
 CoroutineFunctors makeCoroutineFunctors(const ServiceStateMachine& stm) {
     if (serverGlobalParams.enableCoroutine) {
         return CoroutineFunctors{
-            stm._coroYield ? &stm._coroYield : nullptr,
-            stm._coroResume ? &stm._coroResume : nullptr,
-            stm._coroLongResume ? &stm._coroLongResume : nullptr,
-            stm._coroMigrateThreadGroup ? &stm._coroMigrateThreadGroup : nullptr,
+            &stm._coroYield,
+            &stm._coroResume,
+            &stm._coroLongResume,
+            &stm._coroMigrateThreadGroup,
         };
     } else {
         return CoroutineFunctors::Unavailable;

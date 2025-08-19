@@ -220,7 +220,11 @@ public:
     }
 
     const CoroutineFunctors& coroutineFunctors() const {
-        return _coro;
+        if (_coro.yieldFuncPtr && *_coro.yieldFuncPtr) {
+            return _coro;
+        } else {
+            return CoroutineFunctors::Unavailable;
+        }
     }
 
     void setCoroutineFunctors(const CoroutineFunctors& coro) {
