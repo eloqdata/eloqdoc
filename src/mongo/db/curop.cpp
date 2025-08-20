@@ -661,6 +661,7 @@ string OpDebug::report(Client* client,
     }
 
     s << " " << (executionTimeMicros / 1000) << "ms";
+    s << ", client: " << client;
 
     return s.str();
 }
