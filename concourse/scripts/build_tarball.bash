@@ -119,6 +119,7 @@ fi
 # init destination directory
 DEST_DIR="${HOME}/EloqDoc"
 mkdir -p ${DEST_DIR}/{bin,lib,conf,etc}
+export DEST_DIR
 
 # Define and write LICENSE
 LICENSE_CONTENT=$(cat <<EOF

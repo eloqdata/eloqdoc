@@ -209,6 +209,27 @@ print("eloq_dependencies: ", eloq_dependencies)
 print("MALLOC:", env['MONGO_ALLOCATOR'])
 
 
+# Ensure the linker can find CMake-produced shared libs and link them explicitly.
+# CMake installs txservice/logservice/datastore/eloq_metrics into DEST_DIR/lib.
+dest_dir = os.environ.get("DEST_DIR", "")
+dest_lib_dir = os.path.join(dest_dir, "lib") if dest_dir else None
+if dest_lib_dir and os.path.isdir(dest_lib_dir):
+    env.Append(LIBPATH=[dest_lib_dir])
+
+# Always link against the CMake-built module libraries to resolve txlog and service symbols.
+cmake_module_libs = ["logservice", "txservice", "datastore", "eloq_metrics"]
+env.Append(LIBS=cmake_module_libs)
+
+# For RocksDB Cloud backends, ensure AWS/GCS SDKs are linked when needed because
+# this module directly references AWS Init/Shutdown APIs under S3 builds.
+if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
+    # Prefer explicit names; system library paths are already searched via SYSTEM_LIBRARY_PATH.
+    cloud_backend = os.environ.get("WITH_ROCKSDB_CLOUD", "")
+    if cloud_backend == "S3":
+        env.Append(LIBS=["aws-cpp-sdk-core"])  # Aws::InitAPI/Aws::ShutdownAPI
+        env.Append(LIBS=["aws-cpp-sdk-kinesis", "aws-cpp-sdk-s3", "rocksdb-cloud-aws"]) 
+
+
 env.Library(
     target="storage_eloq_core",
     source=[
