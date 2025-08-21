@@ -211,7 +211,7 @@ cmake -G "Unix Makefiles" \
       -DFORK_HM_PROCESS=ON \
       -DOPEN_LOG_SERVICE=OFF \
       ${CMAKE_EXTRA_ARGS}
-cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j${NCORE}
+cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j4
 cmake --install $ELOQDOC_SRC/src/mongo/db/modules/eloq/build
 
 # Construct variables file
@@ -243,7 +243,7 @@ python2 buildscripts/scons.py \
     --link-model=dynamic \
     --install-mode=hygienic \
     --disable-warnings-as-errors \
-    -j${NCORE} \
+    -j4 \
     install-core
 
 # Collect runtime libraries for binaries
