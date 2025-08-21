@@ -193,6 +193,31 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     sudo cmake --build cmake-out --target install -- -j $COMPILE_JOBS && \
     sudo ldconfig
 
+    # ------------- grpc installation -------------
+    log_info "Installing grpc"
+    cd $TEMP_DIR
+    if [ ! -d "grpc" ]; then
+        mkdir -p grpc
+    fi
+    cd grpc
+    curl -fsSL https://codeload.github.com/grpc/grpc/tar.gz/refs/tags/v1.51.1 | \
+    tar -xzf - --strip-components=1 && \
+    cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=yes \
+        -DgRPC_INSTALL=ON \
+        -DgRPC_BUILD_TESTS=OFF \
+        -DgRPC_ABSL_PROVIDER=package \
+        -DgRPC_CARES_PROVIDER=package \
+        -DgRPC_PROTOBUF_PROVIDER=package \
+        -DgRPC_RE2_PROVIDER=package \
+        -DgRPC_SSL_PROVIDER=package \
+        -DgRPC_ZLIB_PROVIDER=package \
+        -S . -B cmake-out && \
+    cmake --build cmake-out -- -j $COMPILE_JOBS && \
+    sudo cmake --build cmake-out --target install -- -j $COMPILE_JOBS && \
+    sudo ldconfig
+
     # ------------- Glog installation -------------
     log_info "Installing glog"
     cd $TEMP_DIR
@@ -355,11 +380,11 @@ sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev libbz2
 # Install pyenv in user's home directory
 curl -fsSL https://pyenv.run | bash
 
-# Set up pyenv environment
-echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc
-echo '[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc
-echo 'eval "$(pyenv init - bash)"' >> ~/.bashrc
-source ~/.bashrc
+# Initialize pyenv only for this non-interactive shell session
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)" || true
+eval "$(pyenv virtualenv-init -)" || true
 
 # Install Python 2.7.18
 pyenv install 2.7.18

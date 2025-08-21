@@ -96,40 +96,49 @@ git submodule update --init --recursive
 
 ### 3. Build EloqDoc
 
-First, Specify an install path.
+First, specify an install path.
 
 ```bash
 export INSTALL_PREFIX=/your/install/path/absolute
+# Set data store type (required), ELOQDSS_ROCKSDB/ELOQDSS_ROCKSDB_CLOUD_S3
+export WITH_DATA_STORE=ELOQDSS_ROCKSDB
+
 ```
 
-Then, compile Eloq dependencies.
+Then, configure and build the Eloq engine and dependencies via CMake with Open Log Service enabled.
 
 ```bash
-cmake -S src/mongo/db/modules/eloq \
+cmake -G "Unix Makefiles" \
+      -S src/mongo/db/modules/eloq \
       -B src/mongo/db/modules/eloq/build \
-      -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX
+      -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
+      -DWITH_DATA_STORE=$WITH_DATA_STORE
 cmake --build src/mongo/db/modules/eloq/build -j8
 cmake --install src/mongo/db/modules/eloq/build
 ```
 
-Finally, compile EloqDoc.
+Finally, build MongoDB via SCons with Open Log Service enabled.
 
 ```bash
 pyenv global 2.7.18
-python buildscripts/scons.py MONGO_VERSION=4.0.3 \
-    VARIANT_DIR=RelWithDebInfo \
-    LIBPATH="/usr/local/lib" \
-    CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+
+
+python2 buildscripts/scons.py \
+    MONGO_VERSION=4.0.3 \
+    VARIANT_DIR=${BUILD_TYPE} \
+    LIBPATH=/usr/local/lib \
+    CFLAGS="-march=x86-64 -mtune=generic -Wno-nonnull" \
+    CXXFLAGS="-march=x86-64 -mtune=generic -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$INSTALL_PREFIX \
     --disable-warnings-as-errors \
-    -j8 \
+    -j4 \
     install-core
 ```
 
-### 4. Set Up Storage Backend
+### 4. Set Up Storage Backend (optional)
 
-EloqDoc use s3 as storage backends. For testing, just deploy a s3 emulator.
+For ELOQDSS_ROCKSDB_CLOUD_S3 data store type, EloqDoc uses an S3-compatible storage backend. For testing, deploy an S3 emulator.
 
 ```bash
 wget https://dl.min.io/server/minio/release/linux-amd64/minio
@@ -139,7 +148,7 @@ chmod +x minio
 
 ### 5. Config EloqDoc
 
-Create a configuration file `mongod.conf` according to `config/example.conf`. Modify `/home/mono` with your home path.
+Create a configuration file `mongod.conf` according to `config/example.conf`. Modify `/home/eloq` with your home path.
 The configuration file specifies `$HOME/eloqdoc-cloud` as deploy directory.
 
 ```bash

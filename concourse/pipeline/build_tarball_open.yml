@@ -1,0 +1,74 @@
+resources:
+- name: eloqdoc_src_main
+  type: git
+  source:
+    branch: test_open_version_zx
+    uri: git@github.com:eloqdata/eloqdoc.git
+    private_key: ((git-key))
+
+- name: image_ubuntu2404_main
+  type: registry-image
+  source:
+    repository: ubuntu
+    tag: "24.04"
+
+- name: logservice_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/log_service.git
+
+- name: raft_host_manager_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/raft_host_manager.git
+
+jobs:
+- name: ubuntu2404-debug-openlog
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: eloqdoc_src
+        resource: eloqdoc_src_main
+      - get: logservice_src
+        resource: logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_ubuntu2404
+        resource: image_ubuntu2404_main
+
+  - task: build-debug-openlog-s3
+    file: eloqdoc_src/concourse/tasks/build_tarball_open.yml
+    image: image_ubuntu2404
+    params:
+      TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_TYPE: Debug
+      DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      OUT_NAME: debug-openlog-s3
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+  
+  - task: build-debug-openlog
+    file: eloqdoc_src/concourse/tasks/build_tarball_open.yml
+    image: image_ubuntu2404
+    params:
+      TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_TYPE: Debug
+      DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      OUT_NAME: debug-openlog
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true
+
+

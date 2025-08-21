@@ -1,0 +1,15 @@
+platform: linux
+image_resource:
+  type: registry-image
+inputs:
+  - name: eloqdoc_src
+  - name: raft_host_manager_src
+  - name: logservice_src
+outputs:
+  - name: the-output
+run:
+  path: /bin/bash
+  args:
+    - eloqdoc_src/concourse/scripts/build_tarball_open.bash
+
+

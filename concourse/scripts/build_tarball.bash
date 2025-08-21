@@ -205,7 +205,6 @@ cmake -G "Unix Makefiles" \
       -DCMAKE_BUILD_TYPE=${BUILD_TYPE:-RelWithDebInfo} \
       -DCOROUTINE_ENABLED=ON \
       -DEXT_TX_PROC_ENABLED=ON \
-      -DWITH_LOG_SERVICE=ON \
       -DBUILD_WITH_TESTS=ON \
       -DSTATISTICS=ON \
       -DUSE_ASAN=${ASAN:-OFF} \
