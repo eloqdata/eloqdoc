@@ -223,6 +223,7 @@ run_tpcc() {
       echo "pytpcc load"
       python3 tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb 
       echo "pytpcc run"
-      python3 tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 --duration 600 mongodb
+      python3 tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 --duration 600 mongodb &> ./tpcc-run.log
+      tail -n1000 ./tpcc-run.log
       popd
 }
