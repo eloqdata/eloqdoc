@@ -165,8 +165,7 @@ python2 buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
     LIBPATH=/usr/local/lib \
-    CFLAGS="-march=x86-64 -mtune=generic -Wno-nonnull" \
-    CXXFLAGS="-march=x86-64 -mtune=generic -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+    CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$DEST_DIR \
     $( [ "${BUILD_TYPE}" = "Debug" ] && echo --dbg=on --opt=off || echo --dbg=off --opt=on ) \
