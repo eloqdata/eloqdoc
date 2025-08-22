@@ -209,6 +209,8 @@ print("eloq_dependencies: ", eloq_dependencies)
 print("MALLOC:", env['MONGO_ALLOCATOR'])
 
 
+env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build"])
+
 # Ensure the linker can find CMake-produced shared libs and link them explicitly.
 # CMake installs txservice/logservice/datastore/eloq_metrics into DEST_DIR/lib.
 dest_dir = os.environ.get("DEST_DIR", "")

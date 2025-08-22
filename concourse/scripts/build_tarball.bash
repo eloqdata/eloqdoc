@@ -183,23 +183,19 @@ pyenv local 2.7.18
 export OPEN_LOG_SERVICE=0 FORK_HM_PROCESS=1
 
 # Configure and build engine via CMake
-# Extra cmake args for log service RocksDB cloud backend selection
-CMAKE_EXTRA_ARGS=""
+# Align WITH_ROCKSDB_CLOUD env with DATA_STORE_TYPE
 if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
   export WITH_ROCKSDB_CLOUD=S3
-  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=S3"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
-  export WITH_ROCKSDB_CLOUD=GCS
-  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=GCS"
   export WITH_ROCKSDB_CLOUD=GCS
 else
   unset WITH_ROCKSDB_CLOUD
-  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS}"
 fi
 
 cmake -G "Unix Makefiles" \
       -S $ELOQDOC_SRC/src/mongo/db/modules/eloq \
       -B $ELOQDOC_SRC/src/mongo/db/modules/eloq/build \
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
       -DCMAKE_INSTALL_PREFIX=$DEST_DIR \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
@@ -210,8 +206,8 @@ cmake -G "Unix Makefiles" \
       -DWITH_DATA_STORE=${DATA_STORE_TYPE} \
       -DFORK_HM_PROCESS=ON \
       -DOPEN_LOG_SERVICE=OFF \
-      ${CMAKE_EXTRA_ARGS}
-cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j4
+      -DWITH_ROCKSDB_CLOUD=$WITH_ROCKSDB_CLOUD
+cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j6
 cmake --install $ELOQDOC_SRC/src/mongo/db/modules/eloq/build
 
 # Construct variables file
@@ -226,6 +222,7 @@ fi
 # Build and install MongoDB binaries via scons
 export WITH_DATA_STORE=${DATA_STORE_TYPE}
 SCONS_VARIANT=${BUILD_TYPE}
+env OPEN_LOG_SERVICE=$OPEN_LOG_SERVICE FORK_HM_PROCESS=$FORK_HM_PROCESS WITH_DATA_STORE=$DATA_STORE_TYPE \
 python2 buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
@@ -237,8 +234,7 @@ python2 buildscripts/scons.py \
     $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \
     --build-dir=#build \
     --prefix=$DEST_DIR \
-    $( [ "${BUILD_TYPE}" = "Debug" ] && echo --dbg=on --opt=off || echo --dbg=off --opt=on ) \
-    $( [ "${BUILD_TYPE}" = "Release" ] && echo --release --lto || true ) \
+    --dbg=on --opt=off \
     --allocator=system \
     --link-model=dynamic \
     --install-mode=hygienic \
