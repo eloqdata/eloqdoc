@@ -3,14 +3,19 @@
 
 # --- Mimalloc (Commonly used by tx_service, log_service) ---
 find_package(MIMALLOC REQUIRED)
-message(STATUS "Dependencies: Found Mimalloc. Library: ${MIMALLOC_LIB}, Include directory: ${MIMALLOC_INCLUDE_PATH}")
+message(STATUS "Dependencies: Found Mimalloc. Library: ${MIMALLOC_LIBRARY}, Include directory: ${MIMALLOC_INCLUDE_DIR}")
 # Add Mimalloc include directory to the global include paths
-include_directories(${MIMALLOC_INCLUDE_PATH})
-# Some environments install headers under a versioned subdir (e.g., mimalloc-2.1/mimalloc.h).
-# Add that path too if it exists so both <mimalloc.h> and <mimalloc-2.1/mimalloc.h> resolve.
-if(EXISTS "${MIMALLOC_INCLUDE_PATH}/mimalloc-2.1")
-    include_directories("${MIMALLOC_INCLUDE_PATH}/mimalloc-2.1")
-    message(STATUS "Dependencies: Added versioned Mimalloc include directory: ${MIMALLOC_INCLUDE_PATH}/mimalloc-2.1")
+include_directories(${MIMALLOC_INCLUDE_DIR})
+# Some environments install headers under a versioned subdir (e.g., mimalloc-2.X/mimalloc.h).
+# Add any matching versioned include directories so both <mimalloc.h> and <mimalloc-2.X/mimalloc.h> resolve.
+file(GLOB _MIMALLOC_VERSIONED_DIRS "${MIMALLOC_INCLUDE_DIR}/mimalloc-*")
+if(_MIMALLOC_VERSIONED_DIRS)
+    foreach(_mi_dir ${_MIMALLOC_VERSIONED_DIRS})
+        if(IS_DIRECTORY "${_mi_dir}")
+            include_directories("${_mi_dir}")
+            message(STATUS "Dependencies: Added versioned Mimalloc include directory: ${_mi_dir}")
+        endif()
+    endforeach()
 endif()
 
 # --- GFLAGS (Commonly used by tx_service, log_service) ---
