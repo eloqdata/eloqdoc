@@ -3,9 +3,15 @@
 
 # --- Mimalloc (Commonly used by tx_service, log_service) ---
 find_package(MIMALLOC REQUIRED)
-message(STATUS "Dependencies: Found Mimalloc. Library: ${MIMALLOC_LIBRARY}, Include directory: ${MIMALLOC_INCLUDE_DIR}")
+message(STATUS "Dependencies: Found Mimalloc. Library: ${MIMALLOC_LIB}, Include directory: ${MIMALLOC_INCLUDE_PATH}")
 # Add Mimalloc include directory to the global include paths
-include_directories(${MIMALLOC_INCLUDE_DIR})
+include_directories(${MIMALLOC_INCLUDE_PATH})
+# Some environments install headers under a versioned subdir (e.g., mimalloc-2.1/mimalloc.h).
+# Add that path too if it exists so both <mimalloc.h> and <mimalloc-2.1/mimalloc.h> resolve.
+if(EXISTS "${MIMALLOC_INCLUDE_PATH}/mimalloc-2.1")
+    include_directories("${MIMALLOC_INCLUDE_PATH}/mimalloc-2.1")
+    message(STATUS "Dependencies: Added versioned Mimalloc include directory: ${MIMALLOC_INCLUDE_PATH}/mimalloc-2.1")
+endif()
 
 # --- GFLAGS (Commonly used by tx_service, log_service) ---
 # Find GFLAGS include path
