@@ -509,8 +509,7 @@ public:
             level == repl::ReadConcernLevel::kAvailableReadConcern ||
             level == repl::ReadConcernLevel::kSnapshotReadConcern) {
             if (storageGlobalParams.enableMVCC) {
-                // level = repl::ReadConcernLevel::kEloqSnapshotIsolationLevel;
-                level = repl::ReadConcernLevel::kEloqReadCommittedIsolationLevel;
+                level = repl::ReadConcernLevel::kEloqSnapshotIsolationLevel;
             } else {
                 level = repl::ReadConcernLevel::kEloqReadCommittedIsolationLevel;
             }

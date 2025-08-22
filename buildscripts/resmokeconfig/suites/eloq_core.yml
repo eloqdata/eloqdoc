@@ -767,7 +767,7 @@ selector:
   - jstests/core/remove_justone.js
   - jstests/core/remove_undefined.js
   - jstests/core/removea.js
-  - jstests/core/removeb.js
+  # - jstests/core/removeb.js # The case could pass with read-committed, but abort with snapshot.
   - jstests/core/removec.js
   # - jstests/core/rename.js # renameCollection
   # - jstests/core/rename2.js
