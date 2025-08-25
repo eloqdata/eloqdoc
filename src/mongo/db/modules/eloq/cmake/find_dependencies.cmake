@@ -3,9 +3,29 @@
 
 # --- Mimalloc (Commonly used by tx_service, log_service) ---
 find_package(MIMALLOC REQUIRED)
+# mimalloc-2.1/mimalloc.h is installed in /usr/local/include/mimalloc-2.1/mimalloc.h, but the build system expects it in /usr/local/include/mimalloc.h in centos7,8 and rocky9.
+## Fallback: determine include root strictly for Mimalloc 2.1 when MIMALLOC_INCLUDE_DIR is not provided
+if(NOT DEFINED MIMALLOC_INCLUDE_DIR OR NOT MIMALLOC_INCLUDE_DIR)
+    set(_MIMALLOC_SEARCH_ROOTS /usr/include /usr/local/include)
+    unset(MIMALLOC_INCLUDE_DIR)
+    foreach(_root ${_MIMALLOC_SEARCH_ROOTS})
+        if(EXISTS "${_root}/mimalloc-2.1/mimalloc.h")
+            set(MIMALLOC_INCLUDE_DIR "${_root}")
+        endif()
+    endforeach()
+
+    if(MIMALLOC_INCLUDE_DIR)
+        message(STATUS "Dependencies: Fallback determined Mimalloc 2.1 include root: ${MIMALLOC_INCLUDE_DIR}")
+    else()
+        message(FATAL_ERROR "Dependencies: Could not determine Mimalloc 2.1 include directory (looked for mimalloc-2.1/mimalloc.h under /usr/include and /usr/local/include). Please install mimalloc 2.1 headers.")
+    endif()
+endif()
+
 message(STATUS "Dependencies: Found Mimalloc. Library: ${MIMALLOC_LIBRARY}, Include directory: ${MIMALLOC_INCLUDE_DIR}")
-# Add Mimalloc include directory to the global include paths
-include_directories(${MIMALLOC_INCLUDE_DIR})
+# Add Mimalloc include directory to the global include paths (guard if resolved)
+if(MIMALLOC_INCLUDE_DIR)
+    include_directories(${MIMALLOC_INCLUDE_DIR})
+endif()
 # Some environments install headers under a versioned subdir (e.g., mimalloc-2.X/mimalloc.h).
 # Add any matching versioned include directories so both <mimalloc.h> and <mimalloc-2.X/mimalloc.h> resolve.
 file(GLOB _MIMALLOC_VERSIONED_DIRS "${MIMALLOC_INCLUDE_DIR}/mimalloc-*")
