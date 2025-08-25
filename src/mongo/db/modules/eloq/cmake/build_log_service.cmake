@@ -266,6 +266,8 @@ add_library(LOG_SERVICE_OBJ OBJECT
     ${LOG_SOURCE_DIR}/src/ini.c
     ${TX_LOG_PROTOS_SOURCE_DIR}/log.pb.cc
 )
+# /usr/bin/ld: CMakeFiles/LOG_SERVICE_OBJ.dir/eloq_log_service/src/ini.c.o: relocation R_X86_64_32 against `.rodata.str1.1' can not be used when making a shared object; recompile with -fPIC
+set_property(TARGET LOG_SERVICE_OBJ PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(LOG_SERVICE_OBJ PUBLIC
     ${LOG_INCLUDE_DIR}
 )
