@@ -123,6 +123,27 @@ public:
     std::string eloqStoreCloudStorePath;
     uint32_t eloqStoreGcThreads{1};
     uint32_t eloqStoreCloudWorkerCount{1};
+    uint32_t eloqStoreDataPageRestartInterval{16};
+    uint32_t eloqStoreIndexPageRestartInterval{16};
+    uint32_t eloqStoreInitPageCount{1 << 15};
+    bool eloqStoreSkipVerifyChecksum{false};
+    uint32_t eloqStoreIndexBufferPoolSize{1 << 15};
+    uint32_t eloqStoreManifestLimit{8 << 20};
+    uint32_t eloqStoreIoQueueSize{4096};
+    uint32_t eloqStoreMaxInflightWrite{64 << 10};
+    uint32_t eloqStoreMaxWriteBatchPages{256};
+    uint32_t eloqStoreBufRingSize{1 << 12};
+    uint32_t eloqStoreCoroutineStackSize{32 * 1024};
+    uint32_t eloqStoreNumRetainedArchives{0};
+    uint32_t eloqStoreArchiveIntervalSecs{86400};
+    uint32_t eloqStoreMaxArchiveTasks{256};
+    uint32_t eloqStoreFileAmplifyFactor{4};
+    std::string eloqStoreLocalSpaceLimit;
+    uint32_t eloqStoreReserveSpaceRatio{100};
+    uint32_t eloqStoreDataPageSize{1 << 12};
+    uint32_t eloqStorePagesPerFileShift{11};
+    uint32_t eloqStoreOverflowPointers{16};
+    bool eloqStoreDataAppendMode{false};
 
     // metrics
     bool enableMetrics{false};

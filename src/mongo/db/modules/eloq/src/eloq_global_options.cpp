@@ -392,7 +392,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqEloqStoreWorkerCount",
                            moe::Int,
                            "EloqStore worker count")
-        .validRange(1, 1024)
+        .validRange(1, UINT32_MAX)
         .setDefault(moe::Value(1));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreStoragePath",
@@ -405,7 +405,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqEloqStoreOpenFilesLimit",
                            moe::Int,
                            "EloqStore open files limit")
-        .validRange(1, 1024)
+        .validRange(1, UINT32_MAX)
         .setDefault(moe::Value(1024));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreCloudStorePath",
@@ -418,15 +418,159 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqEloqStoreGcThreads",
                            moe::Int,
                            "EloqStore gc threads (Must be 0 if cloud store is enabled)")
-        .validRange(0, 1024)
+        .validRange(0, UINT32_MAX)
         .setDefault(moe::Value(1));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreCloudWorkerCount",
                            "eloqEloqStoreCloudWorkerCount",
                            moe::Int,
                            "EloqStore cloud worker count")
-        .validRange(1, 1024)
+        .validRange(1, UINT32_MAX)
         .setDefault(moe::Value(1));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreDataPageRestartInterval",
+                           "eloqEloqStoreDataPageRestartInterval",
+                           moe::Int,
+                           "EloqStore data page restart interval")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(16));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreIndexPageRestartInterval",
+                           "eloqEloqStoreIndexPageRestartInterval",
+                           moe::Int,
+                           "EloqStore index page restart interval")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(16));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreInitPageCount",
+                           "eloqEloqStoreInitPageCount",
+                           moe::Int,
+                           "EloqStore init page count")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(1 << 15));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreSkipVerifyChecksum",
+                           "eloqEloqStoreSkipVerifyChecksum",
+                           moe::Bool,
+                           "EloqStore skip verify checksum")
+        .setDefault(moe::Value(false));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreIndexBufferPoolSize",
+                           "eloqEloqStoreIndexBufferPoolSize",
+                           moe::Int,
+                           "EloqStore index buffer pool size")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(1 << 15));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreManifestLimit",
+                           "eloqEloqStoreManifestLimit",
+                           moe::Int,
+                           "EloqStore manifest limit")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(8 << 20));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreIoQueueSize",
+                           "eloqEloqStoreIoQueueSize",
+                           moe::Int,
+                           "EloqStore io queue size")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(4096));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreMaxInflightWrite",
+                           "eloqEloqStoreMaxInflightWrite",
+                           moe::Int,
+                           "EloqStore max inflight write")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(64 << 10));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreMaxWriteBatchPages",
+                           "eloqEloqStoreMaxWriteBatchPages",
+                           moe::Int,
+                           "EloqStore max write batch pages")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(256));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreBufRingSize",
+                           "eloqEloqStoreBufRingSize",
+                           moe::Int,
+                           "EloqStore buf ring size")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(1 << 12));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreCoroutineStackSize",
+                           "eloqEloqStoreCoroutineStackSize",
+                           moe::Int,
+                           "EloqStore coroutine stack size")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(32 * 1024));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreNumRetainedArchives",
+                           "eloqEloqStoreNumRetainedArchives",
+                           moe::Int,
+                           "EloqStore num retained archives")
+        .validRange(0, UINT32_MAX)
+        .setDefault(moe::Value(0));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreArchiveIntervalSecs",
+                           "eloqEloqStoreArchiveIntervalSecs",
+                           moe::Int,
+                           "EloqStore archive interval secs")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(86400));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreMaxArchiveTasks",
+                           "eloqEloqStoreMaxArchiveTasks",
+                           moe::Int,
+                           "EloqStore max archive tasks")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(256));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreFileAmplifyFactor",
+                           "eloqEloqStoreFileAmplifyFactor",
+                           moe::Int,
+                           "EloqStore file amplify factor")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(4));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreLocalSpaceLimit",
+                           "eloqEloqStoreLocalSpaceLimit",
+                           moe::String,
+                           "EloqStore local space limit")
+        .setDefault(moe::Value("1TB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreReserveSpaceRatio",
+                           "eloqEloqStoreReserveSpaceRatio",
+                           moe::Int,
+                           "EloqStore reserve space ratio")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(100));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreDataPageSize",
+                           "eloqEloqStoreDataPageSize",
+                           moe::Int,
+                           "EloqStore data page size")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(1 << 12));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStorePagesPerFileShift",
+                           "eloqEloqStorePagesPerFileShift",
+                           moe::Int,
+                           "EloqStore pages per file shift")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(11));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreOverflowPointers",
+                           "eloqEloqStoreOverflowPointers",
+                           moe::Int,
+                           "EloqStore overflow pointers")
+        .validRange(1, UINT32_MAX)
+        .setDefault(moe::Value(16));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreDataAppendMode",
+                           "eloqEloqStoreDataAppendMode",
+                           moe::Bool,
+                           "EloqStore data append mode")
+        .setDefault(moe::Value(false));
 
     // Options for metrics
     eloqOptions
@@ -831,6 +975,90 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.storage.eloqStoreCloudWorkerCount")) {
         eloqGlobalOptions.eloqStoreCloudWorkerCount =
             params["storage.eloq.storage.eloqStoreCloudWorkerCount"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreDataPageRestartInterval")) {
+        eloqGlobalOptions.eloqStoreDataPageRestartInterval =
+            params["storage.eloq.storage.eloqStoreDataPageRestartInterval"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreIndexPageRestartInterval")) {
+        eloqGlobalOptions.eloqStoreIndexPageRestartInterval =
+            params["storage.eloq.storage.eloqStoreIndexPageRestartInterval"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreInitPageCount")) {
+        eloqGlobalOptions.eloqStoreInitPageCount =
+            params["storage.eloq.storage.eloqStoreInitPageCount"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreSkipVerifyChecksum")) {
+        eloqGlobalOptions.eloqStoreSkipVerifyChecksum =
+            params["storage.eloq.storage.eloqStoreSkipVerifyChecksum"].as<bool>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreIndexBufferPoolSize")) {
+        eloqGlobalOptions.eloqStoreIndexBufferPoolSize =
+            params["storage.eloq.storage.eloqStoreIndexBufferPoolSize"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreManifestLimit")) {
+        eloqGlobalOptions.eloqStoreManifestLimit =
+            params["storage.eloq.storage.eloqStoreManifestLimit"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreIoQueueSize")) {
+        eloqGlobalOptions.eloqStoreIoQueueSize =
+            params["storage.eloq.storage.eloqStoreIoQueueSize"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreMaxInflightWrite")) {
+        eloqGlobalOptions.eloqStoreMaxInflightWrite =
+            params["storage.eloq.storage.eloqStoreMaxInflightWrite"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreMaxWriteBatchPages")) {
+        eloqGlobalOptions.eloqStoreMaxWriteBatchPages =
+            params["storage.eloq.storage.eloqStoreMaxWriteBatchPages"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreBufRingSize")) {
+        eloqGlobalOptions.eloqStoreBufRingSize =
+            params["storage.eloq.storage.eloqStoreBufRingSize"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreCoroutineStackSize")) {
+        eloqGlobalOptions.eloqStoreCoroutineStackSize =
+            params["storage.eloq.storage.eloqStoreCoroutineStackSize"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreNumRetainedArchives")) {
+        eloqGlobalOptions.eloqStoreNumRetainedArchives =
+            params["storage.eloq.storage.eloqStoreNumRetainedArchives"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreArchiveIntervalSecs")) {
+        eloqGlobalOptions.eloqStoreArchiveIntervalSecs =
+            params["storage.eloq.storage.eloqStoreArchiveIntervalSecs"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreMaxArchiveTasks")) {
+        eloqGlobalOptions.eloqStoreMaxArchiveTasks =
+            params["storage.eloq.storage.eloqStoreMaxArchiveTasks"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreFileAmplifyFactor")) {
+        eloqGlobalOptions.eloqStoreFileAmplifyFactor =
+            params["storage.eloq.storage.eloqStoreFileAmplifyFactor"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreLocalSpaceLimit")) {
+        eloqGlobalOptions.eloqStoreLocalSpaceLimit =
+            params["storage.eloq.storage.eloqStoreLocalSpaceLimit"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreReserveSpaceRatio")) {
+        eloqGlobalOptions.eloqStoreReserveSpaceRatio =
+            params["storage.eloq.storage.eloqStoreReserveSpaceRatio"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreDataPageSize")) {
+        eloqGlobalOptions.eloqStoreDataPageSize =
+            params["storage.eloq.storage.eloqStoreDataPageSize"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStorePagesPerFileShift")) {
+        eloqGlobalOptions.eloqStorePagesPerFileShift =
+            params["storage.eloq.storage.eloqStorePagesPerFileShift"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreOverflowPointers")) {
+        eloqGlobalOptions.eloqStoreOverflowPointers =
+            params["storage.eloq.storage.eloqStoreOverflowPointers"].as<int>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreDataAppendMode")) {
+        eloqGlobalOptions.eloqStoreDataAppendMode =
+            params["storage.eloq.storage.eloqStoreDataAppendMode"].as<bool>();
     }
 
     // Parse metrics options
