@@ -11,6 +11,13 @@ if(DEFINED MIMALLOC_INCLUDE_DIR AND MIMALLOC_INCLUDE_DIR)
         set(_MI_HEADER_OK ON)
     endif()
 endif()
+## Some environments incorrectly set MIMALLOC_INCLUDE_DIR to the CMake package directory
+## (e.g., /usr/local/lib64/cmake/mimalloc-2.1) which does not contain headers.
+## Detect and discard such values to trigger the fallback include discovery.
+if(DEFINED MIMALLOC_INCLUDE_DIR AND MIMALLOC_INCLUDE_DIR MATCHES "/cmake/")
+    message(STATUS "Dependencies: Discarding Mimalloc include directory from CMake config: ${MIMALLOC_INCLUDE_DIR}")
+    set(_MI_HEADER_OK OFF)
+endif()
 if(NOT _MI_HEADER_OK)
     unset(MIMALLOC_INCLUDE_DIR CACHE)
     unset(MIMALLOC_INCLUDE_DIR)
