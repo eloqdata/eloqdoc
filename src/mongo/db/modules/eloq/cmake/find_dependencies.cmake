@@ -4,6 +4,17 @@
 # --- Mimalloc (Commonly used by tx_service, log_service) ---
 find_package(MIMALLOC REQUIRED)
 # mimalloc-2.1/mimalloc.h is installed in /usr/local/include/mimalloc-2.1/mimalloc.h, but the build system expects it in /usr/local/include/mimalloc.h in centos7,8 and rocky9.
+## Validate any provided/include-dir and clear it if it doesn't actually contain headers
+set(_MI_HEADER_OK OFF)
+if(DEFINED MIMALLOC_INCLUDE_DIR AND MIMALLOC_INCLUDE_DIR)
+    if(EXISTS "${MIMALLOC_INCLUDE_DIR}/mimalloc.h" OR EXISTS "${MIMALLOC_INCLUDE_DIR}/mimalloc-2.1/mimalloc.h")
+        set(_MI_HEADER_OK ON)
+    endif()
+endif()
+if(NOT _MI_HEADER_OK)
+    unset(MIMALLOC_INCLUDE_DIR CACHE)
+    unset(MIMALLOC_INCLUDE_DIR)
+endif()
 ## Fallback: determine include root strictly for Mimalloc 2.1 when MIMALLOC_INCLUDE_DIR is not provided
 if(NOT DEFINED MIMALLOC_INCLUDE_DIR OR NOT MIMALLOC_INCLUDE_DIR)
     set(_MIMALLOC_SEARCH_ROOTS /usr/include /usr/local/include)
