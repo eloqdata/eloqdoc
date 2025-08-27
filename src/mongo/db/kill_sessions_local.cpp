@@ -104,6 +104,8 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
             };
             resumeFunc =
                 serviceExecutor->coroutineResumeFunctor(session->ThreadGroupId(), resumeTask);
+            longResumeFunc =
+                serviceExecutor->coroutineLongResumeFunctor(session->ThreadGroupId(), resumeTask);
 
             auto task = [&finished, &mux, &cv, &source, &yieldFunc, opCtx, session, &client] {
                 Client::setCurrent(std::move(client));

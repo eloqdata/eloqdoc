@@ -299,13 +299,13 @@ Session::Session(LogicalSessionId sessionId, uint16_t threadGroupId)
     : _sessionId(std::move(sessionId)), _threadGroupId(threadGroupId) {}
 
 void Session::setCurrentOperation(OperationContext* currentOperation) {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
     invariant(!_currentOperation);
     _currentOperation = currentOperation;
 }
 
 void Session::clearCurrentOperation() {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
     invariant(_currentOperation);
     _currentOperation = nullptr;
 }
@@ -319,7 +319,7 @@ void Session::refreshFromStorageIfNeeded(OperationContext* opCtx) {
     invariant(repl::ReadConcernArgs::get(opCtx).getLevel() ==
               repl::ReadConcernLevel::kLocalReadConcern);
 
-    stdx::unique_lock<stdx::mutex> ul(_mutex);
+    stdx::unique_lock ul(_mutex);
 
     while (!_isValid) {
         const int numInvalidations = _numInvalidations;
@@ -380,7 +380,7 @@ void Session::beginOrContinueTxn(OperationContext* opCtx,
             (dbName != "config"_sd && dbName != "local"_sd &&
              (dbName != "admin"_sd || txnAdminCommands.find(cmdName) != txnAdminCommands.cend())));
 
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     _beginOrContinueTxn(lg, txnNumber, autocommit, startTransaction);
 }
 
@@ -388,13 +388,13 @@ void Session::beginOrContinueTxnOnMigration(OperationContext* opCtx, TxnNumber t
     invariant(!opCtx->getClient()->isInDirectClient());
     invariant(!opCtx->lockState()->isLocked());
 
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     _beginOrContinueTxnOnMigration(lg, txnNumber);
 }
 
 void Session::setSpeculativeTransactionOpTime(OperationContext* opCtx,
                                               SpeculativeTransactionOpTime opTimeChoice) {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     repl::ReplicationCoordinator* replCoord =
         repl::ReplicationCoordinator::get(opCtx->getClient()->getServiceContext());
     opCtx->recoveryUnit()->setTimestampReadSource(
@@ -418,7 +418,7 @@ void Session::onWriteOpCompletedOnPrimary(OperationContext* opCtx,
                                           Date_t lastStmtIdWriteDate) {
     invariant(opCtx->lockState()->inAWriteUnitOfWork());
 
-    stdx::unique_lock<stdx::mutex> ul(_mutex);
+    stdx::unique_lock ul(_mutex);
 
     // Sanity check that we don't double-execute statements
     for (const auto stmtId : stmtIdsWritten) {
@@ -471,7 +471,7 @@ void Session::onMigrateCompletedOnPrimary(OperationContext* opCtx,
                                           Date_t oplogLastStmtIdWriteDate) {
     invariant(opCtx->lockState()->inAWriteUnitOfWork());
 
-    stdx::unique_lock<stdx::mutex> ul(_mutex);
+    stdx::unique_lock ul(_mutex);
 
     _checkValid(ul);
     _checkIsActiveTransaction(ul, txnNumber, false);
@@ -497,7 +497,7 @@ void Session::onMigrateCompletedOnPrimary(OperationContext* opCtx,
 }
 
 void Session::invalidate() {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     _isValid = false;
     _numInvalidations++;
 
@@ -510,7 +510,7 @@ void Session::invalidate() {
 }
 
 repl::OpTime Session::getLastWriteOpTime(TxnNumber txnNumber) const {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     _checkValid(lg);
     _checkIsActiveTransaction(lg, txnNumber, false);
 
@@ -524,7 +524,7 @@ boost::optional<repl::OplogEntry> Session::checkStatementExecuted(OperationConte
                                                                   TxnNumber txnNumber,
                                                                   StmtId stmtId) const {
     const auto stmtTimestamp = [&] {
-        stdx::lock_guard<stdx::mutex> lg(_mutex);
+        stdx::lock_guard lg(_mutex);
         return _checkStatementExecuted(lg, txnNumber, stmtId);
     }();
 
@@ -543,7 +543,7 @@ boost::optional<repl::OplogEntry> Session::checkStatementExecuted(OperationConte
 }
 
 bool Session::checkStatementExecutedNoOplogEntryFetch(TxnNumber txnNumber, StmtId stmtId) const {
-    stdx::lock_guard<stdx::mutex> lg(_mutex);
+    stdx::lock_guard lg(_mutex);
     return bool(_checkStatementExecuted(lg, txnNumber, stmtId));
 }
 
@@ -732,7 +732,7 @@ void Session::stashTransactionResources(OperationContext* opCtx) {
 
     invariant(opCtx->getTxnNumber());
     invariant(!isMMAPV1());
-    stdx::unique_lock<stdx::mutex> lg(_mutex);
+    stdx::unique_lock lg(_mutex);
 
     // Always check '_activeTxnNumber', since it can be modified by migration, which does not
     // check out the session. We intentionally do not error if _txnState=kAborted, since we
@@ -783,7 +783,7 @@ void Session::unstashTransactionResources(OperationContext* opCtx, const std::st
     }
 
     {
-        stdx::lock_guard<stdx::mutex> lg(_mutex);
+        stdx::lock_guard lg(_mutex);
 
         // Always check '_activeTxnNumber' and '_txnState', since they can be modified by session
         // kill and migration, which do not check out the session.
@@ -865,7 +865,7 @@ void Session::unstashTransactionResources(OperationContext* opCtx, const std::st
 }
 
 void Session::abortArbitraryTransaction() {
-    stdx::lock_guard<stdx::mutex> lock(_mutex);
+    stdx::lock_guard lock(_mutex);
 
     if (_txnState != MultiDocumentTransactionState::kInProgress) {
         return;
@@ -875,7 +875,7 @@ void Session::abortArbitraryTransaction() {
 }
 
 void Session::abortArbitraryTransactionIfExpired(OperationContext* opCtx) {
-    stdx::lock_guard<stdx::mutex> lock(_mutex);
+    stdx::lock_guard lock(_mutex);
     if (_txnState != MultiDocumentTransactionState::kInProgress || !_transactionExpireDate ||
         _transactionExpireDate >= Date_t::now()) {
         return;
@@ -905,7 +905,7 @@ void Session::abortArbitraryTransactionIfExpired(OperationContext* opCtx) {
 }
 
 void Session::abortActiveTransaction(OperationContext* opCtx) {
-    stdx::lock_guard<stdx::mutex> lock(_mutex);
+    stdx::lock_guard lock(_mutex);
 
     invariant(!_txnResourceStash);
     if (_txnState != MultiDocumentTransactionState::kInProgress) {
@@ -1014,7 +1014,7 @@ void Session::_setActiveTxn(WithLock wl, TxnNumber txnNumber) {
 
 void Session::addTransactionOperation(OperationContext* opCtx,
                                       const repl::ReplOperation& operation) {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
 
     // Always check '_activeTxnNumber' and '_txnState', since they can be modified by session kill
     // and migration, which do not check out the session.
@@ -1038,7 +1038,7 @@ void Session::addTransactionOperation(OperationContext* opCtx,
 
 std::vector<repl::ReplOperation> Session::endTransactionAndRetrieveOperations(
     OperationContext* opCtx) {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
 
     // Always check '_activeTxnNumber' and '_txnState', since they can be modified by session kill
     // and migration, which do not check out the session.
@@ -1050,7 +1050,7 @@ std::vector<repl::ReplOperation> Session::endTransactionAndRetrieveOperations(
 }
 
 void Session::commitTransaction(OperationContext* opCtx) {
-    stdx::unique_lock<stdx::mutex> lk(_mutex);
+    stdx::unique_lock lk(_mutex);
 
     // Always check '_activeTxnNumber' and '_txnState', since they can be modified by session kill
     // and migration, which do not check out the session.
@@ -1060,7 +1060,11 @@ void Session::commitTransaction(OperationContext* opCtx) {
     _commitTransaction(std::move(lk), opCtx);
 }
 
+#ifndef D_USE_CORO_SYNC
 void Session::_commitTransaction(stdx::unique_lock<stdx::mutex> lk, OperationContext* opCtx) {
+#else
+void Session::_commitTransaction(stdx::unique_lock<coro::Mutex> lk, OperationContext* opCtx) {
+#endif
     invariant(_txnState == MultiDocumentTransactionState::kInProgress);
     const bool isMultiDocumentTransaction = _txnState == MultiDocumentTransactionState::kInProgress;
     if (isMultiDocumentTransaction) {
@@ -1085,7 +1089,7 @@ void Session::_commitTransaction(stdx::unique_lock<stdx::mutex> lk, OperationCon
         // If we're still "committing", the recovery unit failed to commit, and the lock is not
         // held.  We can't safely use _txnState here, as it is protected by the lock.
         if (!committed) {
-            stdx::lock_guard<stdx::mutex> lk(_mutex);
+            stdx::lock_guard lk(_mutex);
             opCtx->setWriteUnitOfWork(nullptr);
             // Make sure the transaction didn't change because of chunk migration.
             if (opCtx->getTxnNumber() == _activeTxnNumber) {
@@ -1179,7 +1183,7 @@ BSONObj Session::reportStashedState() const {
 }
 
 void Session::reportStashedState(BSONObjBuilder* builder) const {
-    stdx::lock_guard<stdx::mutex> ls(_mutex);
+    stdx::lock_guard ls(_mutex);
 
     if (_txnResourceStash && _txnResourceStash->locker()) {
         if (auto lockerInfo = _txnResourceStash->locker()->getLockerInfo()) {
@@ -1378,7 +1382,7 @@ void Session::_registerUpdateCacheOnCommit(OperationContext* opCtx,
         RetryableWritesStats::get(getGlobalServiceContext())
             ->incrementTransactionsCollectionWriteCount();
 
-        stdx::lock_guard<stdx::mutex> lg(_mutex);
+        stdx::lock_guard lg(_mutex);
 
         if (!_isValid)
             return;

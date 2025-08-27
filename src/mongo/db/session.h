@@ -303,17 +303,17 @@ public:
      * transaction which has autoCommit:false and has not been committed or aborted.
      */
     bool inMultiDocumentTransaction() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         return _txnState == MultiDocumentTransactionState::kInProgress;
     };
 
     bool transactionIsCommitted() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         return _txnState == MultiDocumentTransactionState::kCommitted;
     }
 
     bool transactionIsAborted() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         return _txnState == MultiDocumentTransactionState::kAborted;
     }
 
@@ -323,7 +323,7 @@ public:
      * OperationContext state has not been cleared yet.
      */
     bool inActiveOrKilledMultiDocumentTransaction() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         return (_txnState == MultiDocumentTransactionState::kInProgress ||
                 _txnState == MultiDocumentTransactionState::kAborted);
     }
@@ -347,7 +347,7 @@ public:
     }
 
     TxnNumber getActiveTxnNumberForTest() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         return _activeTxnNumber;
     }
 
@@ -356,12 +356,12 @@ public:
     }
 
     repl::OpTime getSpeculativeTransactionReadOpTimeForTest() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         return _speculativeTransactionReadOpTime;
     }
 
     const Locker* getTxnResourceStashLockerForTest() const {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         invariant(_txnResourceStash);
         return _txnResourceStash->locker();
     }
@@ -388,7 +388,7 @@ public:
     std::string transactionInfoForLogForTest(const SingleThreadedLockStats* lockStats,
                                              bool committed,
                                              repl::ReadConcernArgs readConcernArgs) {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         MultiDocumentTransactionState terminationCause = committed
             ? MultiDocumentTransactionState::kCommitted
             : MultiDocumentTransactionState::kAborted;
@@ -485,12 +485,20 @@ private:
     // 2) killSession, stepdown, transaction timeout and any thread that aborts the transaction
     // outside of session checkout. They can safely skip the committing transactions.
     // 3) Migration. Should be able to skip committing transactions.
+#ifndef D_USE_CORO_SYNC
     void _commitTransaction(stdx::unique_lock<stdx::mutex> lk, OperationContext* opCtx);
+#else
+    void _commitTransaction(stdx::unique_lock<coro::Mutex> lk, OperationContext* opCtx);
+#endif
 
     const LogicalSessionId _sessionId;
 
     // Protects the member variables below.
+#ifndef D_USE_CORO_SYNC
     mutable stdx::mutex _mutex;
+#else
+    mutable coro::Mutex _mutex;
+#endif
 
     // Condition variable notified when we finish an attempt to commit the global WUOW.
     stdx::condition_variable _commitcv;
