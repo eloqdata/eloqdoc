@@ -160,8 +160,8 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
             if (status.isOK()) {
                 std::unique_lock lk(mux);
                 cv.wait(lk, [&finished]() { return finished; });
-                Client::setCurrent(std::move(client));
             }
+            Client::setCurrent(std::move(client));
         });
 
     opCtx->setRecoveryUnit(ru, ruState);

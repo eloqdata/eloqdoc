@@ -551,15 +551,16 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                             std::allocator_arg,
                             prealloc,
                             NoopAllocator(),
-                            [this, &guard](boost::context::continuation&& sink) {
-                                _coroYield = [this, &sink]() {
+                            [ssm = shared_from_this(),
+                             &guard](boost::context::continuation&& sink) {
+                                ssm->_coroYield = [ssm = ssm.get(), &sink]() {
                                     MONGO_LOG(3) << "call yield";
-                                    _dbClient = Client::releaseCurrent();
-                                    _abortIfStackOverflow();
+                                    ssm->_dbClient = Client::releaseCurrent();
+                                    ssm->_abortIfStackOverflow();
                                     sink = sink.resume();
                                 };
-                                _processMessage(std::move(guard));
-                                _abortIfStackOverflow();
+                                ssm->_processMessage(std::move(guard));
+                                ssm->_abortIfStackOverflow();
                                 return std::move(sink);
                             });
 
