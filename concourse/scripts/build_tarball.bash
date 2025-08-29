@@ -219,6 +219,7 @@ cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j${NCORE:-4}
 cmake --install $ELOQDOC_SRC/src/mongo/db/modules/eloq/build
 
 # Build and install MongoDB binaries via scons
+export WITH_DATA_STORE=${DATA_STORE_TYPE}
 SCONS_VARIANT=${BUILD_TYPE:-RelWithDebInfo}
 python2 buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
