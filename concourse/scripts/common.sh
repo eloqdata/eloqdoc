@@ -185,7 +185,7 @@ launch_mongod_fast() {
 }
 
 shutdown_mongod() {
-      $PREFIX/bin/mongo --eval "use admin; db.shutdownServer();"
+      $PREFIX/bin/mongo admin --eval "db.shutdownServer()"
 }
 
 try_connect() {
