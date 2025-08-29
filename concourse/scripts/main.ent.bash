@@ -45,5 +45,8 @@ cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_jstests
+shutdown_mongod
+cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
+launch_mongod "$BUCKET_NAME" "$BUCKET_PREFIX"
 run_tpcc
 cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"

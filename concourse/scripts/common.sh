@@ -184,6 +184,10 @@ launch_mongod_fast() {
             &>$PREFIX/log/mongod.out &
 }
 
+shutdown_mongod() {
+      $PREFIX/bin/mongo --eval "use admin; db.shutdownServer();"
+}
+
 try_connect() {
       set +e
       mongo_ready=0
