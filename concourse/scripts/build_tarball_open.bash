@@ -144,7 +144,21 @@ copy_libraries() {
 
 echo "Configuring and building EloqDoc (OPEN_LOG_SERVICE=ON)"
 pyenv local 2.7.18 
-export OPEN_LOG_SERVICE=1 FORK_HM_PROCESS=1
+export OPEN_LOG_SERVICE=1 FORK_HM_PROCESS=0
+
+# Configure and build engine via CMake
+# Extra cmake args for log service RocksDB cloud backend selection
+CMAKE_EXTRA_ARGS=""
+if [ "${DATA_STORE_TYPE:-}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=S3"
+  export WITH_ROCKSDB_CLOUD=S3
+elif [ "${DATA_STORE_TYPE:-}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
+  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=GCS"
+  export WITH_ROCKSDB_CLOUD=GCS
+else
+  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=OFF"
+  export WITH_ROCKSDB_CLOUD=0
+fi
 
 cmake -G "Unix Makefiles" \
       -S "$ELOQDOC_SRC/src/mongo/db/modules/eloq" \
@@ -154,7 +168,7 @@ cmake -G "Unix Makefiles" \
       -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
       -DUSE_ASAN=${ASAN} \
       -DWITH_DATA_STORE=${DATA_STORE_TYPE} \
-      -DFORK_HM_PROCESS=ON
+      ${CMAKE_EXTRA_ARGS}
 cmake --build "$ELOQDOC_SRC/src/mongo/db/modules/eloq/build" -j${NCORE}
 cmake --install "$ELOQDOC_SRC/src/mongo/db/modules/eloq/build"
 
