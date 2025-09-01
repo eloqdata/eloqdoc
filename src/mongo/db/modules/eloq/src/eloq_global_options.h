@@ -118,7 +118,7 @@ public:
 
     // eloqstore
     uint32_t eloqStoreWorkerCount{1};
-    std::string eloqStoreStoragePath;
+    std::string eloqStoreStoragePathList;
     uint32_t eloqStoreOpenFilesLimit{1024};
     std::string eloqStoreCloudStorePath;
     uint32_t eloqStoreGcThreads{1};

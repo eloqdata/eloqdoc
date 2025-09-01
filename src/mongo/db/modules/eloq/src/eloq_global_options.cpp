@@ -395,10 +395,10 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .validRange(1, UINT32_MAX)
         .setDefault(moe::Value(1));
     eloqOptions
-        .addOptionChaining("storage.eloq.storage.eloqStoreStoragePath",
-                           "eloqEloqStoreStoragePath",
+        .addOptionChaining("storage.eloq.storage.eloqStoreStoragePathList",
+                           "eloqEloqStoreStoragePathList",
                            moe::String,
-                           "EloqStore storage path")
+                           "EloqStore storage path list")
         .setDefault(moe::Value(""));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreOpenFilesLimit",
@@ -956,9 +956,9 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.eloqStoreWorkerCount =
             params["storage.eloq.storage.eloqStoreWorkerCount"].as<int>();
     }
-    if (params.count("storage.eloq.storage.eloqStoreStoragePath")) {
-        eloqGlobalOptions.eloqStoreStoragePath =
-            params["storage.eloq.storage.eloqStoreStoragePath"].as<std::string>();
+    if (params.count("storage.eloq.storage.eloqStoreStoragePathList")) {
+        eloqGlobalOptions.eloqStoreStoragePathList =
+            params["storage.eloq.storage.eloqStoreStoragePathList"].as<std::string>();
     }
     if (params.count("storage.eloq.storage.eloqStoreOpenFilesLimit")) {
         eloqGlobalOptions.eloqStoreOpenFilesLimit =
