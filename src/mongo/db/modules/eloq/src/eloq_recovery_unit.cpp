@@ -383,7 +383,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     txservice::TxKey txKey(key);
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
-    while (true) {
+    for (int i = 0; i < 10; ++i) {
         txservice::ReadTxRequest readTxReq(&tableName,
                                            keySchemaVersion,
                                            &txKey,
