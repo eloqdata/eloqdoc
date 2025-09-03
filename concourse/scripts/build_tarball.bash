@@ -206,9 +206,7 @@ cmake -G "Unix Makefiles" \
       -DCMAKE_INSTALL_PREFIX=$DEST_DIR \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_BUILD_TYPE=${BUILD_TYPE:-RelWithDebInfo} \
-      -DCOROUTINE_ENABLED=ON \
       -DEXT_TX_PROC_ENABLED=ON \
-      -DBUILD_WITH_TESTS=ON \
       -DSTATISTICS=ON \
       -DUSE_ASAN=${ASAN:-OFF} \
       -DWITH_DATA_STORE=${DATA_STORE_TYPE:-ELOQDSS_ROCKSDB_CLOUD_S3} \
@@ -218,15 +216,30 @@ cmake -G "Unix Makefiles" \
 cmake --build $ELOQDOC_SRC/src/mongo/db/modules/eloq/build -j${NCORE:-4}
 cmake --install $ELOQDOC_SRC/src/mongo/db/modules/eloq/build
 
+# Construct variables file
+if [ "$ID" == "centos" ]; then
+  cat > env.vars <<EOF
+ENV = {
+  'PATH': '$PATH'
+}
+EOF
+fi
+
 # Build and install MongoDB binaries via scons
 export WITH_DATA_STORE=${DATA_STORE_TYPE}
 SCONS_VARIANT=${BUILD_TYPE:-RelWithDebInfo}
+export CXX=`which g++`
+export CC=`which gcc`
+
 python2 buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
     LIBPATH=/usr/local/lib \
     CFLAGS="-Wno-nonnull" \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+    CXX=${CXX} \
+    CC=${CC} \
+    $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \
     --build-dir=#build \
     --prefix=$DEST_DIR \
     $( [ "${BUILD_TYPE:-RelWithDebInfo}" = "Debug" ] && echo --dbg=on --opt=off || echo --dbg=off --opt=on ) \

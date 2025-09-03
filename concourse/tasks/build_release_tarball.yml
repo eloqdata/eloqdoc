@@ -1,6 +1,4 @@
 platform: linux
-container_limits:
-  memory: 16GB
 image_resource:
   type: registry-image
 inputs:

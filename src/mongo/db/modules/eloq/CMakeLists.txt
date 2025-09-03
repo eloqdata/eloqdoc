@@ -3,6 +3,7 @@ project(eloq)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # --- CMake Policies ---
 if(POLICY CMP0074) # Allow find_package to use <PackageName>_ROOT variables
     cmake_policy(SET CMP0074 NEW)
