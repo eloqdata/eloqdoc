@@ -2,8 +2,7 @@ resources:
 - name: eloqdoc_src_main
   type: git
   source:
-    # TODO(ZX)
-    branch: rel_0_2_4_eloqdoc
+    branch: rel_x_x_x_eloqdoc
     uri: git@github.com:eloqdata/eloqdoc.git
     private_key: ((git-key))
     tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
