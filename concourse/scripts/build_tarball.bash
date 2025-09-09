@@ -254,11 +254,33 @@ if [ -f ${DEST_DIR}/bin/host_manager ]; then
   copy_libraries ${DEST_DIR}/bin/host_manager ${DEST_DIR}/lib
 fi
 
+# Build dss_server and include in tarball
+# Map DATA_STORE_TYPE to DSS-compatible values (any ELOQDSS_* builds DSS; others skip)
+if [[ "${DATA_STORE_TYPE}" == ELOQDSS_* ]]; then
+  DSS_TYPE="${DATA_STORE_TYPE}"
+else
+  DSS_TYPE=""
+fi
+
+if [ -n "${DSS_TYPE}" ]; then
+  DSS_SRC_DIR="${ELOQDOC_SRC}/src/mongo/db/modules/eloq/store_handler/eloq_data_store_service"
+  cd "${DSS_SRC_DIR}"
+  mkdir -p build && cd build
+  cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE} -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=OFF
+  cmake --build . --config ${BUILD_TYPE} -j${NCORE:-4}
+  copy_libraries dss_server ${DEST_DIR}/lib
+  mv dss_server ${DEST_DIR}/bin/
+  cd "${ELOQDOC_SRC}"
+fi
+
 # Fix rpath for executables
 patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/mongo
 patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/mongod
 if [ -f ${DEST_DIR}/bin/host_manager ]; then
   patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/host_manager
+fi
+if [ -f ${DEST_DIR}/bin/dss_server ]; then
+  patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/dss_server
 fi
 
 # Config files
