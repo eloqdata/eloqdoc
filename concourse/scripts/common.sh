@@ -26,18 +26,22 @@ export PREFIX="/home/eloq/workspace/mongo/install"
 # Clears data for the log and storage services from the shared RocksDB Cloud bucket.
 # A single bucket with distinct path prefixes is used for both services
 # to bypass bucket creation rate limits and global name uniqueness constraints.
-cleanup_all_buckets() {
-      if [ $# -lt 2 ]; then
+cleanup_all() {
+      if [ $# -lt 3 ]; then
             echo "Error: bucket_name and bucket_prefix parameters are required"
-            echo "Usage: cleanup_all_buckets <bucket_name> <bucket_prefix>"
+            echo "Usage: cleanup_all <data_dir> <bucket_name> <bucket_prefix>"
             exit 1
       fi
-      local bucket_name="$1"
-      local bucket_prefix="$2"
+      local data_dir="$1"
+      local bucket_name="$2"
+      local bucket_prefix="$3"
       local full_bucket_name="${bucket_prefix}${bucket_name}"
       
       echo "Cleaning buckets: $full_bucket_name"
       mc rb minio_server/${full_bucket_name} --force
+
+      echo "Cleaning data folder: ${data_dir}"
+      rm -rf ${data_dir}/*
 }
 
 compile_and_install() {

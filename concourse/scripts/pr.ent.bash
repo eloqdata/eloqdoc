@@ -66,13 +66,13 @@ BUCKET_NAME="pr-test"
 BUCKET_PREFIX="rocksdb-cloud-"
 
 compile_and_install_ent
-cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
+cleanup_all ./eloqdoc_test "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod_fast "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_jstests
 shutdown_mongod
-cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
+cleanup_all ./eloqdoc_test "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod_fast "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_tpcc
-cleanup_all_buckets "$BUCKET_NAME" "$BUCKET_PREFIX"
+cleanup_all ./eloqdoc_test "$BUCKET_NAME" "$BUCKET_PREFIX"
