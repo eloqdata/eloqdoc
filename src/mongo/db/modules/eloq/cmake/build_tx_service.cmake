@@ -110,6 +110,8 @@ set(TxService_SOURCES
     ${TX_SERVICE_SOURCE_DIR}/src/cc/non_blocking_lock.cpp
     ${TX_SERVICE_SOURCE_DIR}/src/cc/cc_req_misc.cpp
     ${TX_SERVICE_SOURCE_DIR}/src/cc/range_slice.cpp
+    ${TX_SERVICE_SOURCE_DIR}/src/eloq_string_key_record.cpp
+    ${TX_SERVICE_SOURCE_DIR}/src/eloq_basic_catalog_factory.cpp
     ${TX_SERVICE_SOURCE_DIR}/src/remote/remote_cc_handler.cpp
     ${TX_SERVICE_SOURCE_DIR}/src/remote/remote_cc_request.cpp
     ${TX_SERVICE_SOURCE_DIR}/src/remote/cc_node_service.cpp
