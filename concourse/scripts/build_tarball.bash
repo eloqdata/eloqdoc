@@ -221,6 +221,9 @@ fi
 
 # Build and install MongoDB binaries via scons
 export WITH_DATA_STORE=${DATA_STORE_TYPE}
+export CXX=`which g++`
+export CC=`which gcc
+
 SCONS_VARIANT=${BUILD_TYPE}
 env OPEN_LOG_SERVICE=$OPEN_LOG_SERVICE FORK_HM_PROCESS=$FORK_HM_PROCESS WITH_DATA_STORE=$DATA_STORE_TYPE \
 python2 buildscripts/scons.py \
