@@ -45,6 +45,7 @@ if git show-ref --verify --quiet "refs/heads/$REL_BRANCH" || \
   exit 1
 fi
 git checkout -b "$REL_BRANCH" main
+git push origin "$REL_BRANCH"
 
 # Create release branches for submodules if present
 create_and_push_release_branch "src/mongo/db/modules/eloq/eloq_log_service" "$REL_BRANCH"
