@@ -34,15 +34,16 @@ cd /home/$current_user/workspace/mongo
 # Generate unique bucket names for main oss test
 BUCKET_NAME="main-oss-test"
 BUCKET_PREFIX="rocksdb-cloud-"
+DATA_DIR="/home/eloq/workspace/mongo/install/data"
 
 compile_and_install
-cleanup_all ./eloqdoc_test "$BUCKET_NAME" "$BUCKET_PREFIX"
+cleanup_all "$DATA_DIR" "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_jstests
 shutdown_mongod
-cleanup_all ./eloqdoc_test "$BUCKET_NAME" "$BUCKET_PREFIX"
+cleanup_all "$DATA_DIR" "$BUCKET_NAME" "$BUCKET_PREFIX"
 launch_mongod "$BUCKET_NAME" "$BUCKET_PREFIX"
 try_connect
 run_tpcc
-cleanup_all ./eloqdoc_test "$BUCKET_NAME" "$BUCKET_PREFIX"
+cleanup_all "$DATA_DIR" "$BUCKET_NAME" "$BUCKET_PREFIX"
