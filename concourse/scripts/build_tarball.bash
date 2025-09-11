@@ -224,6 +224,7 @@ export WITH_DATA_STORE=${DATA_STORE_TYPE}
 export CXX=`which g++`
 export CC=`which gcc`
 
+# Q? --dbg
 SCONS_VARIANT=${BUILD_TYPE}
 env OPEN_LOG_SERVICE=$OPEN_LOG_SERVICE FORK_HM_PROCESS=$FORK_HM_PROCESS WITH_DATA_STORE=$DATA_STORE_TYPE \
 python2 buildscripts/scons.py \
@@ -237,7 +238,8 @@ python2 buildscripts/scons.py \
     $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \
     --build-dir=#build \
     --prefix=$DEST_DIR \
-    --dbg=on --opt=off \
+    $( if [ "${BUILD_TYPE}" = "Debug" ]; then echo --dbg=on --opt=off; elif [ "${BUILD_TYPE}" = "RelWithDebInfo" ]; then echo --dbg=on --opt=on; else echo --dbg=off --opt=on; fi ) \
+    $( [ "${BUILD_TYPE}" = "Release" ] && echo --release --lto ) \
     --allocator=system \
     --link-model=dynamic \
     --install-mode=hygienic \

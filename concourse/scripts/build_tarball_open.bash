@@ -172,6 +172,7 @@ cmake -G "Unix Makefiles" \
 cmake --build "$ELOQDOC_SRC/src/mongo/db/modules/eloq/build" -j${NCORE}
 cmake --install "$ELOQDOC_SRC/src/mongo/db/modules/eloq/build"
 
+# Q? --dbg
 echo "Building MongoDB via scons (OPEN_LOG_SERVICE=1)"
 export WITH_DATA_STORE=${DATA_STORE_TYPE}
 SCONS_VARIANT=${BUILD_TYPE}
@@ -182,8 +183,8 @@ python2 buildscripts/scons.py \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$DEST_DIR \
-    $( [ "${BUILD_TYPE}" = "Debug" ] && echo --dbg=on --opt=off || echo --dbg=off --opt=on ) \
-    $( [ "${BUILD_TYPE}" = "Release" ] && echo --release --lto  ) \
+    $( if [ "${BUILD_TYPE}" = "Debug" ]; then echo --dbg=on --opt=off; elif [ "${BUILD_TYPE}" = "RelWithDebInfo" ]; then echo --dbg=on --opt=on; else echo --dbg=off --opt=on; fi ) \
+    $( [ "${BUILD_TYPE}" = "Release" ] && echo --release --lto ) \
     --allocator=system \
     --link-model=dynamic \
     --install-mode=hygienic \
