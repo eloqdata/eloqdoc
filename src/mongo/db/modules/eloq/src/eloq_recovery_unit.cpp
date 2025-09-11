@@ -377,7 +377,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     const Eloq::MongoKey* key,
     Eloq::MongoRecord* record,
     bool isForWrite) {
-    MONGO_LOG(1) << "EloqRecoveryUnit::getKV"
+    MONGO_LOG(0) << "EloqRecoveryUnit::getKV"
                  << ". tableName: " << tableName.StringView() << ". mongoKey: " << key->ToString();
     getTxm();
     txservice::TxKey txKey(key);
@@ -386,6 +386,8 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     bool exists = false;
     txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;
     for (int i = 0; i < 10; ++i) {
+        MONGO_LOG(0) << "yieldFuncPtr: " << (void*)coro.yieldFuncPtr
+                     << ", resumeFuncPtr: " << (void*)coro.resumeFuncPtr;
         txservice::ReadTxRequest readTxReq(&tableName,
                                            keySchemaVersion,
                                            &txKey,
@@ -402,7 +404,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                                            _txm);
         _txm->Execute(&readTxReq);
         readTxReq.Wait();
-        MONGO_LOG(1) << "result"
+        MONGO_LOG(0) << "result"
                      << ". err: " << readTxReq.ErrorMsg()
                      << ". tableName: " << tableName.StringView()
                      << ". mongoKey: " << key->ToString();
@@ -415,18 +417,22 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV fail"
                          << ". ErrorCode: " << readTxReq.ErrorCode() << ". ErrorMsg"
                          << readTxReq.ErrorMsg();
+            break;
         }
 
         txservice::RecordStatus recStatus = readTxReq.Result().first;
         if (recStatus == txservice::RecordStatus::Normal) {
             exists = true;
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV. RecordStatus::Normal. ";
+            break;
         } else {
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV. RecordStatus::Non-Normal. " << (int)recStatus
                          << " " << readTxReq.Result().second;
             if (recStatus == txservice::RecordStatus::Unknown) {
                 MONGO_LOG(0) << "retry readtxrequest";
                 continue;
+            } else {
+                break;
             }
         }
     }
