@@ -82,7 +82,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 esac
 
 # Checkout to the latest tag if TAGGED is set, aligning submodules to release branches
-if [ "${TAGGED}" = "true" ]; then
+if [ -n "${TAGGED}" ]; then
     TAGGED=$(git tag --sort=-v:refname | head -n 1)
     if [ -z "${TAGGED}" ]; then
         echo "No tags found but TAGGED requested"
@@ -293,7 +293,7 @@ cd $HOME
 tar -czvf eloqdoc.tar.gz -C $DEST_DIR .
 
 # Tarball naming and upload (align with eloqkv)
-if [ "${TAGGED}" = "true" ]; then
+if [ -n "${TAGGED}" ]; then
     DOC_TARBALL="eloqdoc-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
     # optional record
     eval ${INSTALL_PSQL}
