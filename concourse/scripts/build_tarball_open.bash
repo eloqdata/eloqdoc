@@ -182,7 +182,7 @@ python2 buildscripts/scons.py \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$DEST_DIR \
-    $( if [ "${BUILD_TYPE}" = "Debug" ]; then echo --dbg=on --opt=off; elif [ "${BUILD_TYPE}" = "RelWithDebInfo" ]; then echo --dbg=on --opt=on; else echo --dbg=off --opt=on; fi ) \
+    $( if [ "${BUILD_TYPE}" = "Debug" ]; then echo --dbg=on --opt=off; elif [ "${BUILD_TYPE}" = "RelWithDebInfo" ]; then echo --dbg=off --opt=on; else echo --dbg=off --opt=on; fi ) \
     $( [ "${BUILD_TYPE}" = "Release" ] && echo --release --lto ) \
     --allocator=system \
     --link-model=dynamic \
