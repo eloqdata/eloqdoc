@@ -404,7 +404,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                                            _txm);
         _txm->Execute(&readTxReq);
         readTxReq.Wait();
-        MONGO_LOG(1) << "result"
+        MONGO_LOG(1) << "EloqRecoveryUnit::getKV txn: " << _txm->TxNumber()
                      << ". err: " << readTxReq.ErrorMsg()
                      << ". tableName: " << tableName.StringView()
                      << ". mongoKey: " << key->ToString();
@@ -415,6 +415,8 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
             continue;
         } else if (err != txservice::TxErrorCode::NO_ERROR) {
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV fail"
+                         << ". txn: " << _txm->TxNumber()
+                         << ". tableName: " << tableName.StringView()
                          << ". ErrorCode: " << readTxReq.ErrorCode() << ". ErrorMsg"
                          << readTxReq.ErrorMsg();
             break;
