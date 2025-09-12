@@ -377,8 +377,10 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     const Eloq::MongoKey* key,
     Eloq::MongoRecord* record,
     bool isForWrite) {
-    MONGO_LOG(0) << "EloqRecoveryUnit::getKV"
-                 << ". tableName: " << tableName.StringView() << ". mongoKey: " << key->ToString();
+    MONGO_LOG(1) << "EloqRecoveryUnit::getKV"
+                 << ". tableName: " << tableName.StringView() << ". txn: " << _txm->TxNumber()
+                 << ", isolation: " << (int)_txm->GetIsolationLevel()
+                 << ", isForWrite: " << isForWrite << ". mongoKey: " << key->ToString();
     getTxm();
     txservice::TxKey txKey(key);
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -386,8 +388,6 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     bool exists = false;
     txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;
     for (int i = 0; i < 10; ++i) {
-        MONGO_LOG(0) << "yieldFuncPtr: " << (void*)coro.yieldFuncPtr
-                     << ", resumeFuncPtr: " << (void*)coro.resumeFuncPtr;
         txservice::ReadTxRequest readTxReq(&tableName,
                                            keySchemaVersion,
                                            &txKey,
@@ -404,7 +404,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                                            _txm);
         _txm->Execute(&readTxReq);
         readTxReq.Wait();
-        MONGO_LOG(0) << "result"
+        MONGO_LOG(1) << "result"
                      << ". err: " << readTxReq.ErrorMsg()
                      << ". tableName: " << tableName.StringView()
                      << ". mongoKey: " << key->ToString();

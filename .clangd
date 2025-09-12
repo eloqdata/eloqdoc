@@ -4,6 +4,7 @@ If:
     [
       src/mongo/db/modules/eloq/tx_service/.*,
       src/mongo/db/modules/eloq/log_service/.*,
+      src/mongo/db/modules/eloq/eloq_log_service/.*,
       src/mongo/db/modules/eloq/store_handler/.*,
       src/mongo/db/modules/eloq/eloq_metrics/.*,
     ]
@@ -32,6 +33,7 @@ If:
     [
       src/mongo/db/modules/eloq/tx_service/.*,
       src/mongo/db/modules/eloq/log_service/.*,
+      src/mongo/db/modules/eloq/eloq_log_service/.*,
       src/mongo/db/modules/eloq/store_handler/.*,
       src/mongo/db/modules/eloq/eloq_metrics/.*,
     ]

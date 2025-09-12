@@ -174,7 +174,10 @@ txservice::TxErrorCode EloqCursor::nextBatchTuple() {
 }
 
 txservice::TxErrorCode EloqCursor::_fetchBatchTuples() {
-    MONGO_LOG(1) << "EloqCursor::fetchBatchTuples " << _scanOpenTxReq.tab_name_->StringView();
+    MONGO_LOG(1) << "EloqCursor::fetchBatchTuples " << _scanOpenTxReq.tab_name_->StringView()
+                 << ", txn: " << _txm->TxNumber()
+                 << ", isolevel: " << (int)_txm->GetIsolationLevel()
+                 << ", isForWrite: " << _scanOpenTxReq.is_for_write_;
     _scanBatchIdx = 0;
     _scanBatchVector.clear();
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -189,11 +192,16 @@ txservice::TxErrorCode EloqCursor::_fetchBatchTuples() {
     scanBatchTxReq.Wait();
     if (scanBatchTxReq.IsError()) {
         MONGO_LOG(1) << "EloqCursor::_fetchBatchTuples ScanBatchTxRequest fail"
+                     << ". table_name: " << _scanOpenTxReq.tab_name_->StringView()
+                     << ". txn: " << _txm->TxNumber()
+                     << ", isolevel: " << (int)_txm->GetIsolationLevel()
                      << ". ErrorCode: " << scanBatchTxReq.ErrorCode()
                      << ". ErrorMsg: " << scanBatchTxReq.ErrorMsg();
     } else {
         MONGO_LOG(1) << "EloqCursor::_fetchBatchTuples ScanBatchTxRequest succeed. "
-                     << _scanOpenTxReq.tab_name_->StringView()
+                     << ". table_name: " << _scanOpenTxReq.tab_name_->StringView()
+                     << ". txn: " << _txm->TxNumber()
+                     << ", isolevel: " << (int)_txm->GetIsolationLevel()
                      << ", tuples: " << _scanBatchVector.size();
         _isLastScanBatch = scanBatchTxReq.Result();
         ++_scanBatchCnt;
