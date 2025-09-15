@@ -72,21 +72,21 @@ jobs:
           OUT_NAME: "nightly"
         file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
 
-      - task: rocksdb-cloud-gcs
-        image: image_ubuntu2004
-        params:
-          DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_GCS"
-          BUILD_LOG_SRV: "true"
-          GIT_SSH_KEY: ((git-key))
-          ASAN: "OFF"
-          TAGGED: ""
-          BUILD_TYPE: RelWithDebInfo
-          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-          AWS_DEFAULT_REGION: ((aws-region))
-          CLOUDFRONT_DIST: ((cloudfront-dist))
-          OUT_NAME: "nightly"
-        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
+        # - task: rocksdb-cloud-gcs
+        #   image: image_ubuntu2004
+        #   params:
+        #     DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_GCS"
+        #     BUILD_LOG_SRV: "true"
+        #     GIT_SSH_KEY: ((git-key))
+        #     ASAN: "OFF"
+        #     TAGGED: ""
+        #     BUILD_TYPE: RelWithDebInfo
+        #     AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+        #     AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+        #     AWS_DEFAULT_REGION: ((aws-region))
+        #     CLOUDFRONT_DIST: ((cloudfront-dist))
+        #     OUT_NAME: "nightly"
+        #   file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
         
       - task: eloqdss-rocksdb
         image: image_ubuntu2004
@@ -133,21 +133,21 @@ jobs:
           CLOUDFRONT_DIST: ((cloudfront-dist))
           OUT_NAME: "nightly"
         file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
-      - task: rocksdb-cloud-gcs
-        image: image_ubuntu2204
-        params:
-          DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_GCS"
-          BUILD_LOG_SRV: "true"
-          GIT_SSH_KEY: ((git-key))
-          ASAN: "OFF"
-          TAGGED: ""
-          BUILD_TYPE: RelWithDebInfo
-          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-          AWS_DEFAULT_REGION: ((aws-region))
-          CLOUDFRONT_DIST: ((cloudfront-dist))
-          OUT_NAME: "nightly"
-        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
+        # - task: rocksdb-cloud-gcs
+        #   image: image_ubuntu2204
+        #   params:
+        #     DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_GCS"
+        #     BUILD_LOG_SRV: "true"
+        #     GIT_SSH_KEY: ((git-key))
+        #     ASAN: "OFF"
+        #     TAGGED: ""
+        #     BUILD_TYPE: RelWithDebInfo
+        #     AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+        #     AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+        #     AWS_DEFAULT_REGION: ((aws-region))
+        #     CLOUDFRONT_DIST: ((cloudfront-dist))
+        #     OUT_NAME: "nightly"
+        #   file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
       - task: eloqdss-rocksdb
         image: image_ubuntu2204
         params:
@@ -193,21 +193,21 @@ jobs:
           CLOUDFRONT_DIST: ((cloudfront-dist))
           OUT_NAME: "nightly"
         file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
-      - task: rocksdb-cloud-gcs
-        image: image_ubuntu2404
-        params:
-          DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_GCS"
-          BUILD_LOG_SRV: "true"
-          GIT_SSH_KEY: ((git-key))
-          ASAN: "OFF"
-          TAGGED: ""
-          BUILD_TYPE: RelWithDebInfo
-          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-          AWS_DEFAULT_REGION: ((aws-region))
-          CLOUDFRONT_DIST: ((cloudfront-dist))
-          OUT_NAME: "nightly"
-        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
+        # - task: rocksdb-cloud-gcs
+        #   image: image_ubuntu2404
+        #   params:
+        #     DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_GCS"
+        #     BUILD_LOG_SRV: "true"
+        #     GIT_SSH_KEY: ((git-key))
+        #     ASAN: "OFF"
+        #     TAGGED: ""
+        #     BUILD_TYPE: RelWithDebInfo
+        #     AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+        #     AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+        #     AWS_DEFAULT_REGION: ((aws-region))
+        #     CLOUDFRONT_DIST: ((cloudfront-dist))
+        #     OUT_NAME: "nightly"
+        #   file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
       - task: eloqdss-rocksdb
         image: image_ubuntu2404
         params:
