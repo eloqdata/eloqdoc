@@ -209,7 +209,7 @@ if [ -f ${DEST_DIR}/bin/host_manager ]; then
 fi
 
 # Config files
-cp ${ELOQDOC_SRC}/concourse/artifact/mongod.conf ${DEST_DIR}/etc 
+cp ${ELOQDOC_SRC}/concourse/artifact/${DATA_STORE_TYPE}/mongod.conf ${DEST_DIR}/etc 
 
 
 # Cleanup

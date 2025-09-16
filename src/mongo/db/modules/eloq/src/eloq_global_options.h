@@ -59,7 +59,6 @@ public:
     uint32_t deadlockIntervalSec{0};
     uint32_t txlogGroupReplicaNum{0};
     uint32_t nodeGroupReplicaNum{0};
-    uint16_t bthreadWorkerNum{0};
     bool useKeyCache{false};
     txservice::CcProtocol ccProtocol{txservice::CcProtocol::OccRead};
     bool skipRedoLog{false};

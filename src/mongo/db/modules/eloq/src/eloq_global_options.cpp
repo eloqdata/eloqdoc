@@ -87,15 +87,15 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqNodeMemoryLimitMB",
                            moe::Int,
                            "memory limit per node (MB)")
-        .validRange(1, 1000000)
+        .validRange(512, 1000000)
         .setDefault(moe::Value(8000));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.checkpointerIntervalSec",
                            "eloqCheckpointerIntervalSec",
                            moe::Int,
                            "Interval of checkpointer(s)")
-        .validRange(1, 86400)
-        .setDefault(moe::Value(1000));
+        .validRange(10, 86400)
+        .setDefault(moe::Value(10));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.checkpointerDelaySec",
                            "eloqCheckpointerDelaySec",
@@ -108,7 +108,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqCollectActiveTxTsIntervalSec",
                            moe::Int,
                            "Interval of collect active tx start timestamp(s)")
-        .validRange(1, 86400)
+        .validRange(1, 10)
         .setDefault(moe::Value(2));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.deadlockIntervalSec",
@@ -167,12 +167,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::Int,
                            "Replicate number of node group(Max: 9)")
         .setDefault(moe::Value(3));
-    eloqOptions
-        .addOptionChaining("storage.eloq.txService.bthreadWorkerNum",
-                           "eloqNodeBthreadWorkerNum",
-                           moe::Int,
-                           "Number of bthread worker threads")
-        .setDefault(moe::Value(0));
 
     // txlog
     eloqOptions
@@ -231,7 +225,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            moe::String,
                            "RocksDB Cloud SST file cache size for instance which "
                            "stores the tx log state.")
-        .setDefault(moe::Value("1GB"));
+        .setDefault(moe::Value("10GB"));
     eloqOptions
         .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudSstFileCacheNumShardBits",
                            "eloqTxlogRocksDBCloudSstFileCacheNumShardBits",
@@ -329,7 +323,7 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqRocksdbCloudSstFileCacheSize",
                            moe::String,
                            "RocksDB Cloud SST file cache size")
-        .setDefault(moe::Value("3GB"));
+        .setDefault(moe::Value("1000GB"));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.rocksdbCloudSstFileCacheNumShardBits",
                            "eloqRocksdbCloudSstFileCacheNumShardBits",
@@ -780,10 +774,6 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.nodeGroupReplicaNum")) {
         eloqGlobalOptions.nodeGroupReplicaNum =
             params["storage.eloq.txService.nodeGroupReplicaNum"].as<int>();
-    }
-    if (params.count("storage.eloq.txService.bthreadWorkerNum")) {
-        eloqGlobalOptions.bthreadWorkerNum =
-            params["storage.eloq.txService.bthreadWorkerNum"].as<int>();
     }
 
     // txlog

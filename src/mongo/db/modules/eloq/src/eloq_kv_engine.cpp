@@ -283,7 +283,6 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         {"rep_group_cnt", eloqGlobalOptions.nodeGroupReplicaNum},
         {"enable_key_cache", eloqGlobalOptions.useKeyCache ? 1 : 0},
         {"enable_shard_heap_defragment", eloqGlobalOptions.enableHeapDefragment ? 1 : 0},
-        {"bthread_worker_num", eloqGlobalOptions.bthreadWorkerNum},
         {"kickout_data_for_test", eloqGlobalOptions.kickoutDataForTest},
     };
 
