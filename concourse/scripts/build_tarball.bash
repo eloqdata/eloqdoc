@@ -288,7 +288,7 @@ if [ -f ${DEST_DIR}/bin/dss_server ]; then
 fi
 
 # Config files
-cp ${ELOQDOC_SRC}/concourse/scripts/mongod.conf ${DEST_DIR}/etc
+cp ${ELOQDOC_SRC}/concourse/artifact/mongod.conf ${DEST_DIR}/etc
 
 cd $HOME
 tar -czvf eloqdoc.tar.gz -C $DEST_DIR .
