@@ -55,122 +55,138 @@ Operates as a distributed database without requiring a sharding coordinator (e.g
 
 ---
 
-## Run with Tarball
+## Quick Start
 
-Download the EloqDoc tarball from the [EloqData website](https://www.eloqdata.com/download/eloqdoc).
+### Try EloqDoc-RocksDB Using Official Package
 
-Follow the [instruction guide](https://www.eloqdata.com/eloqdoc/install-from-binary) to set up and run EloqDoc on your local machine.
-
----
-
-## Build from Source
-
-Follow these steps to build and run EloqDoc from source.
-
-### 1. Install Dependencies:
-
-It is recommended to use our Docker image with pre-installed dependencies for a quick build and run of EloqDoc.
+Step-1, download the official package for EloqDoc-RocksDB.
 
 ```bash
-docker pull eloqdata/eloq-dev-ci-ubuntu2404:latest
-docker run -it --name eloqdoc eloqdata/eloq-dev-ci-ubuntu2404
-git clone https://github.com/eloqdata/eloqdoc.git
-cd eloqdoc
-```
-Alternatively, you can also pull the source code in an existing Linux environment (currently, ubuntu2404 is preferred), and manually run the script to install dependencies on your local machine. Notice that this might take a while.
-
-```bash
-git clone https://github.com/eloqdata/eloqdoc.git
-cd eloqdoc
-bash scripts/install_dependency_ubuntu2404.sh
+wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-debug-ubuntu22-amd64.tar.gz
 ```
 
-### 2. Initialize Submodules
-
-Fetch the code and initialize submodules:
+Step-2, uncompress the package to your `$HOME`.
 
 ```bash
-git clone https://github.com/eloqdata/eloqdoc.git
-git submodule update --init --recursive
+mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C $HOME/eloqdoc-rocksdb
 ```
 
-### 3. Build EloqDoc
-
-First, specify an install path.
+After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
+`bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdb` to verify it.
 
 ```bash
-export INSTALL_PREFIX=/your/install/path/absolute
-# Set data store type (required), ELOQDSS_ROCKSDB/ELOQDSS_ROCKSDB_CLOUD_S3
-export WITH_DATA_STORE=ELOQDSS_ROCKSDB
-
+cd $HOME/eloqdoc-rocksdb && ls
 ```
 
-Then, configure and build the Eloq engine and dependencies via CMake with Open Log Service enabled.
+Step-3, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdb`.
 
 ```bash
-cmake -G "Unix Makefiles" \
-      -S src/mongo/db/modules/eloq \
-      -B src/mongo/db/modules/eloq/build \
-      -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
-      -DWITH_DATA_STORE=$WITH_DATA_STORE
-cmake --build src/mongo/db/modules/eloq/build -j8
-cmake --install src/mongo/db/modules/eloq/build
+mkdir db logs
 ```
 
-Finally, build MongoDB via SCons with Open Log Service enabled.
+Step-4, modify  `etc/mongod.conf`. Assume your `$HOME` is `/home/eloq`, then
+
+* Set `systemLog.path` to `/home/eloq/eloqdoc-rocksdb/logs/mongod.log`.
+* Set `storage.dbPath` to `/home/eloq/eloqdoc-rocksdb/db`.
+
+Step-5, start the server with:
 
 ```bash
-pyenv global 2.7.18
-
-
-python2 buildscripts/scons.py \
-    MONGO_VERSION=4.0.3 \
-    VARIANT_DIR=RelWithDebInfo \
-    LIBPATH=/usr/local/lib \
-    CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
-    --build-dir=#build \
-    --prefix=$INSTALL_PREFIX \
-    --disable-warnings-as-errors \
-    -j8 \
-    install-core
+env LD_PRELOAD=./lib/libmimalloc.so.2:./lib/libbrpc.so \
+./bin/mongod --config ./etc/mongod.conf
 ```
 
-### 4. Set Up Storage Backend (optional)
-
-For ELOQDSS_ROCKSDB_CLOUD_S3 data store type, EloqDoc uses an S3-compatible storage backend. For testing, deploy an S3 emulator.
+Step-6, open another terminal and run mongo client.
 
 ```bash
+./bin/mongo --eval "db.t1.save({k: 1}); db.t1.find();"
+```
+
+It should output
+
+```bash
+MongoDB shell version v4.0.3
+connecting to: mongodb://127.0.0.1:27017
+Implicit session: session { "id" : UUID("288393c1-aff6-4a84-ad46-dee6691b361d") }
+MongoDB server version: 4.0.3
+{ "_id" : ObjectId("68493ec41cc981ea926ec094"), "k" : 1 }
+```
+
+### Try EloqDoc-RocksDBCloud Using Official Package
+
+Step-1, download the official package for EloqDoc-RocksDBCloud.
+
+```bash
+wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-debug-ubuntu22-amd64.tar.gz
+```
+
+Step-2, uncompress the package to your `$HOME`.
+
+```bash
+mkdir eloqdoc-rocksdbcloud && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C eloqdoc-rocksdbcloud
+```
+
+After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
+`bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdbcloud` to verify it.
+
+Step-3, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdbcloud`.
+
+```bash
+mkdir db logs
+```
+
+Step-4, start a S3 emulator, takes `minio` as an exmaple.
+
+```bash
+cd $HOME
+mkdir minio-service && cd minio-service
 wget https://dl.min.io/server/minio/release/linux-amd64/minio
 chmod +x minio
 ./minio server ./data
 ```
 
-### 5. Config EloqDoc
+By default, `minio` listens on `http://127.0.0.1:9000`, whose default credentials is `minioadmin:minioadmin`,.
 
-Create a configuration file `mongod.conf` according to `config/example.conf`. Modify `/home/eloq` with your home path.
-The configuration file specifies `$HOME/eloqdoc-cloud` as deploy directory.
-
-```bash
-mkdir ~/eloqdoc-cloud && cd ~/eloqdoc-cloud
-mkdir etc db logs
-mv ~/mongod.conf etc/
-
-```
-
-### 6. Start EloqDoc Node
+Step-5, go back to `$HOME/eloqdoc-rocksdbcloud` and modify `etc/mongod.conf`. Assume your `$HOME` is `/home/eloq`.
 
 ```bash
-export LD_PRELOAD=/usr/local/lib/libmimalloc.so:/usr/lib/libbrpc.so
-export PATH=$INSTALL_PREFIX/bin:$PATH
-mongod --config etc/mongod.conf
+cd $HOME/eloqdoc-rocksdbcloud
 ```
 
+* Set `systemLog.path` to `/home/eloq/eloqdoc-rocksdbcloud/logs/mongod.log`.
+* Set `storage.dbPath` to `/home/eloq/eloqdoc-rocksdbcloud/db`.
+* `etc/mongod.conf` has configured minio as its cloud storage, and needs no modification.
 
-### 7. Connect to EloqDoc
+Step-6, start the server with:
 
 ```bash
-mongo --eval "db.t1.save({k: 1}); db.t1.find();"
+env LD_PRELOAD=./lib/libmimalloc.so.2:./lib/libbrpc.so \
+./bin/mongod --config ./etc/mongod.conf
 ```
+
+Step-7, open another terminal and run mongo client.
+
+```bash
+./bin/mongo --eval "db.t1.save({k: 1}); db.t1.find();"
+```
+
+It should output
+
+```bash
+MongoDB shell version v4.0.3
+connecting to: mongodb://127.0.0.1:27017
+Implicit session: session { "id" : UUID("288393c1-aff6-4a84-ad46-dee6691b361d") }
+MongoDB server version: 4.0.3
+{ "_id" : ObjectId("68493ec41cc981ea926ec094"), "k" : 1 }
+```
+
+---
+
+## Advanced Topics
+
+Follow [compile tutorial](docs/how-to-compile.md) to learn how to compile EloqDoc-RocksDB and EloqDocRocksDBCloud from scratch.
+Follow [deploy cluster](docs/how-to-deploy-cluster.md) to learn how to deploy an EloqDoc-RocksDBCloud cluster.
+Follow [configuration description](docs/configuration-description.md) to learn major configuration parameters.
 
 ---
 

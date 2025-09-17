@@ -76,7 +76,7 @@ fi
 
 # Destination
 DEST_DIR="${HOME}/EloqDoc"
-mkdir -p "${DEST_DIR}/{bin,lib,conf,etc}"
+mkdir -p "${DEST_DIR}/{bin,lib,etc}"
 
 # License
 cat >"${DEST_DIR}/LICENSE.txt" <<EOF
