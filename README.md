@@ -74,7 +74,7 @@ mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C $H
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
-`bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdb` to verify it.
+`bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdb` to verify that.
 
 ```bash
 cd $HOME/eloqdoc-rocksdb && ls
@@ -126,11 +126,15 @@ All released package can be found at [download](https://www.eloqdata.com/downloa
 **Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
-mkdir eloqdoc-rocksdbcloud && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C eloqdoc-rocksdbcloud
+mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C $HOME/eloqdoc-rocksdbcloud
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
-`bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdbcloud` to verify it.
+`bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdbcloud` to verify that.
+
+```bash
+cd $HOME/eloqdoc-rocksdbcloud && ls
+```
 
 **Step-3**, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdbcloud`.
 

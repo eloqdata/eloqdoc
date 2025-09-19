@@ -85,6 +85,7 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
             std::condition_variable cv;
 
             auto client = Client::releaseCurrent();
+            dassert(client->coroutineFunctors() == CoroutineFunctors::Unavailable);
 
             std::function<void()> yieldFunc, resumeFunc, longResumeFunc;
             client->setCoroutineFunctors(CoroutineFunctors{
@@ -161,6 +162,7 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
                 std::unique_lock lk(mux);
                 cv.wait(lk, [&finished]() { return finished; });
             }
+            client->setCoroutineFunctors(CoroutineFunctors::Unavailable);
             Client::setCurrent(std::move(client));
         });
 
