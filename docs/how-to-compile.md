@@ -118,3 +118,20 @@ python buildscripts/scons.py \
 ```
 
 All executable files will be installed to `$INSTALL_PREFIX/bin`, and all libraries will be installed to `$INSTALL_PREFIX/lib`.
+
+## 3 Adjust load order of libmimalloc and libbrpc
+
+EloqDoc depends on libmimalloc and libbrpc, and requires them to load before other libraries.
+
+```bash
+patchelf --remove-needed libmimalloc.so.2 $INSTALL_PREFIX/bin/mongod
+patchelf --remove-needed libbrpc.so $INSTALL_PREFIX/bin/mongod
+patchelf --add-needed libbrpc.so $INSTALL_PREFIX/bin/mongod
+patchelf --add-needed libmimalloc.so.2 $INSTALL_PREFIX/bin/mongod
+```
+
+If you don't adjust load order, then you must set LD_PRELOAD before run EloqDoc.
+
+```bash
+export LD_PRELOAD=/usr/local/lib/libmimalloc.so.2:/usr/lib/libbrpc.so
+```

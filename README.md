@@ -59,13 +59,15 @@ Operates as a distributed database without requiring a sharding coordinator (e.g
 
 ### Try EloqDoc-RocksDB Using Official Package
 
-Step-1, download the official package for EloqDoc-RocksDB.
+**Step-1**, download the official package for EloqDoc-RocksDB.
 
 ```bash
 wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-debug-ubuntu22-amd64.tar.gz
 ```
 
-Step-2, uncompress the package to your `$HOME`.
+All released package can be found at [download](https://www.eloqdata.com/download) page.
+
+**Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
 mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C $HOME/eloqdoc-rocksdb
@@ -78,25 +80,24 @@ After uncompress the package, you should see three directories: `bin`, `lib`, an
 cd $HOME/eloqdoc-rocksdb && ls
 ```
 
-Step-3, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdb`.
+**Step-3**, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdb`.
 
 ```bash
 mkdir db logs
 ```
 
-Step-4, modify  `etc/mongod.conf`. Assume your `$HOME` is `/home/eloq`, then
+**Step-4**, modify  `etc/mongod.conf`. Assume your `$HOME` is `/home/eloq`, then
 
 * Set `systemLog.path` to `/home/eloq/eloqdoc-rocksdb/logs/mongod.log`.
 * Set `storage.dbPath` to `/home/eloq/eloqdoc-rocksdb/db`.
 
-Step-5, start the server with:
+**Step-5**, start the server with:
 
 ```bash
-env LD_PRELOAD=./lib/libmimalloc.so.2:./lib/libbrpc.so \
 ./bin/mongod --config ./etc/mongod.conf
 ```
 
-Step-6, open another terminal and run mongo client.
+**Step-6**, open another terminal and run mongo client.
 
 ```bash
 ./bin/mongo --eval "db.t1.save({k: 1}); db.t1.find();"
@@ -114,13 +115,15 @@ MongoDB server version: 4.0.3
 
 ### Try EloqDoc-RocksDBCloud Using Official Package
 
-Step-1, download the official package for EloqDoc-RocksDBCloud.
+**Step-1**, download the official package for EloqDoc-RocksDBCloud.
 
 ```bash
 wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-debug-ubuntu22-amd64.tar.gz
 ```
 
-Step-2, uncompress the package to your `$HOME`.
+All released package can be found at [download](https://www.eloqdata.com/download) page.
+
+**Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
 mkdir eloqdoc-rocksdbcloud && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C eloqdoc-rocksdbcloud
@@ -129,13 +132,13 @@ mkdir eloqdoc-rocksdbcloud && tar -xf eloqdoc-debug-ubuntu22-amd64.tar.gz -C elo
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
 `bin` contains all executable files, `lib` contains all dependencies, and `etc` contains an example configuration file `mongod.conf`. Switch to `eloqdoc-rocksdbcloud` to verify it.
 
-Step-3, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdbcloud`.
+**Step-3**, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdbcloud`.
 
 ```bash
 mkdir db logs
 ```
 
-Step-4, start a S3 emulator, takes `minio` as an exmaple.
+**Step-4**, start a S3 emulator, takes `minio` as an exmaple.
 
 ```bash
 cd $HOME
@@ -147,7 +150,7 @@ chmod +x minio
 
 By default, `minio` listens on `http://127.0.0.1:9000`, whose default credentials is `minioadmin:minioadmin`,.
 
-Step-5, go back to `$HOME/eloqdoc-rocksdbcloud` and modify `etc/mongod.conf`. Assume your `$HOME` is `/home/eloq`.
+**Step-5**, go back to `$HOME/eloqdoc-rocksdbcloud` and modify `etc/mongod.conf`. Assume your `$HOME` is `/home/eloq`.
 
 ```bash
 cd $HOME/eloqdoc-rocksdbcloud
@@ -157,14 +160,13 @@ cd $HOME/eloqdoc-rocksdbcloud
 * Set `storage.dbPath` to `/home/eloq/eloqdoc-rocksdbcloud/db`.
 * `etc/mongod.conf` has configured minio as its cloud storage, and needs no modification.
 
-Step-6, start the server with:
+**Step-6**, start the server with:
 
 ```bash
-env LD_PRELOAD=./lib/libmimalloc.so.2:./lib/libbrpc.so \
 ./bin/mongod --config ./etc/mongod.conf
 ```
 
-Step-7, open another terminal and run mongo client.
+**Step-7**, open another terminal and run mongo client.
 
 ```bash
 ./bin/mongo --eval "db.t1.save({k: 1}); db.t1.find();"
@@ -184,9 +186,9 @@ MongoDB server version: 4.0.3
 
 ## Advanced Topics
 
-Follow [compile tutorial](docs/how-to-compile.md) to learn how to compile EloqDoc-RocksDB and EloqDocRocksDBCloud from scratch.
-Follow [deploy cluster](docs/how-to-deploy-cluster.md) to learn how to deploy an EloqDoc-RocksDBCloud cluster.
-Follow [configuration description](docs/configuration-description.md) to learn major configuration parameters.
+* Follow [compile tutorial](docs/how-to-compile.md) to learn how to compile EloqDoc-RocksDB and EloqDocRocksDBCloud from scratch.
+* Follow [deploy cluster](docs/how-to-deploy-cluster.md) to learn how to deploy an EloqDoc-RocksDBCloud cluster.
+* Follow [configuration description](docs/configuration-description.md) to learn major configuration parameters.
 
 ---
 

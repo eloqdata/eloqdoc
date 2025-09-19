@@ -41,7 +41,7 @@ Type: Boolean
 Required: False
 Accepted Values: true|false
 Default: false
-Desc: Listen on all addresses or listen on [net.bindIp](#net-bindip).
+Desc: Listen on all addresses or listen on [net.bindIp](#netbindip).
 
 #### net.bindIp
 
@@ -108,7 +108,7 @@ Desc: Used to contact between internal components and cooperative nodes. The spe
 
 Type: Comma seperated IPv4:Port list.
 Required:  Required for EloqDoc-Cluster.
-Accepted Values: List of [localIP](#storage-eloq-txservice-localip) of all node.
+Accepted Values: List of [localIP](#storageeloqtxservicelocalip) of all node.
 Default: Value specified by localIP.
 Desc: Used to contact between cooperative nodes.
 
@@ -137,7 +137,7 @@ Desc: Memory limit. Set it to no more than 80% memory of your hardware.
 Type: String
 Required: False
 Default: ""
-Desc: The local filesystem path for RocksDB-Cloud to store wal. It is suggested to place the directory on a local NVME. If unset or empty, it will be placed under [dbPath](#storage-dbpath).
+Desc: The local filesystem path for RocksDB-Cloud to store wal. It is suggested to place the directory on a local NVME. If unset or empty, it will be placed under [dbPath](#storagedbpath).
 
 #### storage.eloq.txService.txlogRocksDBCloudEndpointUrl
 
@@ -183,7 +183,7 @@ Desc: Max disk space can be used for wal file.
 
 Type: String
 Required: True
-Desc: The local filesystem path for RocksDB-Cloud to store data. It is suggested to place the directory on a local NVME. If unset or empty, it will be placed under [dbPath](#storage-dbpath).
+Desc: The local filesystem path for RocksDB-Cloud to store data. It is suggested to place the directory on a local NVME. If unset or empty, it will be placed under [dbPath](#storagedbpath).
 
 #### storage.eloq.storage.rocksdbCloudEndpointUrl
 
