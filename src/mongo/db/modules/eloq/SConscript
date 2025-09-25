@@ -77,10 +77,14 @@ else:
     data_store_type = DATA_STORE_TYPE_ROCKSDB_CLOUD
 
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
-    env.Append(CPPDEFINES=[
-        "DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3",
-        ("ROCKSDB_CLOUD_FS_TYPE", ROCKSDB_CLOUD_FS_TYPE_S3)
-    ])
+    if data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_GCS":
+        env.Append(CPPDEFINES=[
+            "DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS",
+        ])
+    else:  # default to S3
+        env.Append(CPPDEFINES=[
+            "DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3",
+        ])
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     env.Append(CPPDEFINES=[
         "DATA_STORE_TYPE_ELOQDSS_ROCKSDB"
