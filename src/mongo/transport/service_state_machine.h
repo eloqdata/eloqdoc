@@ -31,7 +31,7 @@
 #include <atomic>
 #include <boost/context/continuation.hpp>
 #include <boost/context/continuation_fcontext.hpp>
-#include <boost/context/stack_context.hpp>
+#include <boost/context/protected_fixedsize_stack.hpp>
 #include <functional>
 
 #include "boost/optional/optional.hpp"
@@ -261,64 +261,12 @@ private:
 #endif
     std::string _oldThreadName;
 
-    // Coroutine design
-    class NoopAllocator {
-    public:
-        NoopAllocator() = default;
-
-        boost::context::stack_context allocate() {
-            boost::context::stack_context sc;
-            return sc;
-        }
-
-        void deallocate(boost::context::stack_context& sc) {
-            // no-op
-        }
-    };
-
-    static constexpr size_t kCoroStackSize = 3200 * 1024;
-    static constexpr char kCanaryByte = 0xAB;
-    static constexpr size_t kCanarySize = 16;
-    static constexpr char kCanaryBytes[kCanarySize] = {
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-        kCanaryByte,
-    };
-
-    boost::context::stack_context _coroStackContext() {
-        boost::context::stack_context sc;
-        sc.size = kCoroStackSize;
-        // Because stack grows downwards from high address?
-        sc.sp = _coroStack + kCoroStackSize;
-        // Set canary bytes at the end of the stack to detect stack overflow.
-        std::memset(_coroStack, kCanaryByte, kCanarySize);
-        return sc;
-    }
-
-    void _abortIfStackOverflow() {
-        if (std::memcmp(_coroStack, kCanaryBytes, kCanarySize) != 0) {
-            std::abort();
-        }
-    }
-
     void _migrateThreadGroup(uint16_t threadGroupId);
 
 
+    static constexpr size_t kCoroStackSize = 3200 * 1024;
+    boost::context::protected_fixedsize_stack _salloc{kCoroStackSize};
     boost::context::continuation _source;
-    char _coroStack[kCoroStackSize];
 
     enum class CoroStatus { Empty = 0, OnGoing, Finished };
     CoroStatus _coroStatus{CoroStatus::Empty};

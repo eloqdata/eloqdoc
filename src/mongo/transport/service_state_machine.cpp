@@ -545,22 +545,22 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         _coroMigrateThreadGroup = std::bind(
                             &ServiceStateMachine::_migrateThreadGroup, this, std::placeholders::_1);
 
-                        boost::context::stack_context sc = _coroStackContext();
-                        boost::context::preallocated prealloc(sc.sp, sc.size, sc);
+                        std::weak_ptr<ServiceStateMachine> wssm = weak_from_this();
                         _source = boost::context::callcc(
                             std::allocator_arg,
-                            prealloc,
-                            NoopAllocator(),
-                            [ssm = shared_from_this(),
-                             &guard](boost::context::continuation&& sink) {
+                            _salloc,
+                            [wssm, &guard](boost::context::continuation&& sink) {
+                                auto ssm = wssm.lock();
+                                if (!ssm) {
+                                    return std::move(sink);
+                                }
                                 ssm->_coroYield = [ssm = ssm.get(), &sink]() {
                                     MONGO_LOG(3) << "call yield";
                                     ssm->_dbClient = Client::releaseCurrent();
-                                    ssm->_abortIfStackOverflow();
                                     sink = sink.resume();
                                 };
                                 ssm->_processMessage(std::move(guard));
-                                ssm->_abortIfStackOverflow();
+
                                 return std::move(sink);
                             });
 
@@ -578,7 +578,6 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         //         _coroYield = [this, &sink]() {
                         //             MONGO_LOG(1) << "call yield";
                         //             _dbClient = Client::releaseCurrent();
-                        //             _abortIfStackOverflow();
                         //             sink = sink.resume();
                         //         };
                         //         _processMessage(std::move(guard));
@@ -586,7 +585,6 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         //     });
                     } else if (_coroStatus == CoroStatus::OnGoing) {
                         MONGO_LOG(1) << "coroutine ongoing";
-                        _abortIfStackOverflow();
                         _source = _source.resume();
                     }
                 }
@@ -618,7 +616,6 @@ void ServiceStateMachine::_runResumeProcess() {
     MONGO_LOG(3) << "ServiceStateMachine::_resumeRun";
     if (_coroStatus == CoroStatus::OnGoing) {
         MONGO_LOG(3) << "coroutine ongoing";
-        _abortIfStackOverflow();
         _source = _source.resume();
     }
 }

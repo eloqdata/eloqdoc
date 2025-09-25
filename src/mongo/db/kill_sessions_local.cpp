@@ -44,6 +44,8 @@
 #include "mongo/util/log.h"
 
 #include <boost/context/continuation_fcontext.hpp>
+#include <boost/context/protected_fixedsize_stack.hpp>
+
 
 namespace mongo {
 namespace {
@@ -71,6 +73,15 @@ SessionKiller::Result killSessionsLocal(OperationContext* opCtx,
     return {std::vector<HostAndPort>{}};
 }
 
+struct CoroCtx {
+    static constexpr size_t kCoroStackSize = 3200 * 1024;
+    boost::context::protected_fixedsize_stack salloc{kCoroStackSize};
+    boost::context::continuation source;
+    std::function<void()> yieldFunc;
+    std::function<void()> resumeFunc;
+    std::function<void()> longResumeFunc;
+};
+
 void killAllExpiredTransactions(OperationContext* opCtx) {
     RecoveryUnit* ru = opCtx->releaseRecoveryUnit();
     WriteUnitOfWork::RecoveryUnitState ruState = opCtx->getRecoveryUnitState();
@@ -84,38 +95,40 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
             std::mutex mux;
             std::condition_variable cv;
 
+            std::shared_ptr<CoroCtx> coroCtx = std::make_shared<CoroCtx>();
+
             auto client = Client::releaseCurrent();
             dassert(client->coroutineFunctors() == CoroutineFunctors::Unavailable);
 
-            std::function<void()> yieldFunc, resumeFunc, longResumeFunc;
             client->setCoroutineFunctors(CoroutineFunctors{
-                &yieldFunc,
-                &resumeFunc,
-                &longResumeFunc,
+                &coroCtx->yieldFunc,
+                &coroCtx->resumeFunc,
+                &coroCtx->longResumeFunc,
                 nullptr,
             });
             transport::ServiceExecutor* serviceExecutor =
                 getGlobalServiceContext()->getServiceEntryPoint()->getServiceExecutor();
 
-            boost::context::continuation source;
-            std::function<void()> resumeTask = [&source, &client] {
-                log() << "abortArbitraryTransactionIfExpired call resume";
+            std::function<void()> resumeTask = [&source = coroCtx->source, &client] {
+                log() << "abortArbitraryTransactionIfExpired call resume.";
                 Client::setCurrent(std::move(client));
                 source = source.resume();
             };
-            resumeFunc =
+
+            coroCtx->resumeFunc =
                 serviceExecutor->coroutineResumeFunctor(session->ThreadGroupId(), resumeTask);
-            longResumeFunc =
+            coroCtx->longResumeFunc =
                 serviceExecutor->coroutineLongResumeFunctor(session->ThreadGroupId(), resumeTask);
 
-            auto task = [&finished, &mux, &cv, &source, &yieldFunc, opCtx, session, &client] {
+            auto task = [&finished, &mux, &cv, coroCtx, opCtx, session, &client] {
                 Client::setCurrent(std::move(client));
-
-                source = boost::context::callcc(
-                    [&finished, &mux, &cv, &yieldFunc, opCtx, session, &client](
+                coroCtx->source = boost::context::callcc(
+                    std::allocator_arg,
+                    coroCtx->salloc,
+                    [&finished, &mux, &cv, coroCtx, opCtx, session, &client](
                         boost::context::continuation&& sink) {
-                        yieldFunc = [&sink, &client]() {
-                            log() << "abortArbitraryTransactionIfExpired call yield";
+                        coroCtx->yieldFunc = [&sink, &client]() {
+                            log() << "abortArbitraryTransactionIfExpired call yield.";
                             client = Client::releaseCurrent();
                             sink = sink.resume();
                         };
