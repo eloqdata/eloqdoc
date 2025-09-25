@@ -18,16 +18,16 @@ if [ -n "${GIT_SSH_KEY:-}" ]; then
   mkdir -p ~/.ssh
   echo "${GIT_SSH_KEY}" > ~/.ssh/id_rsa
   chmod 600 ~/.ssh/id_rsa
-  ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null 
+  ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 fi
 
 # Link workspace inputs to expected layout
 cd "$HOME"
 ln -sfn "${WORKSPACE}/eloqdoc_src" eloqdoc
 cd eloqdoc
-ln -sfn "$WORKSPACE/logservice_src" src/mongo/db/modules/eloq/log_service 
+ln -sfn "$WORKSPACE/logservice_src" src/mongo/db/modules/eloq/log_service
 pushd src/mongo/db/modules/eloq/tx_service
-ln -sfn "$WORKSPACE/raft_host_manager_src" raft_host_manager 
+ln -sfn "$WORKSPACE/raft_host_manager_src" raft_host_manager
 popd
 ELOQDOC_SRC=${PWD}
 
@@ -56,8 +56,8 @@ popd
 # Ensure pyenv available in current shell
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init - bash)" 
-pyenv local 2.7.18 || pyenv global 2.7.18 
+eval "$(pyenv init - bash)"
+pyenv local 2.7.18 || pyenv global 2.7.18
 
 # Build configuration
 : "${BUILD_TYPE:=Debug}"
@@ -143,21 +143,18 @@ copy_libraries() {
 }
 
 echo "Configuring and building EloqDoc (OPEN_LOG_SERVICE=ON)"
-pyenv local 2.7.18 
+pyenv local 2.7.18
 export OPEN_LOG_SERVICE=1 FORK_HM_PROCESS=0
 
 # Configure and build engine via CMake
 # Extra cmake args for log service RocksDB cloud backend selection
 CMAKE_EXTRA_ARGS=""
 if [ "${DATA_STORE_TYPE:-}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=S3"
-  export WITH_ROCKSDB_CLOUD=S3
+  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3"
 elif [ "${DATA_STORE_TYPE:-}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
-  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=GCS"
-  export WITH_ROCKSDB_CLOUD=GCS
+  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_LOG_STATE=ROCKSDB_CLOUD_GCS"
 else
-  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_ROCKSDB_CLOUD=OFF"
-  export WITH_ROCKSDB_CLOUD=0
+  CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DWITH_LOG_STATE=ROCKSDB"
 fi
 
 cmake -G "Unix Makefiles" \
@@ -202,10 +199,10 @@ if [ -f ${DEST_DIR}/bin/host_manager ]; then
 fi
 
 # Fix rpath for executables
-patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/mongo 
-patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/mongod 
+patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/mongo
+patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/mongod
 if [ -f ${DEST_DIR}/bin/host_manager ]; then
-  patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/host_manager 
+  patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/host_manager
 fi
 
 # Preload libmimalloc and libbrpc at launch.
@@ -215,15 +212,13 @@ patchelf --add-needed libbrpc.so ${DEST_DIR}/bin/mongod
 patchelf --add-needed libmimalloc.so.2 ${DEST_DIR}/bin/mongod
 
 # Config files
-cp ${ELOQDOC_SRC}/concourse/artifact/${DATA_STORE_TYPE}/* ${DEST_DIR}/etc 
+cp ${ELOQDOC_SRC}/concourse/artifact/${DATA_STORE_TYPE}/* ${DEST_DIR}/etc
 
 
 # Cleanup
 cd "$ELOQDOC_SRC"
-rm -rf src/mongo/db/modules/eloq/build 
-rm -rf build 
-rm -rf ${DEST_DIR} 
+rm -rf src/mongo/db/modules/eloq/build
+rm -rf build
+rm -rf ${DEST_DIR}
 
 echo "Build completed."
-
-

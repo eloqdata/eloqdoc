@@ -65,6 +65,8 @@ elif data_store_type_str == "BIGTABLE":
     data_store_type = DATA_STORE_TYPE_BIGTABLE
 elif data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_S3":
     data_store_type = DATA_STORE_TYPE_ROCKSDB_CLOUD
+elif data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_GCS":
+    data_store_type = DATA_STORE_TYPE_ROCKSDB_CLOUD
 elif data_store_type_str == "ELOQDSS_ROCKSDB":
     data_store_type = DATA_STORE_TYPE_ROCKSDB
 elif data_store_type_str == "ELOQDSS_ELOQSTORE":
@@ -94,17 +96,21 @@ if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
 else:
     env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/eloq_log_service/include"])
 
-if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("S3"):
-    env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 1)])
-if os.environ.get("WITH_ROCKSDB_CLOUD", "0") in ("GCS"):
-    env.Append(CPPDEFINES=[("WITH_ROCKSDB_CLOUD", 2)])
+if os.environ.get("WITH_LOG_STATE", "0") in ("MEMORY"):
+    env.Append(CPPDEFINES=["LOG_STATE_TYPE_MEM"])
+if os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB"):
+    env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB"])
+if os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_S3"):
+    env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB_S3"])
+if os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_GCS"):
+    env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB_GCS"])
+
 if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["FORK_HM_PROCESS"])
 
 env.Append(CPPDEFINES=[
     "OVERRIDE_GFLAGS_NAMESPACE",
     "BRPC_WITH_GLOG",
-    "USE_ROCKSDB_LOG_STATE",
     # "BRPC_ENABLE_CPU_PROFILER",
     "EXT_TX_PROC_ENABLED",
     "STATISTICS",
@@ -141,18 +147,27 @@ env["CPPPATH"].extend(
 )
 
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
-    env["CPPPATH"].extend(
-        [
-            FindIncludePath("aws/core"),
-            FindIncludePath("aws/kinesis"),
-            FindIncludePath("aws/s3"),
-            # FindIncludePath("google/cloud/storage"),
-            FindIncludePath("rocksdb_cloud_header/"),
-            FindIncludePath("rocksdb_cloud_header/rocksdb"),
-            FindIncludePath("rocksdb_cloud_header/rocksdb/cloud"),
-            # FindIncludePath("gperftools/heap-profiler.h")
-        ]
-    )
+   env["CPPPATH"].extend(
+       [
+           FindIncludePath("rocksdb_cloud_header/"),
+           FindIncludePath("rocksdb_cloud_header/rocksdb"),
+           FindIncludePath("rocksdb_cloud_header/rocksdb/cloud")
+       ]
+   )
+   if data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_S3":
+      env["CPPPATH"].extend(
+          [
+              FindIncludePath("aws/core"),
+              FindIncludePath("aws/kinesis"),
+              FindIncludePath("aws/s3"),
+          ]
+      )
+   elif data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_GCS":
+      env["CPPPATH"].extend(
+          [
+              FindIncludePath("google/cloud/storage")
+          ]
+      )
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     env["CPPPATH"].extend(
         [
@@ -226,11 +241,12 @@ env.Append(LIBS=cmake_module_libs)
 # this module directly references AWS Init/Shutdown APIs under S3 builds.
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
     # Prefer explicit names; system library paths are already searched via SYSTEM_LIBRARY_PATH.
-    cloud_backend = os.environ.get("WITH_ROCKSDB_CLOUD", "")
-    if cloud_backend == "S3":
+    if data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_S3":
         env.Append(LIBS=["aws-cpp-sdk-core"])  # Aws::InitAPI/Aws::ShutdownAPI
-        env.Append(LIBS=["aws-cpp-sdk-kinesis", "aws-cpp-sdk-s3", "rocksdb-cloud-aws"]) 
-
+        env.Append(LIBS=["aws-cpp-sdk-kinesis", "aws-cpp-sdk-s3", "rocksdb-cloud-aws"])
+    elif data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_GCS":
+        env.Append(LIBS=["google_cloud_cpp_common"])
+	env.Append(LIBS=["google_cloud_cpp_storage", "rocksdb-cloud-gcp"])
 
 env.Library(
     target="storage_eloq_core",

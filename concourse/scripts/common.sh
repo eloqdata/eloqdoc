@@ -36,7 +36,7 @@ cleanup_all() {
       local bucket_name="$2"
       local bucket_prefix="$3"
       local full_bucket_name="${bucket_prefix}${bucket_name}"
-      
+
       echo "Cleaning buckets: $full_bucket_name"
       mc rb minio_server/${full_bucket_name} --force
 
@@ -65,7 +65,6 @@ compile_and_install() {
             -DEXT_TX_PROC_ENABLED=ON \
             -DSTATISTICS=ON \
             -DUSE_ASAN=OFF \
-            -DWITH_ROCKSDB_CLOUD=OFF \
             -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3
 
       cmake --build src/mongo/db/modules/eloq/build
@@ -113,7 +112,7 @@ compile_and_install_ent() {
             -DEXT_TX_PROC_ENABLED=ON \
             -DSTATISTICS=ON \
             -DUSE_ASAN=OFF \
-            -DWITH_ROCKSDB_CLOUD=S3 \
+            -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 \
             -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 \
             -DFORK_HM_PROCESS=ON \
             -DOPEN_LOG_SERVICE=OFF
@@ -126,7 +125,7 @@ compile_and_install_ent() {
       # Detect CPU cores for optimal parallel builds
       # CPU_CORE_SIZE=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
       CPU_CORE_SIZE=4
-      env OPEN_LOG_SERVICE=0 WITH_ROCKSDB_CLOUD=S3 FORK_HM_PROCESS=1 \
+      env OPEN_LOG_SERVICE=0 WITH_LOG_STATE=ROCKSDB_CLOUD_S3 FORK_HM_PROCESS=1 \
       python2 buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
             LIBPATH=/usr/local/lib \
@@ -229,7 +228,7 @@ run_tpcc() {
       ln -s /home/$current_user/workspace/mongo/concourse/scripts/pytpcc.cfg mongodb.config
       python3 tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
       echo "pytpcc load"
-      python3 tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb 
+      python3 tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb
       echo "pytpcc run"
       python3 tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 --duration 600 mongodb &> ./tpcc-run.log
       tail -n1000 ./tpcc-run.log

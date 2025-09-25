@@ -84,14 +84,31 @@
 #else
 #endif
 
-#if (defined(DATA_STORE_TYPE_DYNAMODB) ||                                      \
-     (defined(USE_ROCKSDB_LOG_STATE) && (WITH_ROCKSDB_CLOUD == CS_TYPE_S3)) || \
+#if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
 #include <aws/core/Aws.h>
 #include <aws/core/utils/logging/AWSLogging.h>
 #include <aws/core/utils/logging/DefaultLogSystem.h>
 #include <aws/core/utils/memory/stl/AWSString.h>
 #endif
+
+// Log state type
+// Only if LOG_STATE_TYPE_RKDB_CLOUD undefined
+#if ((defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS)) && \
+     !defined(LOG_STATE_TYPE_RKDB))
+#define LOG_STATE_TYPE_RKDB_CLOUD 1
+#endif
+
+// Only if LOG_STATE_TYPE_RKDB_ALL undefined
+#if (defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS) || \
+     defined(LOG_STATE_TYPE_RKDB))
+#define LOG_STATE_TYPE_RKDB_ALL 1
+#endif
+
+#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
+#include "rocksdb_cloud_config.h"
+#endif
+
 
 namespace Eloq {
 std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
@@ -102,8 +119,7 @@ std::unique_ptr<EloqDS::DataStoreService> dataStoreService;
 }  // namespace Eloq
 namespace mongo {
 
-#if (defined(DATA_STORE_TYPE_DYNAMODB) ||                                      \
-     (defined(USE_ROCKSDB_LOG_STATE) && (WITH_ROCKSDB_CLOUD == CS_TYPE_S3)) || \
+#if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
 
 
@@ -245,8 +261,7 @@ bool EloqKVEngine::InitMetricsRegistry() {
 }
 
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
-#if (defined(DATA_STORE_TYPE_DYNAMODB) ||                                      \
-     (defined(USE_ROCKSDB_LOG_STATE) && (WITH_ROCKSDB_CLOUD == CS_TYPE_S3)) || \
+#if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
     awsInit();
 #endif
@@ -376,16 +391,16 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                   << eloq_notify_checkpointer_threshold_size;
         }
 
-#ifdef USE_ROCKSDB_LOG_STATE
+#if defined(LOG_STATE_TYPE_RKDB_ALL)
         std::string eloq_rocksdb_target_file_size_base = "10MB";
         size_t rocksdb_target_file_size_base_val =
             txlog::parse_size(eloq_rocksdb_target_file_size_base);
-#ifdef WITH_ROCKSDB_CLOUD
+#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
         txlog::RocksDBCloudConfig rocksdb_cloud_config;
-#if WITH_ROCKSDB_CLOUD == CS_TYPE_S3
+#if defined(LOG_STATE_TYPE_RKDB_S3)
         rocksdb_cloud_config.aws_access_key_id_ = eloqGlobalOptions.awsAccessKeyId;
         rocksdb_cloud_config.aws_secret_key_ = eloqGlobalOptions.awsSecretKey;
-#endif /* WITH_ROCKSDB_CLOUD == CS_TYPE_S3 */
+#endif /* LOG_STATE_TYPE_RKDB_S3 */
         rocksdb_cloud_config.bucket_name_ = eloqGlobalOptions.txlogRocksDBCloudBucketName;
         rocksdb_cloud_config.bucket_prefix_ = eloqGlobalOptions.txlogRocksDBCloudBucketPrefix;
         rocksdb_cloud_config.object_path_ = eloqGlobalOptions.txlogRocksDBCloudObjectPath;
@@ -450,7 +465,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         );
 #endif
 #endif
-#endif /* USE_ROCKSDB_LOG_STATE */
+#endif /* LOG_STATE_TYPE_RKDB_ALL */
 
 
         int err = _logServer->Start();
@@ -1204,8 +1219,7 @@ void EloqKVEngine::cleanShutdown() {
     Eloq::storeHandler.reset();
     Eloq::dataStoreService.reset();
 
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                      \
-    (defined(USE_ROCKSDB_LOG_STATE) && (WITH_ROCKSDB_CLOUD == CS_TYPE_S3)) || \
+#if defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
     aws_deinit();
 #endif

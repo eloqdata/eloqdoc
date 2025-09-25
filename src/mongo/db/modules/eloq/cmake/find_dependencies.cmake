@@ -151,7 +151,6 @@ message(STATUS "Dependencies: Found Glog. Library: ${GLOG_LIB}, Include director
 include_directories(${GLOG_INCLUDE_PATH})
 
 # --- RocksDB and Cloud SDKs (Conditional) ---
-# These dependencies are required if USE_ROCKSDB_LOG_STATE is ON
 # or if WITH_DATA_STORE involves RocksDB (e.g., ELOQDSS_ROCKSDB_CLOUD_S3 for data_store).
 
 # Flag to track if RocksDB (base or cloud) is found and configured
@@ -161,10 +160,11 @@ set(ROCKSDB_CLOUD_SDK_FOUND OFF)
 
 # Determine if any RocksDB related feature is enabled, thus requiring RocksDB
 set(NEED_ROCKSDB OFF)
-if(USE_ROCKSDB_LOG_STATE)
+if(DEFINED WITH_LOG_STATE AND (WITH_LOG_STATE MATCHES "ROCKSDB|ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_GCS"))
     set(NEED_ROCKSDB ON)
-    message(STATUS "Dependencies: RocksDB needed due to USE_ROCKSDB_LOG_STATE.")
+    message(STATUS "Dependencies: RocksDB needed due to WITH_LOG_STATE.")
 endif()
+
 # Check if data store configuration requires RocksDB
 if(DEFINED WITH_DATA_STORE AND (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS" OR WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB"))
     set(NEED_ROCKSDB ON)
@@ -184,11 +184,13 @@ if(NEED_ROCKSDB)
     set(NEED_ROCKSDB_CLOUD_GCS OFF)
 
     # Check for S3 cloud requirement from log_service configuration
-    if(USE_ROCKSDB_LOG_STATE AND WITH_ROCKSDB_CLOUD STREQUAL "S3")
-        set(NEED_ROCKSDB_CLOUD_S3 ON)
-        # Check for GCS cloud requirement from log_service configuration
-    elseif(USE_ROCKSDB_LOG_STATE AND WITH_ROCKSDB_CLOUD STREQUAL "GCS")
-        set(NEED_ROCKSDB_CLOUD_GCS ON)
+    if(DEFINED WITH_DATA_STORE)
+       if(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_S3")
+           set(NEED_ROCKSDB_CLOUD_S3 ON)
+           # Check for GCS cloud requirement from log_service configuration
+       elseif(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_GCS")
+           set(NEED_ROCKSDB_CLOUD_GCS ON)
+       endif()
     endif()
 
     # Check for cloud requirements from data_store configuration
@@ -232,7 +234,6 @@ if(NEED_ROCKSDB)
         # Add compile definition to enable AWS S3 specific code paths
         add_compile_definitions(USE_AWS)
         message(STATUS "Dependencies: Added compile definition USE_AWS for S3 support.")
-        # Module-specific definitions like ROCKSDB_CLOUD_FS_TYPE=1 or WITH_ROCKSDB_CLOUD=1 should be handled in module CMake files.
         set(ROCKSDB_CLOUD_SDK_FOUND ON)
     elseif(NEED_ROCKSDB_CLOUD_GCS)
         message(STATUS "Dependencies: RocksDB with GCS Cloud support is required.")
@@ -261,7 +262,6 @@ if(NEED_ROCKSDB)
         # Add compile definition to enable GCP GCS specific code paths
         add_compile_definitions(USE_GCP)
         message(STATUS "Dependencies: Added compile definition USE_GCP for GCS support.")
-        # Module-specific definitions like ROCKSDB_CLOUD_FS_TYPE=2 or WITH_ROCKSDB_CLOUD=2 should be handled in module CMake files.
         set(ROCKSDB_CLOUD_SDK_FOUND ON)
     else()
         message(STATUS "Dependencies: RocksDB is requied")
@@ -288,6 +288,7 @@ if(NEED_ROCKSDB)
     if(NOT ROCKSDB_BASE_INCLUDE_PATH)
         message(FATAL_ERROR "Dependencies: Failed to find RocksDB base include path (rocksdb/db.h). Ensure RocksDB is installed correctly and accessible.")
     endif()
+
     message(STATUS "Dependencies: Found RocksDB base include path: ${ROCKSDB_BASE_INCLUDE_PATH}")
     # Append RocksDB base include directory to the global list for RocksDB-related components
     list(APPEND ROCKSDB_GLOBAL_INCLUDE_DIRS ${ROCKSDB_BASE_INCLUDE_PATH})

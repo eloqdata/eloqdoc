@@ -21,11 +21,6 @@ option(EXT_TX_PROC_ENABLED "Allows external threads to move forward the tx servi
 option(FORK_HM_PROCESS "Whether to fork a separate Host Manager process for Raft." OFF)
 option(STATISTICS "Whether to enable table statistics collection in the tx service." ON)
 
-# --- Log Service Options ---
-option(USE_ROCKSDB_LOG_STATE "Use RocksDB for log state persistence instead of in-memory." ON)
-option(WITH_ROCKSDB_CLOUD "Specify RocksDB Cloud storage backend if USE_ROCKSDB_LOG_STATE is ON. Options: S3, GCS, or empty for local RocksDB." "")
-set_property(CACHE WITH_ROCKSDB_CLOUD PROPERTY STRINGS "" "S3" "GCS") # "" means local RocksDB if USE_ROCKSDB_LOG_STATE is ON
-
 # --- ELOQ Metrics Options ---
 option(ENABLE_BENCHMARK "Enable Google Benchmark for eloq_metrics." OFF)
 option(WITH_GLOG "Enable glog for eloq_metrics module (distinct from BRPC_WITH_GLOG)." OFF) # Note: This is specific to eloq_metrics
@@ -68,7 +63,6 @@ if(FORK_HM_PROCESS)
 endif()
 
 #  STATISTICS, SMALL_RANGE definitions are handled in build_tx_service.cmake
-# USE_ROCKSDB_LOG_STATE definition is handled in build_log_service.cmake
 
 if(USE_ASAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")

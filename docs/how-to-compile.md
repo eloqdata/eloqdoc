@@ -87,7 +87,7 @@ Run the following commands from the repository root:
 cmake -S src/mongo/db/modules/eloq \
       -B src/mongo/db/modules/eloq/build \
       -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
-      -DWITH_ROCKSDB_CLOUD=S3 \
+      -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 \
       -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3
 cmake --build src/mongo/db/modules/eloq/build -j8
 cmake --install src/mongo/db/modules/eloq/build
@@ -104,7 +104,7 @@ pyenv global 2.7.18
 Compile EloqDoc from the repository root.
 
 ```bash
-env WITH_ROCKSDB_CLOUD=S3 WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 \
+env WITH_LOG_STATE=ROCKSDB_CLOUD_S3 WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 \
 python buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=RelWithDebInfo \
