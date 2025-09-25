@@ -184,7 +184,7 @@ if(NEED_ROCKSDB)
     set(NEED_ROCKSDB_CLOUD_GCS OFF)
 
     # Check for S3 cloud requirement from log_service configuration
-    if(DEFINED WITH_DATA_STORE)
+    if(DEFINED WITH_LOG_STATE)
        if(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_S3")
            set(NEED_ROCKSDB_CLOUD_S3 ON)
            # Check for GCS cloud requirement from log_service configuration
