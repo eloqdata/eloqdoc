@@ -98,11 +98,11 @@ else:
 
 if os.environ.get("WITH_LOG_STATE", "0") in ("MEMORY"):
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_MEM"])
-if os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB"):
+elif os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB"):
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB"])
-if os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_S3"):
+elif os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_S3"):
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB_S3"])
-if os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_GCS"):
+elif os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_GCS"):
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB_GCS"])
 
 if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
