@@ -97,11 +97,9 @@ if(WITH_LOG_STATE MATCHES "ROCKSDB|ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_GCS") # WITH_L
        include_directories(${ROCKSDB_BASE_INCLUDE_PATH}) # Add to this module's includes
      endif()
   endif()
-
-  list(APPEND LOG_LIB ${LOG_SERVICE_ROCKSDB_LIBRARIES})
+else()
+  message(STATUS "LogService: WITH_LOG_STATE=MEMORY. Skipping RocksDB discovery.")
 endif()
-
-
 
 set(LOG_INCLUDE_DIR_MODULE # Module specific include directories
   ${LOG_SOURCE_DIR}/include
