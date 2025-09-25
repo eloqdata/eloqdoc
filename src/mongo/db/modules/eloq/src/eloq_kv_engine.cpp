@@ -93,11 +93,17 @@
 #endif
 
 // Log state type
+#if !defined(LOG_STATE_TYPE_RKDB_CLOUD)
+
 // Only if LOG_STATE_TYPE_RKDB_CLOUD undefined
 #if ((defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS)) && \
      !defined(LOG_STATE_TYPE_RKDB))
 #define LOG_STATE_TYPE_RKDB_CLOUD 1
 #endif
+
+#endif
+
+#if !defined(LOG_STATE_TYPE_RKDB_ALL)
 
 // Only if LOG_STATE_TYPE_RKDB_ALL undefined
 #if (defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS) || \
@@ -105,10 +111,11 @@
 #define LOG_STATE_TYPE_RKDB_ALL 1
 #endif
 
+#endif
+
 #if defined(LOG_STATE_TYPE_RKDB_CLOUD)
 #include "rocksdb_cloud_config.h"
 #endif
-
 
 namespace Eloq {
 std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;

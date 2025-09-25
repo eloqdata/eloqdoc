@@ -22,7 +22,6 @@
 
 #include "mongo/db/storage/kv/kv_engine.h"
 
-#include "log_utils.h"
 #include "mongo/db/modules/eloq/src/base/eloq_catalog_factory.h"
 #include "mongo/db/modules/eloq/src/base/eloq_log_agent.h"
 #include "mongo/db/modules/eloq/src/eloq_index.h"
@@ -32,6 +31,7 @@
 #include "mongo/db/modules/eloq/log_service/include/log_server.h"
 #else
 #include "mongo/db/modules/eloq/eloq_log_service/include/log_server.h"
+#include "mongo/db/modules/eloq/eloq_log_service/include/log_utils.h"
 #endif
 #include "mongo/db/modules/eloq/tx_service/include/tx_service.h"
 
