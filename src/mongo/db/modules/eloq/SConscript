@@ -100,13 +100,14 @@ if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
 else:
     env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/eloq_log_service/include"])
 
-if os.environ.get("WITH_LOG_STATE", "0") in ("MEMORY"):
+with_log_state = os.environ.get("WITH_LOG_STATE", "").upper()
+if with_log_state == "MEMORY":
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_MEM"])
-elif os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB"):
+elif with_log_state == "ROCKSDB":
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB"])
-elif os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_S3"):
+elif with_log_state == "ROCKSDB_CLOUD_S3":
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB_S3"])
-elif os.environ.get("WITH_LOG_STATE", "0") in ("ROCKSDB_CLOUD_GCS"):
+elif with_log_state == "ROCKSDB_CLOUD_GCS":
     env.Append(CPPDEFINES=["LOG_STATE_TYPE_RKDB_GCS"])
 
 if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
@@ -151,27 +152,22 @@ env["CPPPATH"].extend(
 )
 
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
-   env["CPPPATH"].extend(
-       [
-           FindIncludePath("rocksdb_cloud_header/"),
-           FindIncludePath("rocksdb_cloud_header/rocksdb"),
-           FindIncludePath("rocksdb_cloud_header/rocksdb/cloud")
-       ]
-   )
+   _rkdb_cloud_includes = [
+       FindIncludePath("rocksdb_cloud_header/"),
+       FindIncludePath("rocksdb_cloud_header/rocksdb"),
+       FindIncludePath("rocksdb_cloud_header/rocksdb/cloud"),
+   ]
+   env["CPPPATH"].extend([p for p in _rkdb_cloud_includes if p])
    if data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_S3":
-      env["CPPPATH"].extend(
-          [
-              FindIncludePath("aws/core"),
-              FindIncludePath("aws/kinesis"),
-              FindIncludePath("aws/s3"),
-          ]
-      )
+      _aws_includes = [
+          FindIncludePath("aws/core"),
+          FindIncludePath("aws/kinesis"),
+          FindIncludePath("aws/s3"),
+      ]
+      env["CPPPATH"].extend([p for p in _aws_includes if p])
    elif data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_GCS":
-      env["CPPPATH"].extend(
-          [
-              FindIncludePath("google/cloud/storage")
-          ]
-      )
+      _gcs_includes = [FindIncludePath("google/cloud/storage")]
+      env["CPPPATH"].extend([p for p in _gcs_includes if p])
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     env["CPPPATH"].extend(
         [
