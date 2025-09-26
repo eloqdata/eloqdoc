@@ -125,7 +125,7 @@ compile_and_install_ent() {
       # Detect CPU cores for optimal parallel builds
       # CPU_CORE_SIZE=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
       CPU_CORE_SIZE=4
-      env OPEN_LOG_SERVICE=0 WITH_LOG_STATE=ROCKSDB_CLOUD_S3 FORK_HM_PROCESS=1 \
+      env OPEN_LOG_SERVICE=0 WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 WITH_LOG_STATE=ROCKSDB_CLOUD_S3 FORK_HM_PROCESS=1 \
       python2 buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
             LIBPATH=/usr/local/lib \
