@@ -62,6 +62,11 @@
 #define ELOQDS 1
 #endif
 
+#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) || \
+     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS))
+#define ELOQDS_RKDB_CLOUD 1
+#endif
+
 #if defined(DATA_STORE_TYPE_DYNAMODB)
 #include "store_handler/dynamo_handler.h"
 #elif defined(DATA_STORE_TYPE_BIGTABLE)
@@ -70,9 +75,7 @@
 #include "mongo/db/modules/eloq/store_handler/data_store_service_client.h"
 #include "mongo/db/modules/eloq/store_handler/eloq_data_store_service/data_store_service.h"
 #include "mongo/db/modules/eloq/store_handler/eloq_data_store_service/data_store_service_config.h"
-#if (defined(ROCKSDB_CLOUD_FS_TYPE) &&                     \
-     (ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3 || \
-      ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_GCS))
+#if ELOQDS_RKDB_CLOUD
 #include "store_handler/eloq_data_store_service/rocksdb_cloud_data_store_factory.h"
 #include "store_handler/eloq_data_store_service/rocksdb_config.h"
 #elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
@@ -114,7 +117,7 @@
 #endif
 
 #if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-#include "rocksdb_cloud_config.h"
+#include "mongo/db/modules/eloq/eloq_log_service/include/rocksdb_cloud_config.h"
 #endif
 
 namespace Eloq {
