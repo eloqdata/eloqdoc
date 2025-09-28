@@ -88,7 +88,7 @@ if [ -n "${TAGGED}" ]; then
         echo "No tags found but TAGGED requested"
         exit 1
     fi
-    scripts/git-checkout.sh "${TAGGED}" || true
+    # scripts/git-checkout.sh "${TAGGED}" || true
 fi
 
 S3_BUCKET="eloq-release"

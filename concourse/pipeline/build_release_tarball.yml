@@ -5,7 +5,7 @@ resources:
     branch: rel_x_x_x_eloqdoc
     uri: git@github.com:eloqdata/eloqdoc.git
     private_key: ((git-key))
-    tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
+    # tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
 
 - name: image_ubuntu2004_main
   type: registry-image
@@ -40,14 +40,14 @@ resources:
 - name: eloq_logservice_src_main
   type: git
   source:
-    branch: main
+    branch: rel_x_x_x_eloqdoc
     private_key: ((git-key))
     uri: git@github.com:eloqdata/eloq_log_service.git
 
 - name: raft_host_manager_src_main
   type: git
   source:
-    branch: main
+    branch: rel_x_x_x_eloqdoc
     private_key: ((git-key))
     uri: git@github.com:eloqdata/raft_host_manager.git
 

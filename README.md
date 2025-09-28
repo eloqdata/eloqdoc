@@ -62,7 +62,7 @@ Operates as a distributed database without requiring a sharding coordinator (e.g
 **Step-1**, download the official package for EloqDoc-RocksDB.
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-debug-ubuntu22-amd64.tar.gz
+wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-0.2.6-ubuntu22-amd64.tar.gz
 ```
 
 All released package can be found at [download](https://www.eloqdata.com/download) page.
@@ -118,7 +118,7 @@ MongoDB server version: 4.0.3
 **Step-1**, download the official package for EloqDoc-RocksDBCloud.
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-debug-ubuntu22-amd64.tar.gz
+wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-0.2.6-ubuntu22-amd64.tar.gz
 ```
 
 All released package can be found at [download](https://www.eloqdata.com/download) page.
