@@ -320,9 +320,10 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
     const txservice::CatalogKey& catalogKey,
     txservice::CatalogRecord& catalogRecord,
     bool isForWrite) {
-    MONGO_LOG(1) << "EloqRecoveryUnit::readCatalog"
-                 << ". catalogKey: " << catalogKey.ToString() << ". isForWrite: " << isForWrite;
     getTxm();
+    MONGO_LOG(1) << "EloqRecoveryUnit::readCatalog"
+                 << ". catalogKey: " << catalogKey.ToString() << ". isForWrite: " << isForWrite
+                 << ",txn:" << _txm->TxNumber();
 
     txservice::TxKey catalogTxKey{&catalogKey};
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -343,7 +344,10 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
                                        _txm);
     bool exists{false};
     auto errorCode = txservice::TxReadCatalog(_txm, readTxReq, exists);
-
+    MONGO_LOG(1) << "EloqRecoveryUnit::readCatalog"
+                 << ". catalogKey: " << catalogKey.ToString() << ". isForWrite: " << isForWrite
+                 << ",txn:" << _txm->TxNumber() << ",exists:" << (int)exists
+                 << ",errorCode:" << (int)errorCode;
     return {exists, errorCode};
 }
 
@@ -531,7 +535,7 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
                                                      _txm};
     _txm->Execute(&upsertTableTxReq);
     upsertTableTxReq.Wait();
-    MONGO_LOG(1) << "txNumber: " << _txm->TxNumber();
+    MONGO_LOG(1) << "txNumber: " << _txm->TxNumber() << ", tableName: " << tableName.StringView();
     switch (upsertTableTxReq.Result()) {
         case txservice::UpsertResult::Succeeded:
             MONGO_LOG(1) << "UpsertTableTxRequest success";
@@ -757,7 +761,7 @@ void EloqRecoveryUnit::putUnreadyTable(const txservice::TableName& tableName, co
 }
 
 std::pair<const EloqRecoveryUnit::DiscoveredTable*, txservice::TxErrorCode>
-EloqRecoveryUnit::discoverTable(const txservice::TableName& tableName) {
+EloqRecoveryUnit::discoverTable(const txservice::TableName& tableName, bool isForWrite) {
     MONGO_LOG(1) << "EloqRecoveryUnit::discoverTable. tableName: " << tableName.StringView();
 
     if (auto iter = _discoveredTableMap.find(tableName); iter != _discoveredTableMap.end()) {
@@ -767,7 +771,7 @@ EloqRecoveryUnit::discoverTable(const txservice::TableName& tableName) {
 
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
-    auto [exist, errorCode] = readCatalog(catalogKey, catalogRecord, false);
+    auto [exist, errorCode] = readCatalog(catalogKey, catalogRecord, isForWrite);
     if (errorCode != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "ReadCatalog Error. [ErrorCode]: " << errorCode << ". "
                      << tableName.StringView();

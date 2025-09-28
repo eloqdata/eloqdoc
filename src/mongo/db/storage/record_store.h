@@ -367,6 +367,13 @@ public:
         return true;
     }
 
+    virtual bool findRecord(OperationContext* opCtx,
+                            const RecordId& loc,
+                            RecordData* out,
+                            bool isForWrite) const {
+        assert(false);
+    }
+
     virtual void deleteRecord(OperationContext* opCtx, const RecordId& dl) = 0;
 
     virtual StatusWith<RecordId> insertRecord(OperationContext* opCtx,

@@ -248,8 +248,9 @@ Status KVDatabaseCatalogEntryBase::createCollection(OperationContext* opCtx,
         const auto feature = KVCatalog::FeatureTracker::NonRepairableFeature::kCollation;
         if (_engine->getCatalog()->getFeatureTracker()->isNonRepairableFeatureInUse(opCtx,
                                                                                     feature)) {
-            _engine->getCatalog()->getFeatureTracker()->markNonRepairableFeatureAsInUse(opCtx,
-                                                                                        feature);
+            auto st = _engine->getCatalog()->getFeatureTracker()->markNonRepairableFeatureAsInUse(
+                opCtx, feature);
+            fassert(70005, st);
         }
     }
 

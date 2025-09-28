@@ -191,7 +191,7 @@ public:
     void putUnreadyTable(const txservice::TableName& tableName, const BSONObj& obj);
 
     std::pair<const DiscoveredTable*, txservice::TxErrorCode> discoverTable(
-        const txservice::TableName& tableName);
+        const txservice::TableName& tableName, bool isForWrite = false);
 
     const DiscoveredTable& discoveredTable(const txservice::TableName& tableName) const;
 

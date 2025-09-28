@@ -230,11 +230,11 @@ bool KVCatalog::FeatureTracker::isNonRepairableFeatureInUse(OperationContext* op
     return versionInfo.nonRepairableFeatures & static_cast<NonRepairableFeatureMask>(feature);
 }
 
-void KVCatalog::FeatureTracker::markNonRepairableFeatureAsInUse(OperationContext* opCtx,
-                                                                NonRepairableFeature feature) {
+Status KVCatalog::FeatureTracker::markNonRepairableFeatureAsInUse(OperationContext* opCtx,
+                                                                  NonRepairableFeature feature) {
     FeatureBits versionInfo = getInfo(opCtx);
     versionInfo.nonRepairableFeatures |= static_cast<NonRepairableFeatureMask>(feature);
-    putInfo(opCtx, versionInfo);
+    return putInfo(opCtx, versionInfo);
 }
 
 void KVCatalog::FeatureTracker::markNonRepairableFeatureAsNotInUse(OperationContext* opCtx,
@@ -250,11 +250,11 @@ bool KVCatalog::FeatureTracker::isRepairableFeatureInUse(OperationContext* opCtx
     return versionInfo.repairableFeatures & static_cast<RepairableFeatureMask>(feature);
 }
 
-void KVCatalog::FeatureTracker::markRepairableFeatureAsInUse(OperationContext* opCtx,
-                                                             RepairableFeature feature) {
+Status KVCatalog::FeatureTracker::markRepairableFeatureAsInUse(OperationContext* opCtx,
+                                                               RepairableFeature feature) {
     FeatureBits versionInfo = getInfo(opCtx);
     versionInfo.repairableFeatures |= static_cast<RepairableFeatureMask>(feature);
-    putInfo(opCtx, versionInfo);
+    return putInfo(opCtx, versionInfo);
 }
 
 void KVCatalog::FeatureTracker::markRepairableFeatureAsNotInUse(OperationContext* opCtx,
@@ -298,7 +298,7 @@ KVCatalog::FeatureTracker::FeatureBits KVCatalog::FeatureTracker::getInfo(
     return versionInfo;
 }
 
-void KVCatalog::FeatureTracker::putInfo(OperationContext* opCtx, const FeatureBits& versionInfo) {
+Status KVCatalog::FeatureTracker::putInfo(OperationContext* opCtx, const FeatureBits& versionInfo) {
     BSONObjBuilder bob;
     bob.appendBool(kIsFeatureDocumentFieldName, true);
     // We intentionally include the "ns" field with a null value in the feature document to prevent
@@ -315,7 +315,8 @@ void KVCatalog::FeatureTracker::putInfo(OperationContext* opCtx, const FeatureBi
     // if (_rid.isNull()) {
     //
     RecordData record;
-    bool exists = _catalog->_rs->findRecord(opCtx, _rid, &record);
+    bool exists = _catalog->_rs->findRecord(opCtx, _rid, &record, true);
+    MONGO_LOG(1) << "FeatureTracker::putInfo: is_upsert" << (int)opCtx->isUpsert();
     if (!exists) {
         // This is the first time a feature is being marked as in-use or not in-use, so we must
         // insert the feature document rather than update it.
@@ -323,13 +324,15 @@ void KVCatalog::FeatureTracker::putInfo(OperationContext* opCtx, const FeatureBi
         // TODO SERVER-30638: using timestamp 0 for these inserts
         auto rid = _catalog->_rs->insertRecord(
             opCtx, obj.objdata(), obj.objsize(), Timestamp(), enforceQuota);
-        fassert(40113, rid.getStatus());
+        // fassert(40113, rid.getStatus());
+        return rid.getStatus();
     } else {
         const bool enforceQuota = false;
         UpdateNotifier* notifier = nullptr;
         auto status = _catalog->_rs->updateRecord(
             opCtx, _rid, obj.objdata(), obj.objsize(), enforceQuota, notifier);
-        fassert(40114, status);
+        // fassert(40114, status);
+        return status;
     }
 }
 

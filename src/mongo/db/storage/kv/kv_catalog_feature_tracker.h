@@ -135,13 +135,15 @@ public:
      * Sets the specified non-repairable feature as being enabled on at least one collection or
      * index in the data files.
      */
-    void markNonRepairableFeatureAsInUse(OperationContext* opCtx, NonRepairableFeature feature);
+    // void markNonRepairableFeatureAsInUse(OperationContext* opCtx, NonRepairableFeature feature);
+    Status markNonRepairableFeatureAsInUse(OperationContext* opCtx, NonRepairableFeature feature);
 
     /**
      * Sets the specified non-repairable feature as not being enabled on any collection or index in
      * the data files.
      */
     void markNonRepairableFeatureAsNotInUse(OperationContext* opCtx, NonRepairableFeature feature);
+
 
     /**
      * Returns true if 'feature' is tracked in the document, and returns false otherwise.
@@ -152,7 +154,8 @@ public:
      * Sets the specified repairable feature as being enabled on at least one collection or index in
      * the data files.
      */
-    void markRepairableFeatureAsInUse(OperationContext* opCtx, RepairableFeature feature);
+    // void markRepairableFeatureAsInUse(OperationContext* opCtx, RepairableFeature feature);
+    Status markRepairableFeatureAsInUse(OperationContext* opCtx, RepairableFeature feature);
 
     /**
      * Sets the specified repairable feature as not being enabled on any collection or index in the
@@ -175,7 +178,8 @@ public:
 
     FeatureBits getInfo(OperationContext* opCtx) const;
 
-    void putInfo(OperationContext* opCtx, const FeatureBits& versionInfo);
+    // void putInfo(OperationContext* opCtx, const FeatureBits& versionInfo);
+    Status putInfo(OperationContext* opCtx, const FeatureBits& versionInfo);
 
 private:
     // Must go through FeatureTracker::get() or FeatureTracker::create().

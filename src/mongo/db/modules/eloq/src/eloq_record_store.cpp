@@ -178,6 +178,13 @@ RecordData EloqCatalogRecordStore::dataFor(OperationContext* opCtx, const Record
 bool EloqCatalogRecordStore::findRecord(OperationContext* opCtx,
                                         const RecordId& id,
                                         RecordData* out) const {
+    return findRecord(opCtx, id, out, false);
+}
+
+bool EloqCatalogRecordStore::findRecord(OperationContext* opCtx,
+                                        const RecordId& id,
+                                        RecordData* out,
+                                        bool isForWrite) const {
     MONGO_LOG(1) << "EloqCatalogRecordStore::findRecord"
                  << ". id: " << id.toString();
 
@@ -186,7 +193,7 @@ bool EloqCatalogRecordStore::findRecord(OperationContext* opCtx,
     MONGO_LOG(1) << "tableName: " << tableName.StringView();
 
     auto ru = EloqRecoveryUnit::get(opCtx);
-    const auto [table, err] = ru->discoverTable(tableName);
+    const auto [table, err] = ru->discoverTable(tableName, isForWrite);
     if (err != txservice::TxErrorCode::NO_ERROR) {
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
     }
@@ -283,33 +290,55 @@ StatusWith<RecordId> EloqCatalogRecordStore::insertRecord(
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
 
-    for (uint16_t i = 1; i < kMaxRetryLimit; ++i) {
-        auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
-        if (errorCode != txservice::TxErrorCode::NO_ERROR) {
-            MONGO_LOG(1) << "Eloq readCatalog error with write intent. Another transaction "
-                            "may do DDL on the same table.";
-        } else {
-            if (exist) {
-                const char* msg = "Collection already exists in Eloq storage engine";
-                warning() << msg << ", ns: " << tableName.StringView();
-                return {ErrorCodes::NamespaceExists, msg};
-            }
+    // for (uint16_t i = 1; i < kMaxRetryLimit; ++i) {
+    //     auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
+    //     if (errorCode != txservice::TxErrorCode::NO_ERROR) {
+    //         MONGO_LOG(1) << "Eloq readCatalog error with write intent. Another transaction "
+    //                         "may do DDL on the same table.";
+    //     } else {
+    //         if (exist) {
+    //             const char* msg = "Collection already exists in Eloq storage engine";
+    //             warning() << msg << ", ns: " << tableName.StringView();
+    //             return {ErrorCodes::NamespaceExists, msg};
+    //         }
 
-            auto status = ru->createTable(tableName, metadata);
-            if (status.isOK()) {
-                return {recordId};
-            }
+    //         auto status = ru->createTable(tableName, metadata);
+    //         if (status.isOK()) {
+    //             return {recordId};
+    //         }
+    //     }
+
+    //     mongo::Milliseconds duration{uniformDist(randomEngine)};
+    //     MONGO_LOG(1) << "Fail to create table in Eloq. Sleep for " << duration.count() << "ms";
+    //     opCtx->sleepFor(duration);
+    //     MONGO_LOG(1) << "Retry count: " << i;
+    //     catalogRecord.Reset();
+    // }
+
+    // return {ErrorCodes::InternalError,
+    //         "[Create Table] opertion reaches the maximum number of retries."};
+
+    auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
+    if (errorCode != txservice::TxErrorCode::NO_ERROR) {
+        MONGO_LOG(1) << "Eloq readCatalog error with write intent. Another transaction "
+                        "may do DDL on the same table.";
+        return {ErrorCodes::InternalError,
+                "[Create Table] Another transaction may do DDL on the same table"};
+    } else {
+        if (exist) {
+            const char* msg = "Collection already exists in Eloq storage engine";
+            warning() << msg << ", ns: " << tableName.StringView();
+            return {ErrorCodes::NamespaceExists, msg};
         }
 
-        mongo::Milliseconds duration{uniformDist(randomEngine)};
-        MONGO_LOG(1) << "Fail to create table in Eloq. Sleep for " << duration.count() << "ms";
-        opCtx->sleepFor(duration);
-        MONGO_LOG(1) << "Retry count: " << i;
-        catalogRecord.Reset();
+        auto status = ru->createTable(tableName, metadata);
+        if (status.isOK()) {
+            return {recordId};
+        } else {
+            MONGO_LOG(1) << "Fail to create table in Eloq. Error: " << status.toString();
+            return status;
+        }
     }
-
-    return {ErrorCodes::InternalError,
-            "[Create Table] opertion reaches the maximum number of retries."};
 }
 
 Status EloqCatalogRecordStore::updateRecord(OperationContext* opCtx,

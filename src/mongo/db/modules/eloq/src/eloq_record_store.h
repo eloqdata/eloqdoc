@@ -71,6 +71,10 @@ public:
     RecordData dataFor(OperationContext* opCtx, const RecordId& loc) const override;
 
     bool findRecord(OperationContext* opCtx, const RecordId& id, RecordData* out) const override;
+    bool findRecord(OperationContext* opCtx,
+                    const RecordId& id,
+                    RecordData* out,
+                    bool isForWrite) const override;
 
     void deleteRecord(OperationContext* opCtx, const RecordId& id) override;
 
