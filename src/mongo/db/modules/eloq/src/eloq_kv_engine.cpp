@@ -271,6 +271,11 @@ bool EloqKVEngine::InitMetricsRegistry() {
 }
 
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
+#ifdef ELOQ_MODULE_ENABLED
+    GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher", "true");
+    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "100000");  // 100ms
+#endif
+
 #if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
     awsInit();

@@ -32,10 +32,17 @@
 
 #include "mongo/client/dbclientcursor.h"
 #include "mongo/scripting/mozjs/engine.h"
-#include "mongo/stdx/condition_variable.h"
 #include "mongo/stdx/functional.h"
-#include "mongo/stdx/mutex.h"
+
 #include "mongo/stdx/thread.h"
+
+#ifndef D_USE_CORO_SYNC
+#include "mongo/stdx/condition_variable.h"
+#include "mongo/stdx/mutex.h"
+#else
+#include "mongo/db/coro_sync.h"
+#endif
+
 
 namespace mongo {
 namespace mozjs {
@@ -194,12 +201,17 @@ private:
      * This mutex protects _function, _state and _status as channels for
      * function invocation and exception handling
      */
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _mutex;
+    stdx::condition_variable _condvar;
+#else
+    coro::Mutex _mutex;
+    coro::ConditionVariable _condvar;
+#endif
     stdx::function<void()> _function;
     State _state;
     Status _status;
 
-    stdx::condition_variable _condvar;
     PRThread* _thread;
 };
 

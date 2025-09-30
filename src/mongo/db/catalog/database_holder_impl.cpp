@@ -51,7 +51,6 @@
 #include "mongo/util/log.h"
 
 namespace mongo {
-extern thread_local int16_t localThreadId;
 
 namespace {
 
@@ -99,7 +98,7 @@ Database* DatabaseHolderImpl::get(OperationContext* opCtx, StringData ns) {
     const StringData db = _todb(ns);
     invariant(opCtx->lockState()->isDbLockedForMode(db, MODE_IS));
 
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
     // std::scoped_lock<std::mutex> lock{_dbMapMutexVector[id]};
     const auto& dbMap = _dbMapVector[id];
     if (auto iter = dbMap.find(db); iter != dbMap.end()) {
@@ -124,7 +123,7 @@ Database* DatabaseHolderImpl::get(OperationContext* opCtx, StringData ns) {
 std::set<std::string> DatabaseHolderImpl::_getNamesWithConflictingCasing_inlock(
     StringData name) const {
     std::set<std::string> duplicates;
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
 
     for (const auto& [dbName, dbPtr] : _dbMapVector[id]) {
         // A name that's equal with case-insensitive match must be identical, or it's a duplicate.
@@ -149,7 +148,7 @@ Database* DatabaseHolderImpl::openDb(OperationContext* opCtx, StringData ns, boo
         *justCreated = false;  // Until proven otherwise.
     }
 
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
     auto& dbMap = _dbMapVector[id];
 
     // std::scoped_lock<std::mutex> lock(_dbMapMutexVector[id]);
@@ -223,7 +222,7 @@ void DatabaseHolderImpl::close(OperationContext* opCtx, StringData ns, const std
 
     const StringData dbName = _todb(ns);
 
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
     {
         // std::scoped_lock<std::mutex> lock{_dbMapMutexVector[id]};
         auto& dbMap = _dbMapVector[id];
@@ -249,7 +248,7 @@ void DatabaseHolderImpl::close(OperationContext* opCtx, StringData ns, const std
 void DatabaseHolderImpl::closeAll(OperationContext* opCtx, const std::string& reason) {
     invariant(opCtx->lockState()->isW());
 
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
 
     auto& dbMap = _dbMapVector[id];
     // std::scoped_lock<std::mutex> lock{_dbMapMutexVector[i]};

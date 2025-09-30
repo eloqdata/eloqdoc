@@ -5,13 +5,10 @@
 #include "mongo/util/log.h"
 
 namespace mongo {
-
-extern thread_local int16_t localThreadId;
-
 namespace coro {
 
 void Mutex::lock() {
-    if (localThreadId != -1) {
+    if (LocalThread::ID() != -1) {
         Client* client = Client::getCurrent();
         if (client) {
             const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -25,12 +22,12 @@ void Mutex::lock() {
                 }
             } else {
                 MONGO_LOG(2)
-                    << "ThreadGroup " << localThreadId
+                    << "ThreadGroup " << LocalThread::ID()
                     << " call std::mutex::lock because the coroutine context is unavailable.";
                 _mux.lock();
             }
         } else {
-            MONGO_LOG(2) << "ThreadGroup " << localThreadId
+            MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
                          << " call std::mutex::lock because the client object is unavailable.";
             _mux.lock();
         }
@@ -41,7 +38,7 @@ void Mutex::lock() {
 
 void ConditionVariable::wait(std::unique_lock<Mutex>& lock) {
     invariant(lock.owns_lock());
-    if (localThreadId != -1) {
+    if (LocalThread::ID() != -1) {
         Client* client = Client::getCurrent();
         if (client) {
             const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -51,14 +48,14 @@ void ConditionVariable::wait(std::unique_lock<Mutex>& lock) {
                 (*coro.yieldFuncPtr)();
                 lock.lock();
             } else {
-                MONGO_LOG(2) << "ThreadGroup " << localThreadId
+                MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
                              << " call std::condition_variable::wait because the coroutine context "
                                 "is unavailable.";
                 _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
             }
         } else {
             MONGO_LOG(2)
-                << "ThreadGroup " << localThreadId
+                << "ThreadGroup " << LocalThread::ID()
                 << " call std::condition_variable::wait because the client object is unavailable.";
             _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
         }

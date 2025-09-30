@@ -41,10 +41,6 @@
 #include "mongo/util/scopeguard.h"
 
 namespace mongo {
-extern thread_local int16_t localThreadId;
-extern std::function<std::pair<std::function<void()>, std::function<void(int16_t)>>(int16_t)>
-    getTxServiceFunctors;
-
 namespace mozjs {
 
 MozJSProxyScope::MozJSProxyScope(MozJSScriptEngine* engine)
@@ -283,23 +279,14 @@ void MozJSProxyScope::run(Closure&& closure) {
 }
 
 void MozJSProxyScope::runOnImplThread(stdx::function<void()> f) {
-    stdx::unique_lock<stdx::mutex> lk(_mutex);
+    stdx::unique_lock lk(_mutex);
     _function = std::move(f);
 
     invariant(_state == State::Idle);
     _state = State::ProxyRequest;
 
     _condvar.notify_one();
-    if (localThreadId != -1) {
-        // Run in a Mongo server
-        auto [txProcessorExec, updateExtProc] = getTxServiceFunctors(localThreadId);
-        updateExtProc(-1);
-        _condvar.wait(lk, [this] { return _state == State::ImplResponse; });
-        updateExtProc(1);
-    } else {
-        // Run in a Mongo shell client
-        _condvar.wait(lk, [this] { return _state == State::ImplResponse; });
-    }
+    _condvar.wait(lk, [this] { return _state == State::ImplResponse; });
     _state = State::Idle;
 
     // Clear the _status state and throw it if necessary
@@ -313,7 +300,7 @@ void MozJSProxyScope::runOnImplThread(stdx::function<void()> f) {
 
 void MozJSProxyScope::shutdownThread() {
     {
-        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
 
         invariant(_state == State::Idle);
 
@@ -360,7 +347,7 @@ void MozJSProxyScope::implThread(void* arg) {
     const auto unbindImplScope = MakeGuard([&proxy] { proxy->_implScope = nullptr; });
 
     while (true) {
-        stdx::unique_lock<stdx::mutex> lk(proxy->_mutex);
+        stdx::unique_lock lk(proxy->_mutex);
         {
             MONGO_IDLE_THREAD_BLOCK;
             proxy->_condvar.wait(lk, [proxy] {

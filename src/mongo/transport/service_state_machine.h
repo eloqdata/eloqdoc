@@ -282,8 +282,8 @@ private:
 
     void _migrateThreadGroup(uint16_t threadGroupId);
 
-
     static constexpr size_t kCoroStackSize = 3200 * 1024;
+    const size_t _osPageSize;
     char* _coroStack;
     boost::context::continuation _source;
 

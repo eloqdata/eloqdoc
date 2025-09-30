@@ -61,8 +61,6 @@ extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
 
 namespace mongo {
 
-extern thread_local int16_t localThreadId;
-
 namespace {
 
 std::atomic<uint64_t> nextSnapshotId{1};
@@ -544,7 +542,7 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
         case txservice::UpsertResult::Failed:
             MONGO_LOG(1) << "UpsertTableTxRequest error. UpsertTableOp on multiple nodes at the "
                             "same time may conflict and then backoff.";
-            return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
+            return {ErrorCodes::Error::WriteConflict, upsertTableTxReq.ErrorMsg()};
             break;
         case txservice::UpsertResult::Unverified:
             MONGO_LOG(1)
@@ -927,7 +925,7 @@ void EloqRecoveryUnit::_txnOpen(txservice::IsolationLevel isolationLevel) {
     }
     MONGO_LOG(1) << "Opening transaction with isolation level: " << isolationLevel;
     _txm = txservice::NewTxInit(
-        _txService, isolationLevel, eloqGlobalOptions.ccProtocol, UINT32_MAX, localThreadId);
+        _txService, isolationLevel, eloqGlobalOptions.ccProtocol, UINT32_MAX, LocalThread::ID());
     _active = true;
 }
 

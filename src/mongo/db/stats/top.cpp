@@ -48,8 +48,6 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
-extern thread_local int16_t localThreadId;
-
 namespace {
 
 const auto getTop = ServiceContext::declareDecoration<Top>();
@@ -98,7 +96,7 @@ void Top::record(OperationContext* opCtx,
         return;
     }
 
-    int16_t id = localThreadId + 1;
+    int16_t id = LocalThread::ID() + 1;
 
     std::scoped_lock<std::mutex> lock(_usageMutexVector[id]);
     CollectionData& coll = _usageVector[id][hashedNs];
@@ -229,7 +227,7 @@ void Top::incrementGlobalLatencyStats(OperationContext* opCtx,
                                       Command::ReadWriteType readWriteType) {
     // stdx::lock_guard<SimpleMutex> guard(_lock);
     // MONGO_UNREACHABLE;
-    int16_t id = localThreadId + 1;
+    int16_t id = LocalThread::ID() + 1;
     std::scoped_lock<std::mutex> lk(_histogramMutexVector[id]);
     _incrementHistogram(opCtx, latency, &_histogramVector[id], readWriteType);
 }
@@ -248,7 +246,7 @@ void Top::appendGlobalLatencyStats(bool includeHistograms, BSONObjBuilder* build
 void Top::incrementGlobalTransactionLatencyStats(uint64_t latency) {
     // stdx::lock_guard<SimpleMutex> guard(_lock);
     // MONGO_UNREACHABLE;
-    int16_t id = localThreadId + 1;
+    int16_t id = LocalThread::ID() + 1;
     std::scoped_lock<std::mutex> lk(_histogramMutexVector[id]);
     _histogramVector[id].increment(latency, Command::ReadWriteType::kTransaction);
 }

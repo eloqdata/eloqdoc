@@ -55,10 +55,6 @@
 
 namespace mongo {
 
-// using std::string;
-// using std::vector;
-extern thread_local int16_t localThreadId;
-
 namespace {
 const std::string catalogInfo = "_mdb_catalog";
 const auto kCatalogLogLevel = logger::LogSeverity::Debug(2);
@@ -544,7 +540,7 @@ void KVStorageEngine::listCollections(std::string_view dbName, std::set<std::str
 KVDatabaseCatalogEntryBase* KVStorageEngine::getDatabaseCatalogEntry(OperationContext* opCtx,
                                                                      StringData dbName) {
     // stdx::lock_guard<stdx::mutex> lk(_dbsLock);
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
     auto& dbMap = _dbMapVector[id];
     if (auto iter = dbMap.find(dbName); iter == dbMap.end()) {
         auto [newIter, _] =
@@ -577,7 +573,7 @@ Status KVStorageEngine::dropDatabase(OperationContext* opCtx, StringData db) {
     //     entry = it->second;
     // }
 
-    auto id = static_cast<int16_t>(localThreadId + 1);
+    auto id = static_cast<int16_t>(LocalThread::ID() + 1);
     auto& dbMap = _dbMapVector[id];
     KVDatabaseCatalogEntryBase* entry{nullptr};
     if (auto iter = dbMap.find(db); iter == dbMap.end()) {

@@ -894,7 +894,7 @@ void Session::abortArbitraryTransactionIfExpired(OperationContext* opCtx) {
           << _sessionId.getId()
           << " because it has been running for longer than 'transactionLifetimeLimitSeconds'";
 
-    invariant(localThreadId != -1);
+    invariant(LocalThread::ID() != -1);
     opCtx->setLogicalSessionId(_sessionId);
     opCtx->setTxnNumber(_activeTxnNumber);
     if (_txnResourceStash) {

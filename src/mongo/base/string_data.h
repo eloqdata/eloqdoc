@@ -176,7 +176,7 @@ public:
     std::string toString() const {
         return std::string(_data, size());
     }
-    std::string_view toStringView() const{
+    std::string_view toStringView() const {
         return std::string_view(_data, size());
     }
     constexpr char operator[](unsigned pos) const {
@@ -353,3 +353,12 @@ inline std::string operator+(StringData lhs, std::string rhs) {
 }
 
 }  // namespace mongo
+
+namespace std {
+template <>
+struct hash<mongo::StringData> {
+    size_t operator()(const mongo::StringData& sd) const {
+        return std::hash<std::string_view>{}(sd.toStringView());
+    }
+};
+}  // namespace std

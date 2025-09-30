@@ -55,8 +55,6 @@ const auto operationSessionDecoration =
 
 }  // namespace
 
-extern thread_local int16_t localThreadId;
-
 void SessionCatalog::reset() {
     _txnTable.clear();
 }
@@ -133,8 +131,8 @@ ScopedCheckedOutSession SessionCatalog::checkOutSession(OperationContext* opCtx)
 
     stdx::unique_lock ul(_mutex);
 
-    invariant(localThreadId >= 0);
-    uint16_t threadGroupId = localThreadId;
+    invariant(LocalThread::ID() >= 0);
+    uint16_t threadGroupId = LocalThread::ID();
     auto sri = _getOrCreateSessionRuntimeInfo(ul, opCtx, lsid, threadGroupId);
 
     // Wait until the session is no longer checked out
@@ -170,8 +168,8 @@ ScopedSession SessionCatalog::getOrCreateSession(OperationContext* opCtx,
 
     auto ss = [&] {
         stdx::unique_lock ul(_mutex);
-        invariant(localThreadId >= 0);
-        uint16_t threadGroupId = localThreadId;
+        invariant(LocalThread::ID() >= 0);
+        uint16_t threadGroupId = LocalThread::ID();
         return ScopedSession(_getOrCreateSessionRuntimeInfo(ul, opCtx, lsid, threadGroupId));
     }();
 

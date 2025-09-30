@@ -77,6 +77,7 @@ struct CoroCtx {
     static constexpr size_t kCoroStackSize = 3200 * 1024;
     boost::context::protected_fixedsize_stack salloc{kCoroStackSize};
     boost::context::continuation source;
+    std::function<void()> resumeTask;
     std::function<void()> yieldFunc;
     std::function<void()> resumeFunc;
     std::function<void()> longResumeFunc;
@@ -109,23 +110,23 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
             transport::ServiceExecutor* serviceExecutor =
                 getGlobalServiceContext()->getServiceEntryPoint()->getServiceExecutor();
 
-            std::function<void()> resumeTask = [&source = coroCtx->source, &client] {
+            coroCtx->resumeTask = [&source = coroCtx->source, &client] {
                 log() << "abortArbitraryTransactionIfExpired call resume.";
                 Client::setCurrent(std::move(client));
                 source = source.resume();
             };
 
-            coroCtx->resumeFunc =
-                serviceExecutor->coroutineResumeFunctor(session->ThreadGroupId(), resumeTask);
-            coroCtx->longResumeFunc =
-                serviceExecutor->coroutineLongResumeFunctor(session->ThreadGroupId(), resumeTask);
+            coroCtx->resumeFunc = serviceExecutor->coroutineResumeFunctor(session->ThreadGroupId(),
+                                                                          coroCtx->resumeTask);
+            coroCtx->longResumeFunc = serviceExecutor->coroutineLongResumeFunctor(
+                session->ThreadGroupId(), coroCtx->resumeTask);
 
-            auto task = [&finished, &mux, &cv, coroCtx, opCtx, session, &client] {
+            auto task = [&finished, &mux, &cv, coroCtx, opCtx, session, &client, serviceExecutor] {
                 Client::setCurrent(std::move(client));
                 coroCtx->source = boost::context::callcc(
                     std::allocator_arg,
                     coroCtx->salloc,
-                    [&finished, &mux, &cv, coroCtx, opCtx, session, &client](
+                    [&finished, &mux, &cv, coroCtx, opCtx, session, &client, serviceExecutor](
                         boost::context::continuation&& sink) {
                         coroCtx->yieldFunc = [&sink, &client]() {
                             log() << "abortArbitraryTransactionIfExpired call yield.";
@@ -135,6 +136,12 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
 
                         std::unique_lock lk(mux);
                         try {
+                            serviceExecutor->ongoingCoroutineCountUpdate(session->ThreadGroupId(),
+                                                                         +1);
+                            const auto finally = MakeGuard([session, serviceExecutor] {
+                                serviceExecutor->ongoingCoroutineCountUpdate(
+                                    session->ThreadGroupId(), -1);
+                            });
                             session->abortArbitraryTransactionIfExpired(opCtx);
                         } catch (const DBException& ex) {
                             const Status& status = ex.toStatus();

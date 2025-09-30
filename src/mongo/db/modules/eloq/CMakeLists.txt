@@ -20,6 +20,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
 option(EXT_TX_PROC_ENABLED "Allows external threads to move forward the tx service." ON)
 option(FORK_HM_PROCESS "Whether to fork a separate Host Manager process for Raft." OFF)
 option(STATISTICS "Whether to enable table statistics collection in the tx service." ON)
+option(ELOQ_MODULE_ENABLED "Enable EloqModule" OFF)
 
 # --- ELOQ Metrics Options ---
 option(ENABLE_BENCHMARK "Enable Google Benchmark for eloq_metrics." OFF)

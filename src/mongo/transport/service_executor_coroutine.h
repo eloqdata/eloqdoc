@@ -1,53 +1,106 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string_view>
 
 #include "mongo/base/status.h"
+#include "mongo/db/modules/eloq/tx_service/include/concurrent_queue_wsize.h"
 #include "mongo/platform/atomic_word.h"
 #include "mongo/stdx/condition_variable.h"
 #include "mongo/stdx/mutex.h"
 #include "mongo/transport/service_executor.h"
 #include "mongo/transport/service_executor_task_names.h"
 
+#ifdef ELOQ_MODULE_ENABLED
+#include <bthread/eloq_module.h>
+#endif
 #include <bthread/moodycamelqueue.h>
 
 namespace mongo::transport {
 
+class ThreadGroup;
+
+#ifdef ELOQ_MODULE_ENABLED
+class MongoModule final : public eloq::EloqModule {
+public:
+    static MongoModule* Instance() {
+        static MongoModule mongoModule;
+        return &mongoModule;
+    }
+
+    void Init(ThreadGroup* threadGroups) {
+        _threadGroups = threadGroups;
+    }
+
+    void ExtThdStart(int thd_id) override;
+
+    void ExtThdEnd(int thd_id) override;
+
+    void Process(int thd_id) override;
+
+    bool HasTask(int thd_id) const override;
+
+private:
+    MongoModule() = default;
+
+private:
+    ThreadGroup* _threadGroups{nullptr};
+};
+#endif
+
 class ThreadGroup {
     friend class ServiceExecutorCoroutine;
+#ifdef ELOQ_MODULE_ENABLED
+    friend class MongoModule;
+#endif
     using Task = std::function<void()>;
 
 public:
+    ThreadGroup() = default;
+
+    void init(int16_t threadGroupId);
+
     void enqueueTask(Task task);
     void resumeTask(Task task);
 
     void notifyIfAsleep();
 
+#ifndef ELOQ_MODULE_ENABLED
     /**
      * @brief Called by the thread bound to this thread group.
      */
     void trySleep();
 
     void terminate();
+#endif
 
-    void setTxServiceFunctors(int16_t id);
+    void setTxServiceFunctors();
 
 private:
     bool isBusy() const;
 
-    // uint16_t id;
+private:
+    bool _initialized{false};
+    int16_t _threadGroupId{-1};
 
-    moodycamel::ConcurrentQueue<Task> _taskQueue;
-    std::atomic<size_t> _taskQueueSize{0};
-    moodycamel::ConcurrentQueue<Task> _resumeQueue;
-    std::atomic<size_t> _resumeQueueSize{0};
+#ifdef ELOQ_MODULE_ENABLED
+    std::atomic<bool> _extWorkerActive{false};
+#endif
 
+    constexpr static size_t kTaskBatchSize{100};
+    std::array<Task, kTaskBatchSize> _taskBulk;
+
+    txservice::ConcurrentQueueWSize<Task> _taskQueue;
+    txservice::ConcurrentQueueWSize<Task> _resumeQueue;
+
+#ifndef ELOQ_MODULE_ENABLED
     std::atomic<bool> _isSleep{false};
     std::mutex _sleepMutex;
     std::condition_variable _sleepCV;
+#endif
     std::atomic<bool> _isTerminated{false};
     uint16_t _ongoingCoroutineCnt{0};
 
@@ -93,7 +146,9 @@ public:
     void appendStats(BSONObjBuilder* bob) const override;
 
 private:
+#ifndef ELOQ_MODULE_ENABLED
     Status _startWorker(int16_t groupId);
+#endif
 
     // static thread_local std::deque<Task> _localWorkQueue;
     // static thread_local int _localRecursionDepth;
@@ -113,7 +168,6 @@ private:
     // std::thread _backgroundTimeService;
 
     constexpr static std::string_view _name{"coroutine"};
-    constexpr static size_t kTaskBatchSize{100};
     constexpr static uint32_t kIdleCycle = (1 << 10) - 1;  // 2^n-1
     constexpr static uint32_t kIdleTimeoutMs = 1000;
 };

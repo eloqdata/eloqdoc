@@ -595,7 +595,8 @@ Status storeServerOptions(const moe::Environment& params) {
     if (params.count("storage.eloq.bootstrap")) {
         serverGlobalParams.bootstrap = params["storage.eloq.bootstrap"].as<bool>();
         if (serverGlobalParams.bootstrap) {
-            log() << "This is a bootstrap for EloqDoc. The program will automatically exit after bootstrap.";
+            log() << "This is a bootstrap for EloqDoc. The program will automatically exit after "
+                     "bootstrap.";
         }
     }
 

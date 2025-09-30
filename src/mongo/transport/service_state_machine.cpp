@@ -259,6 +259,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
       _dbClient{
           svcContext->makeClient(_threadName, std::move(session), makeCoroutineFunctors(*this))},
       _dbClientPtr{_dbClient.get()},
+      _osPageSize{::getpagesize()},
       _threadGroupId(groupId) {
     MONGO_LOG(1) << "ServiceStateMachine::ServiceStateMachine";
     _coroStack = (char*)::mmap(
@@ -268,7 +269,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
         std::abort();
     }
 
-    if (::mprotect(_coroStack, getpagesize(), PROT_NONE) != 0) {
+    if (::mprotect(_coroStack, _osPageSize, PROT_NONE) != 0) {
         error() << "mprotect coroutine stack failed, " << ::strerror(errno);
         std::abort();
     }
@@ -567,15 +568,13 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         _coroMigrateThreadGroup = std::bind(
                             &ServiceStateMachine::_migrateThreadGroup, this, std::placeholders::_1);
 
-                        std::weak_ptr<ServiceStateMachine> wssm = weak_from_this();
-
                         boost::context::stack_context sc = _coroStackContext();
                         boost::context::preallocated prealloc(sc.sp, sc.size, sc);
                         _source = boost::context::callcc(
                             std::allocator_arg,
                             prealloc,
                             NoopAllocator(),
-                            [wssm, &guard](boost::context::continuation&& sink) {
+                            [wssm = weak_from_this(), &guard](boost::context::continuation&& sink) {
                                 auto ssm = wssm.lock();
                                 if (!ssm) {
                                     return std::move(sink);
@@ -734,8 +733,7 @@ void ServiceStateMachine::setThreadGroupId(size_t id) {
 
 boost::context::stack_context ServiceStateMachine::_coroStackContext() {
     boost::context::stack_context sc;
-    const auto pageSize = static_cast<size_t>(::getpagesize());
-    sc.size = kCoroStackSize - pageSize;
+    sc.size = kCoroStackSize - _osPageSize;
     // Because stack grows downwards from high address?
     sc.sp = _coroStack + kCoroStackSize;
     return sc;

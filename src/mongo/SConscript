@@ -149,6 +149,7 @@ env.Library(
     LIBDEPS_PRIVATE=[
         'util/debugger',
     ],
+    SYSLIBDEPS=["brpc"],
 )
 
 js_engine_ver = get_option("js-engine") if get_option("server-js") == "on" else "none"

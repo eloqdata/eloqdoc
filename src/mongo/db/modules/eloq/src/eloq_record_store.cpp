@@ -285,40 +285,18 @@ StatusWith<RecordId> EloqCatalogRecordStore::insertRecord(
     txservice::CatalogKey catalogKey{tableName};
     txservice::CatalogRecord catalogRecord;
 
-    // for (uint16_t i = 1; i < kMaxRetryLimit; ++i) {
-    //     auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
-    //     if (errorCode != txservice::TxErrorCode::NO_ERROR) {
-    //         MONGO_LOG(1) << "Eloq readCatalog error with write intent. Another transaction "
-    //                         "may do DDL on the same table.";
-    //     } else {
-    //         if (exist) {
-    //             const char* msg = "Collection already exists in Eloq storage engine";
-    //             warning() << msg << ", ns: " << tableName.StringView();
-    //             return {ErrorCodes::NamespaceExists, msg};
-    //         }
-
-    //         auto status = ru->createTable(tableName, metadata);
-    //         if (status.isOK()) {
-    //             return {recordId};
-    //         }
-    //     }
-
-    //     mongo::Milliseconds duration{uniformDist(randomEngine)};
-    //     MONGO_LOG(1) << "Fail to create table in Eloq. Sleep for " << duration.count() << "ms";
-    //     opCtx->sleepFor(duration);
-    //     MONGO_LOG(1) << "Retry count: " << i;
-    //     catalogRecord.Reset();
-    // }
-
-    // return {ErrorCodes::InternalError,
-    //         "[Create Table] opertion reaches the maximum number of retries."};
-
     auto [exist, errorCode] = ru->readCatalog(catalogKey, catalogRecord, true);
     if (errorCode != txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "Eloq readCatalog error with write intent. Another transaction "
-                        "may do DDL on the same table.";
-        return {ErrorCodes::InternalError,
-                "[Create Table] Another transaction may do DDL on the same table"};
+        if (errorCode == txservice::TxErrorCode::WRITE_WRITE_CONFLICT) {
+            MONGO_LOG(1) << "Eloq readCatalog error with write intent. Another transaction "
+                            "may do DDL on the same table.";
+            return {ErrorCodes::WriteConflict,
+                    "[Create Table] Another transaction may do DDL on the same table"};
+        } else {
+            MONGO_LOG(0) << "Eloq readCatalog error with write intent."
+                         << txservice::TxErrorMessage(errorCode);
+            return {ErrorCodes::InternalError, txservice::TxErrorMessage(errorCode)};
+        }
     } else {
         if (exist) {
             const char* msg = "Collection already exists in Eloq storage engine";
