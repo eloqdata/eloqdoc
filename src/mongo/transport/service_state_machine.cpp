@@ -53,6 +53,9 @@
 #include "mongo/util/net/socket_exception.h"
 #include "mongo/util/quick_exit.h"
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 namespace mongo {
 namespace {
 // Set up proper headers for formatting an exhaust request, if we need to
@@ -255,6 +258,21 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
       _dbClientPtr{_dbClient.get()},
       _threadGroupId(groupId) {
     MONGO_LOG(1) << "ServiceStateMachine::ServiceStateMachine";
+    _coroStack = (char*)::mmap(
+        nullptr, kCoroStackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (_coroStack == MAP_FAILED) {
+        error() << "mmap allocate coroutine stack failed, " << ::strerror(errno);
+        std::abort();
+    }
+
+    if (::mprotect(_coroStack, getpagesize(), PROT_NONE) != 0) {
+        error() << "mprotect coroutine stack failed, " << ::strerror(errno);
+        std::abort();
+    }
+}
+
+ServiceStateMachine::~ServiceStateMachine() {
+    ::munmap(_coroStack, kCoroStackSize);
 }
 
 void ServiceStateMachine::reset(ServiceContext* svcContext,
@@ -546,9 +564,13 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                             &ServiceStateMachine::_migrateThreadGroup, this, std::placeholders::_1);
 
                         std::weak_ptr<ServiceStateMachine> wssm = weak_from_this();
+
+                        boost::context::stack_context sc = _coroStackContext();
+                        boost::context::preallocated prealloc(sc.sp, sc.size, sc);
                         _source = boost::context::callcc(
                             std::allocator_arg,
-                            _salloc,
+                            prealloc,
+                            NoopAllocator(),
                             [wssm, &guard](boost::context::continuation&& sink) {
                                 auto ssm = wssm.lock();
                                 if (!ssm) {
