@@ -50,8 +50,6 @@
 #include "mongo/transport/session.h"
 #include "mongo/transport/transport_mode.h"
 
-#include <unistd.h>
-
 namespace mongo {
 
 /*
@@ -280,14 +278,7 @@ private:
         }
     };
 
-    boost::context::stack_context _coroStackContext() {
-        boost::context::stack_context sc;
-        const auto pageSize = static_cast<size_t>(::getpagesize());
-        sc.size = kCoroStackSize - pageSize;
-        // Because stack grows downwards from high address?
-        sc.sp = _coroStack + kCoroStackSize;
-        return sc;
-    }
+    boost::context::stack_context _coroStackContext();
 
     void _migrateThreadGroup(uint16_t threadGroupId);
 

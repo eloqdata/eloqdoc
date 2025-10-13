@@ -53,6 +53,9 @@
 #include "mongo/util/net/socket_exception.h"
 #include "mongo/util/quick_exit.h"
 
+#include <boost/context/preallocated.hpp>
+#include <cerrno>
+#include <cstring>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -272,6 +275,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
 }
 
 ServiceStateMachine::~ServiceStateMachine() {
+    _source = {};
     ::munmap(_coroStack, kCoroStackSize);
 }
 
@@ -726,6 +730,15 @@ void ServiceStateMachine::setServiceExecutor(transport::ServiceExecutor* service
 void ServiceStateMachine::setThreadGroupId(size_t id) {
     MONGO_LOG(1) << "ServiceStateMachine::setThreadGroupId. id: " << id;
     _threadGroupId.store(id, std::memory_order_release);
+}
+
+boost::context::stack_context ServiceStateMachine::_coroStackContext() {
+    boost::context::stack_context sc;
+    const auto pageSize = static_cast<size_t>(::getpagesize());
+    sc.size = kCoroStackSize - pageSize;
+    // Because stack grows downwards from high address?
+    sc.sp = _coroStack + kCoroStackSize;
+    return sc;
 }
 
 void ServiceStateMachine::_migrateThreadGroup(uint16_t threadGroupId) {
