@@ -64,7 +64,6 @@ env.Library(
         'base/init.cpp',
         'base/initializer.cpp',
         'base/initializer_dependency_graph.cpp',
-        'base/local_thread_state.cpp',
         'base/make_string_vector.cpp',
         'base/parse_number.cpp',
         'base/shim.cpp',
@@ -149,7 +148,6 @@ env.Library(
     LIBDEPS_PRIVATE=[
         'util/debugger',
     ],
-    SYSLIBDEPS=["brpc"],
 )
 
 js_engine_ver = get_option("js-engine") if get_option("server-js") == "on" else "none"

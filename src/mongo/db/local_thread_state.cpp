@@ -1,4 +1,4 @@
-#include "mongo/base/local_thread_state.h"
+#include "mongo/db/local_thread_state.h"
 
 #ifndef ELOQ_MODULE_ENABLED
 namespace {
@@ -15,8 +15,6 @@ namespace mongo {
 
 std::function<std::pair<std::function<void()>, std::function<void(int16_t)>>(int16_t)>
     getTxServiceFunctors;
-
-const CoroutineFunctors CoroutineFunctors::Unavailable{};
 
 int16_t LocalThread::ID() {
 #ifndef ELOQ_MODULE_ENABLED

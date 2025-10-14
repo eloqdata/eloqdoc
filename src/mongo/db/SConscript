@@ -510,6 +510,7 @@ env.Library(
         'server_recovery.cpp',
         'unclean_shutdown.cpp',
         'coro_sync.cpp',
+        'local_thread_state.cpp',
     ],
     LIBDEPS=[
         '$BUILD_DIR/mongo/db/logical_session_id',
@@ -521,6 +522,7 @@ env.Library(
         '$BUILD_DIR/mongo/util/net/network',
         '$BUILD_DIR/mongo/util/periodic_runner',
     ],
+    SYSLIBDEPS=["brpc"],
 )
 
 env.Library(

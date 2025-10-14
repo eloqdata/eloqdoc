@@ -5,7 +5,27 @@
 
 #include "mongo/util/time_support.h"
 
-namespace mongo::coro {
+namespace mongo {
+
+struct CoroutineFunctors {
+    const std::function<void()>* yieldFuncPtr{nullptr};
+    const std::function<void()>* resumeFuncPtr{nullptr};
+    const std::function<void()>* longResumeFuncPtr{nullptr};
+    const std::function<void(uint16_t)>* migrateThreadGroupFuncPtr{nullptr};
+
+    const static CoroutineFunctors Unavailable;
+
+    friend bool operator==(const CoroutineFunctors& lhs, const CoroutineFunctors& rhs) {
+        return lhs.yieldFuncPtr == rhs.yieldFuncPtr && lhs.resumeFuncPtr == rhs.resumeFuncPtr &&
+            lhs.longResumeFuncPtr == rhs.longResumeFuncPtr &&
+            lhs.migrateThreadGroupFuncPtr == rhs.migrateThreadGroupFuncPtr;
+    }
+    friend bool operator!=(const CoroutineFunctors& lhs, const CoroutineFunctors& rhs) {
+        return !(lhs == rhs);
+    }
+};
+
+namespace coro {
 /**
  * coro::Mutex can be used in both pthread/coroutine.
  * coro::Mutex can be cast to std::mutex.
@@ -90,4 +110,5 @@ public:
 private:
     std::condition_variable _cv;
 };
-}  // namespace mongo::coro
+}  // namespace coro
+}  // namespace mongo

@@ -61,8 +61,6 @@ class ThreadGroup {
 public:
     ThreadGroup() = default;
 
-    void init(int16_t threadGroupId);
-
     void enqueueTask(Task task);
     void resumeTask(Task task);
 
@@ -79,14 +77,18 @@ public:
 
     void setTxServiceFunctors();
 
+    void setThreadGroupID(int16_t id) {
+        _threadGroupId = id;
+    }
+
 private:
     bool isBusy() const;
 
 private:
-    bool _initialized{false};
     int16_t _threadGroupId{-1};
 
 #ifdef ELOQ_MODULE_ENABLED
+    bool _threadNameSet{false};
     std::atomic<bool> _extWorkerActive{false};
 #endif
 

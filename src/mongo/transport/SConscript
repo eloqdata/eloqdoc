@@ -63,7 +63,6 @@ tlEnv.Library(
         '$BUILD_DIR/mongo/util/net/ssl_manager',
         '$BUILD_DIR/third_party/shim_asio',
     ],
-    SYSLIBDEPS=["brpc"],
 )
 
 # This library will initialize an egress transport layer in a mongo initializer
@@ -126,7 +125,7 @@ tlEnv.Library(
         '$BUILD_DIR/third_party/shim_asio',
         'transport_layer_common',
     ],
-    SYSLIBDEPS=["brpc", "gflags"],
+    SYSLIBDEPS=["brpc"],
 )
 
 tlEnv.CppUnitTest(

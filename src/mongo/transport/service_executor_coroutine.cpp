@@ -6,8 +6,8 @@
 #include <thread>
 #include <tuple>
 
-#include "mongo/base/local_thread_state.h"
 #include "mongo/base/string_data.h"
+#include "mongo/db/local_thread_state.h"
 #include "mongo/db/server_parameters.h"
 #include "mongo/transport/service_entry_point_utils.h"
 #include "mongo/transport/service_executor_coroutine.h"
@@ -15,7 +15,7 @@
 #include "mongo/util/concurrency/thread_name.h"
 #include "mongo/util/log.h"
 
-#include <gflags/gflags.h>
+#include <bthread/bthread.h>
 
 #ifndef EXT_TX_PROC_ENABLED
 #define EXT_TX_PROC_ENABLED
@@ -44,10 +44,11 @@ namespace transport {
 void MongoModule::ExtThdStart(int thd_id) {
     MONGO_LOG(3) << "MongoModule::ExtThdStart " << thd_id;
     ThreadGroup& threadGroup = _threadGroups[thd_id];
-    if (!threadGroup._initialized) {
-        threadGroup.init(thd_id);
-    }
     invariant(threadGroup._threadGroupId == thd_id);
+    if (!threadGroup._threadNameSet) {
+        setThreadName(str::stream() << "thread_group_" << thd_id);
+        threadGroup._threadNameSet = true;
+    }
     threadGroup._extWorkerActive.store(true, std::memory_order_release);
 }
 
@@ -86,14 +87,6 @@ bool MongoModule::HasTask(int thd_id) const {
     return threadGroup.isBusy();
 }
 #endif
-
-void ThreadGroup::init(int16_t threadGroupId) {
-    _initialized = true;
-    _threadGroupId = threadGroupId;
-    std::string threadName = str::stream() << "thread_group_" << threadGroupId;
-    setThreadName(threadName);
-    MONGO_LOG(1) << "ThreadGroup::init " << threadGroupId;
-}
 
 void ThreadGroup::enqueueTask(Task task) {
     _taskQueue.Enqueue(std::move(task));
@@ -178,8 +171,10 @@ void ThreadGroup::terminate() {
 
 ServiceExecutorCoroutine::ServiceExecutorCoroutine(ServiceContext* ctx, size_t reservedThreads)
     : _reservedThreads(reservedThreads), _threadGroups(reservedThreads) {
-    std::string bthreadConcurrency = std::to_string(reservedThreads);
-    GFLAGS_NAMESPACE::SetCommandLineOption("bthread_concurrency", bthreadConcurrency.c_str());
+    bthread_setconcurrency(reservedThreads);
+    for (int16_t thdGroupId = 0; thdGroupId < reservedThreads; ++thdGroupId) {
+        _threadGroups[thdGroupId].setThreadGroupID(thdGroupId);
+    }
 }
 
 Status ServiceExecutorCoroutine::start() {
@@ -209,6 +204,7 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
         while (!_stillRunning.load(std::memory_order_acquire)) {
         }
         LocalThread::SetID(threadGroupId);
+        setThreadName(str::stream() << "thread_group_" << threadGroupId);
 
         // std::unique_lock<stdx::mutex> lk(_mutex);
         // _numRunningWorkerThreads.addAndFetch(1);
@@ -219,7 +215,6 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
         // lk.unlock();
 
         ThreadGroup& threadGroup = _threadGroups[threadGroupId];
-        threadGroup.init(threadGroupId);
 
 #ifdef EXT_TX_PROC_ENABLED
         threadGroup.setTxServiceFunctors();
@@ -284,7 +279,7 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
 #endif
 
 Status ServiceExecutorCoroutine::shutdown(Milliseconds timeout) {
-    LOG(0) << "Shutting down coroutine executor";
+    MONGO_LOG(0) << "Shutting down coroutine executor";
     _stillRunning.store(false, std::memory_order_release);
 #ifndef ELOQ_MODULE_ENABLED
     for (ThreadGroup& thd_group : _threadGroups) {

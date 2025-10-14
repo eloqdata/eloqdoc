@@ -39,9 +39,9 @@
 #include <boost/optional.hpp>
 
 #include "mongo/base/disallow_copying.h"
-#include "mongo/base/local_thread_state.h"
 #include "mongo/db/client.h"
 #include "mongo/db/coro_sync.h"
+#include "mongo/db/local_thread_state.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/service_context.h"
 #include "mongo/platform/random.h"
@@ -51,6 +51,10 @@
 #include "mongo/util/decorable.h"
 #include "mongo/util/invariant.h"
 #include "mongo/util/net/hostandport.h"
+
+#ifdef D_USE_CORO_SYNC
+#include "mongo/db/coro_sync.h"
+#endif
 
 namespace mongo {
 

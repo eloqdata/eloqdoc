@@ -33,8 +33,8 @@
 
 #include "mongo/base/disallow_copying.h"
 #include "mongo/base/global_initializer_registerer.h"
-#include "mongo/base/local_thread_state.h"
 #include "mongo/db/coro_sync.h"
+#include "mongo/db/local_thread_state.h"
 #include "mongo/db/logical_session_id.h"
 #include "mongo/db/storage/storage_engine.h"
 #include "mongo/platform/atomic_word.h"
