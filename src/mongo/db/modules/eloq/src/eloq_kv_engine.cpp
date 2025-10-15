@@ -834,8 +834,9 @@ void EloqKVEngine::listDatabases(std::vector<std::string>& out) const {
     MONGO_LOG(1) << "EloqKVEngine::listDatabases";
 
     std::vector<std::string> tables;
-    // bool success = Eloq::storeHandler->DiscoverAllTableNames(tables);
-    bool success = Eloq::GetAllTables(tables);
+
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    bool success = Eloq::GetAllTables(tables, coro.yieldFuncPtr, coro.resumeFuncPtr);
     if (!success) {
         error() << "Failed to discover table names.";
         uassertStatusOK(Status{ErrorCodes::InternalError, "Failed to discover collection names."});
@@ -867,8 +868,9 @@ bool EloqKVEngine::databaseExists(std::string_view dbName) const {
                  << ". dbName: " << dbName;
 
     std::vector<std::string> tables;
-    // Eloq::storeHandler->DiscoverAllTableNames(tables);
-    bool success = Eloq::GetAllTables(tables);
+
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    bool success = Eloq::GetAllTables(tables, coro.yieldFuncPtr, coro.resumeFuncPtr);
 
     if (!success) {
         error() << "Failed to discover collection names.";
@@ -886,8 +888,9 @@ void EloqKVEngine::listCollections(std::string_view dbName, std::vector<std::str
     MONGO_LOG(1) << "EloqKVEngine::listCollections"
                  << ". db: " << dbName;
     std::vector<std::string> allCollections;
-    // Eloq::storeHandler->DiscoverAllTableNames(allCollections);
-    bool success = Eloq::GetAllTables(allCollections);
+
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    bool success = Eloq::GetAllTables(allCollections, coro.yieldFuncPtr, coro.resumeFuncPtr);
 
     if (!success) {
         error() << "Failed to discover collection names.";
@@ -909,8 +912,9 @@ void EloqKVEngine::listCollections(std::string_view dbName, std::set<std::string
     MONGO_LOG(1) << "EloqKVEngine::listCollections"
                  << ". db: " << dbName;
     std::vector<std::string> allCollections;
-    // Eloq::storeHandler->DiscoverAllTableNames(allCollections);
-    bool success = Eloq::GetAllTables(allCollections);
+
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    bool success = Eloq::GetAllTables(allCollections, coro.yieldFuncPtr, coro.resumeFuncPtr);
 
     if (!success) {
         error() << "Failed to discover collection names.";
@@ -1134,8 +1138,9 @@ std::vector<std::string> EloqKVEngine::getAllIdents(OperationContext* opCtx) con
     std::vector<std::string> all;
 
     std::vector<std::string> tableNameVector;
-    // Eloq::storeHandler->DiscoverAllTableNames(tableNameVector);
-    bool success = Eloq::GetAllTables(tableNameVector);
+
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    bool success = Eloq::GetAllTables(tableNameVector, coro.yieldFuncPtr, coro.resumeFuncPtr);
 
     if (!success) {
         error() << "Failed to discover collection names.";

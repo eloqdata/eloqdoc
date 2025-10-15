@@ -42,8 +42,10 @@ namespace txservice {}  // namespace txservice
 namespace Eloq {
 extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
 
-inline bool GetAllTables(std::vector<std::string>& tables) {
-    bool success = Eloq::storeHandler->DiscoverAllTableNames(tables);
+inline bool GetAllTables(std::vector<std::string>& tables,
+                         const std::function<void()>* yieldFuncPtr,
+                         const std::function<void()>* resumeFuncPtr) {
+    bool success = Eloq::storeHandler->DiscoverAllTableNames(tables, yieldFuncPtr, resumeFuncPtr);
     if (!success) {
         return false;
     }

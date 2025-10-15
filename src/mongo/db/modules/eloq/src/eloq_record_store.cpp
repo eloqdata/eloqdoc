@@ -68,8 +68,9 @@ public:
         : _ru{EloqRecoveryUnit::get(opCtx)} {
         MONGO_LOG(1) << "EloqCatalogRecordStoreCursor::EloqCatalogRecordStoreCursor";
         // always do full table scan
-        // Eloq::storeHandler->DiscoverAllTableNames(_tableNameVector);
-        Eloq::GetAllTables(_tableNameVector);
+
+        const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+        Eloq::GetAllTables(_tableNameVector, coro.yieldFuncPtr, coro.resumeFuncPtr);
         std::string output;
         for (const auto& name : _tableNameVector) {
             output.append(name).append("|");
@@ -400,8 +401,9 @@ std::unique_ptr<SeekableRecordCursor> EloqCatalogRecordStore::getCursor(Operatio
 
 void EloqCatalogRecordStore::getAllCollections(std::vector<std::string>& collections) const {
     MONGO_LOG(1) << "EloqCatalogRecordStore::getAllCollections";
-    // Eloq::storeHandler->DiscoverAllTableNames(collections);
-    Eloq::GetAllTables(collections);
+
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    Eloq::GetAllTables(collections, coro.yieldFuncPtr, coro.resumeFuncPtr);
     std::string output;
     for (const auto& name : collections) {
         output.append(name).append("|");
