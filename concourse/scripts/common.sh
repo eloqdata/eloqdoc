@@ -63,6 +63,7 @@ compile_and_install() {
             -DCMAKE_CXX_FLAGS_DEBUG_INIT="-Wno-error -fPIC" \
             -DCMAKE_BUILD_TYPE=Debug \
             -DEXT_TX_PROC_ENABLED=ON \
+            -DELOQ_MODULE_ENABLED=ON \
             -DSTATISTICS=ON \
             -DUSE_ASAN=OFF \
             -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3
@@ -79,6 +80,7 @@ compile_and_install() {
             VARIANT_DIR=Debug \
             LIBPATH=/usr/local/lib \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+            CPPDEFINES="ELOQ_MODULE_ENABLED" \
             --build-dir=#build \
             --prefix="$PREFIX" \
             --dbg=on \
@@ -110,6 +112,7 @@ compile_and_install_ent() {
             -DCMAKE_CXX_FLAGS_DEBUG_INIT="-Wno-error -fPIC" \
             -DCMAKE_BUILD_TYPE=Debug \
             -DEXT_TX_PROC_ENABLED=ON \
+            -DELOQ_MODULE_ENABLED=ON \
             -DSTATISTICS=ON \
             -DUSE_ASAN=OFF \
             -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 \
@@ -130,6 +133,7 @@ compile_and_install_ent() {
             VARIANT_DIR=Debug \
             LIBPATH=/usr/local/lib \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+            CPPDEFINES="ELOQ_MODULE_ENABLED" \
             --build-dir=#build \
             --prefix="$PREFIX" \
             --dbg=on \
