@@ -187,6 +187,9 @@ public:
 private:
     bool InitMetricsRegistry();
 
+    void shutdownTxService();
+
+private:
     std::unique_ptr<txservice::TxService> _txService;
     std::unique_ptr<txlog::LogServer> _logServer;
     Eloq::MongoCatalogFactory _catalogFactory;

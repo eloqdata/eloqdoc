@@ -5,10 +5,6 @@
 #include "mongo/db/local_thread_state.h"
 #include "mongo/util/log.h"
 
-#ifdef ELOQ_MODULE_ENABLED
-#include "bthread/bthread.h"
-#endif
-
 namespace mongo {
 
 const CoroutineFunctors CoroutineFunctors::Unavailable{};
@@ -29,31 +25,15 @@ void Mutex::lock() {
                     (*coro.yieldFuncPtr)();
                 }
             } else {
-#ifndef ELOQ_MODULE_ENABLED
-                MONGO_LOG(2)
+                MONGO_LOG(1)
                     << "ThreadGroup " << LocalThread::ID()
                     << " call std::mutex::lock because the coroutine context is unavailable.";
                 _mux.lock();
-#else
-                MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
-                             << " call bthread_yield because the coroutine context is unavailable.";
-                while (!_mux.try_lock()) {
-                    bthread_yield();
-                }
-#endif
             }
         } else {
-#ifndef ELOQ_MODULE_ENABLED
-            MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
+            MONGO_LOG(1) << "ThreadGroup " << LocalThread::ID()
                          << " call std::mutex::lock because the client object is unavailable.";
             _mux.lock();
-#else
-            MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
-                         << " call bthread_yield because the client object is unavailable.";
-            while (!_mux.try_lock()) {
-                bthread_yield();
-            }
-#endif
         }
     } else {
         _mux.lock();
@@ -72,32 +52,16 @@ void ConditionVariable::wait(std::unique_lock<Mutex>& lock) {
                 (*coro.yieldFuncPtr)();
                 lock.lock();
             } else {
-#ifndef ELOQ_MODULE_ENABLED
-                MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
+                MONGO_LOG(1) << "ThreadGroup " << LocalThread::ID()
                              << " call std::condition_variable::wait because the coroutine context "
                                 "is unavailable.";
                 _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
-#else
-                MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
-                             << " call bthread_yield because the coroutine context is unavailable.";
-                lock.unlock();
-                bthread_yield();
-                lock.lock();
-#endif
             }
         } else {
-#ifndef ELOQ_MODULE_ENABLED
-            MONGO_LOG(2)
+            MONGO_LOG(1)
                 << "ThreadGroup " << LocalThread::ID()
                 << " call std::condition_variable::wait because the client object is unavailable.";
             _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
-#else
-            MONGO_LOG(2) << "ThreadGroup " << LocalThread::ID()
-                         << " call bthread_yield because the client object is unavailable.";
-            lock.unlock();
-            bthread_yield();
-            lock.lock();
-#endif
         }
 
     } else {

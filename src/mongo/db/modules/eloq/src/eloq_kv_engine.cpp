@@ -1199,7 +1199,7 @@ std::vector<std::string> EloqKVEngine::getAllIdents(OperationContext* opCtx) con
 void EloqKVEngine::cleanShutdown() {
     MONGO_LOG(0) << "EloqKVEngine::cleanShutdown";
 
-    _txService->Shutdown();
+    shutdownTxService();
     Eloq::storeHandler.reset();
     Eloq::dataStoreService.reset();
 
@@ -1209,6 +1209,27 @@ void EloqKVEngine::cleanShutdown() {
 #endif
 
     _txService.reset();
+}
+
+void EloqKVEngine::shutdownTxService() {
+#ifndef ELOQ_MODULE_ENABLED
+    _txService->Shutdown();
+#else
+    // 1.When merged into ConvergedDB, `_txService->Shutdown()` should be moved out.
+    // 2.eloq::unregister_module is not allowed to called in a brpc-worker thread.
+    bool done = false;
+    coro::Mutex mux;
+    coro::ConditionVariable cv;
+    std::unique_lock lk(mux);
+    std::thread thd([this, &done, &mux, &cv]() {
+        std::unique_lock lk(mux);
+        _txService->Shutdown();
+        done = true;
+        cv.notify_one();
+    });
+    thd.detach();
+    cv.wait(lk, [&done]() { return done; });
+#endif
 }
 
 void EloqKVEngine::setJournalListener(JournalListener* jl) {
