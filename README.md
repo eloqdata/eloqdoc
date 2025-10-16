@@ -24,9 +24,9 @@ A MongoDB API compatible , high-performance, elastic, distributed document datab
 
 ## Overview
 
-EloqDoc is a high-performance, distributed transactional document database with MongoDB API compatibility. Its breakthrough architecture, powered by [Data Substrate](https://www.eloqdata.com/blog/2024/08/11/data-substrate), recalibrates the trade-offs between cost, scalability, and performance for real-world document workloads.
+EloqDoc is a high-performance, distributed transactional document database with MongoDB API compatibility. Its breakthrough architecture, powered by [Data Substrate](https://www.eloqdata.com/blog/2024/08/11/data-substrate), redefines the balance between cost, scalability, and performance for real-world document workloads.
 
-Unlike MongoDB, which relies on three replica-set nodes for durability, EloqDoc treats cloud object storage as a first-class citizen. Durable, cross–availability zone (AZ) object storage serves as the persistent foundation, while local NVMe caching accelerates reads. Recent updates are written to a decoupled redo log component, allowing fast, sequential writes independent of the main storage path. This architecture minimizes write latency while maintaining strong consistency and durability.
+Unlike MongoDB, which relies on three replica-set nodes for durability, EloqDoc treats cloud object storage as a first-class citizen. Durable, cross–availability zone (AZ) object storage serves as the persistent foundation, while local NVMe caching accelerates reads. Recent updates are written to a decoupled redo log component. This architecture minimizes write latency while maintaining strong consistency and durability.
 
 The result is a cloud-native, storage-centric deployment model: EloqDoc typically runs a single compute replica with storage-level high availability, orchestrated by Kubernetes for automatic failover. This approach cuts infrastructure costs, avoids redundant CPU and memory overhead, and delivers higher throughput across mixed read/write workloads.
 
@@ -42,9 +42,9 @@ Explore [EloqDoc](https://www.eloqdata.com/product/eloqdoc) for more details, or
 
 Seamlessly integrates with MongoDB clients, drivers, and tools, enabling you to use existing MongoDB workflows with a distributed backend.
 
-### 💾 Tiered Storage Architecture
+### 🗃️ Tiered Storage Architecture
 
-EloqDoc seamlessly manages hot and cold data across memory, local NVMe cache, and durable object storage. Since NVMe storage is ephemeral and lost when a node crashes, EloqDoc uses it strictly as a cache for object storage. This design ensures that all data remains safe and durable in cross-AZ object storage while still benefiting from NVMe-level performance for frequently accessed data.
+EloqDoc seamlessly manages hot and cold data across **memory, local NVMe cache, and object storage**. Since NVMe storage is ephemeral and lost when a node crashes, EloqDoc uses it strictly as a cache for object storage. This design ensures that all data remains safe and durable in cross-AZ object storage while still benefiting from NVMe-level performance for frequently accessed data.
 
 ### 🌐 Truely Distributed Database
 
@@ -53,7 +53,7 @@ Supports **multiple writers** and **fast distributed transactions**, ensuring hi
 ### 🔄 Elastic Scalability
 
 - Scales compute and memory **100x faster** than traditional databases by avoiding data movement on disk.
-- Scales storage independently, conserving CPU resources for compute-intensive tasks.
+- Scales storage independently, so CPU resources remain constant when data volume grows but traffic stays the same.
 - Scales redo logs independently to optimize write throughput.
 
 ### 🔥 High-Performance Transactions
@@ -123,7 +123,7 @@ For datasets that exceed available memory, we configured both systems to serve 1
 </a>
 </div>
 
-We will publish a more detailed benchmark artifacts in future.
+We will publish a more detailed benchmarks in future.
 
   
 ---
