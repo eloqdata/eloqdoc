@@ -155,7 +155,6 @@ launch_eloqdoc() {
       local bucket_name="$1"
       local bucket_prefix="$2"
       echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
-      export LD_PRELOAD=/usr/local/lib/libmimalloc.so
       mkdir -p "$PREFIX/log" "$PREFIX/data"
       sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
       sed -i "s|txlogRocksDBCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|txlogRocksDBCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
@@ -177,7 +176,6 @@ launch_eloqdoc_fast() {
       local bucket_name="$1"
       local bucket_prefix="$2"
       echo "launch eloqdoc fast with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
-      export LD_PRELOAD=/usr/local/lib/libmimalloc.so
       mkdir -p "$PREFIX/log" "$PREFIX/data"
       sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
       sed -i "s|txlogRocksDBCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|txlogRocksDBCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml

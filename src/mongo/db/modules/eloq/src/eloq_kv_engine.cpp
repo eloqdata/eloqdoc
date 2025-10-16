@@ -275,6 +275,16 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher", "true");
     GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "100000");  // 100ms
 #endif
+    if (!eloqGlobalOptions.enableIOuring && eloqGlobalOptions.raftlogAsyncFsync) {
+        const char* errmsg =
+            "Invalid config: when set txlogAsyncFsync, should also set enableIOuring.";
+        error() << errmsg;
+        uasserted(ErrorCodes::InvalidOptions, errmsg);
+    }
+    GFLAGS_NAMESPACE::SetCommandLineOption("use_io_uring",
+                                           eloqGlobalOptions.enableIOuring ? "true" : "false");
+    GFLAGS_NAMESPACE::SetCommandLineOption("raft_use_bthread_fsync",
+                                           eloqGlobalOptions.raftlogAsyncFsync ? "true" : "false");
 
 #if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
@@ -338,7 +348,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                                                       eloqGlobalOptions.nodeGroupReplicaNum,
                                                       0);
             if (!parse_res) {
-                LOG(ERROR) << "Failed to extract cluster configs from ip_port_list.";
+                error() << "Failed to extract cluster configs from ip_port_list.";
                 uasserted(ErrorCodes::InvalidOptions,
                           "Failed to extract cluster configs from ip_port_list.");
             }
@@ -1220,7 +1230,6 @@ void EloqKVEngine::shutdownTxService() {
     bool done = false;
     coro::Mutex mux;
     coro::ConditionVariable cv;
-    std::unique_lock lk(mux);
     std::thread thd([this, &done, &mux, &cv]() {
         std::unique_lock lk(mux);
         _txService->Shutdown();
@@ -1228,6 +1237,7 @@ void EloqKVEngine::shutdownTxService() {
         cv.notify_one();
     });
     thd.detach();
+    std::unique_lock lk(mux);
     cv.wait(lk, [&done]() { return done; });
 #endif
 }

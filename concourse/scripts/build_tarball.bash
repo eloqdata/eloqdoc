@@ -287,12 +287,6 @@ if [ -f ${DEST_DIR}/bin/dss_server ]; then
   patchelf --set-rpath '$ORIGIN/../lib' ${DEST_DIR}/bin/dss_server
 fi
 
-# Preload libmimalloc and libbrpc at launch.
-patchelf --remove-needed libmimalloc.so.2 ${DEST_DIR}/bin/eloqdoc
-patchelf --remove-needed libbrpc.so ${DEST_DIR}/bin/eloqdoc
-patchelf --add-needed libbrpc.so ${DEST_DIR}/bin/eloqdoc
-patchelf --add-needed libmimalloc.so.2 ${DEST_DIR}/bin/eloqdoc
-
 # Config files
 cp ${ELOQDOC_SRC}/concourse/artifact/${DATA_STORE_TYPE}/* ${DEST_DIR}/etc
 

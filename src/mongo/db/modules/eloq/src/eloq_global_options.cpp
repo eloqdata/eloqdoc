@@ -162,6 +162,12 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "Enable heap defragment.")
         .setDefault(moe::Value(false));
     eloqOptions
+        .addOptionChaining("storage.eloq.txService.enableIOuring",
+                           "eloqEnableIOURing",
+                           moe::Bool,
+                           "Enable io_uring")
+        .setDefault(moe::Value(false));
+    eloqOptions
         .addOptionChaining("storage.eloq.txService.nodeGroupReplicaNum",
                            "eloqNodeGroupReplicaNum",
                            moe::Int,
@@ -169,6 +175,12 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .setDefault(moe::Value(3));
 
     // txlog
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogAsyncFsync",
+                           "eloqTxlogAsyncFsync",
+                           moe::Bool,
+                           "Enable async fsync with io_uring")
+        .setDefault(moe::Value(false));
     eloqOptions
         .addOptionChaining(
             "storage.eloq.txService.txlogRocksDBStoragePath",
@@ -777,12 +789,19 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.enableHeapDefragment =
             params["storage.eloq.txService.enableHeapDefragment"].as<bool>();
     }
+    if (params.count("storage.eloq.txService.enableIOuring")) {
+        eloqGlobalOptions.enableIOuring = params["storage.eloq.txService.enableIOuring"].as<bool>();
+    }
     if (params.count("storage.eloq.txService.nodeGroupReplicaNum")) {
         eloqGlobalOptions.nodeGroupReplicaNum =
             params["storage.eloq.txService.nodeGroupReplicaNum"].as<int>();
     }
 
     // txlog
+    if (params.count("storage.eloq.txService.txlogAsyncFsync")) {
+        eloqGlobalOptions.raftlogAsyncFsync =
+            params["storage.eloq.txService.txlogAsyncFsync"].as<bool>();
+    }
     if (params.count("storage.eloq.txService.txlogRocksDBStoragePath")) {
         eloqGlobalOptions.txlogRocksDBStoragePath =
             params["storage.eloq.txService.txlogRocksDBStoragePath"].as<std::string>();

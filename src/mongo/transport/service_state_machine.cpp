@@ -259,7 +259,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
       _dbClient{
           svcContext->makeClient(_threadName, std::move(session), makeCoroutineFunctors(*this))},
       _dbClientPtr{_dbClient.get()},
-      _osPageSize{::getpagesize()},
+      _osPageSize{static_cast<size_t>(::getpagesize())},
       _threadGroupId(groupId) {
     MONGO_LOG(1) << "ServiceStateMachine::ServiceStateMachine";
     _coroStack = (char*)::mmap(

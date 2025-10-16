@@ -65,6 +65,8 @@ public:
     bool kickoutDataForTest{false};
     bool realtimeSampling{true};
     bool enableHeapDefragment{false};
+    bool enableIOuring{false};
+    bool raftlogAsyncFsync{false};
 
     // txlog
     std::string txlogRocksDBStoragePath;
