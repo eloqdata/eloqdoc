@@ -44,13 +44,66 @@ Operates as a distributed database without requiring a sharding coordinator (e.g
 
 ---
 
-## Architecture Highlights
+## Architecture
 
+<div align="center">
+<a href='https://www.eloqdata.com'>
+<img src="images/eloqdocarchitecture.jpg" alt="EloqDoc Arch" width=600></img>
+</a>
+</div>
+
+EloqDoc is a decoupled, distributed database built on [Data Substrate](https://www.eloqdata.com/blog/2025/07/14/technology), the innovative new database foundation developed by EloqData.
+
+Each EloqDoc instance includes a frontend, compatible with the MongoDB protocol, deployed together with the core TxService to handle data operations. A logically independent LogService handles Write Ahead Logging (WAL) to ensure persistence, while a Storage Service manages memory state checkpoints and cold data storage.
+
+This architecture enable EloqDoc to support:
 - **Fast Scaling**: Compute and memory scale independently without disk data movement, enabling rapid elasticity for dynamic workloads.
 - **Storage Flexibility**: Storage scales separately from compute, optimizing resource allocation and reducing waste.
 - **Write Optimization**: Independent redo log scaling boosts write throughput, ideal for high-velocity data ingestion.
 - **No Sharding Overhead**: Distributes data natively across the cluster, eliminating the need for additional sharding components.
 
+---
+
+## Benchmark
+
+We evaluated EloqDoc against MongoDB Atlas across representative deployment scenarios, ranging from fully in-memory workloads to cases where the working set does not fit in cache. All tests were executed on 16-core database nodes configured with identical client concurrency and dataset characteristics.
+
+**Key takeaways**
+- EloqDoc sustained up to 60% higher throughput than MongoDB Atlas for mixed 1:1 read/write workloads when the active dataset was fully cached.
+- For read-heavy applications, EloqDoc delivered roughly 60% higher peak throughput while maintaining lower latency across the entire concurrency range.
+- When the workload required frequent disk accesses, EloqDoc’s local NVMe cache + object storage design preserved performance and availability, whereas Atlas’s EBS-backed tier became IO-bound.
+
+### Fully Cached Results
+
+**Mixed read/write (1:1)** – EloqDoc maintained higher throughput under heavy contention and peaked at roughly 60% more operations per second than Atlas.
+
+<div align="center">
+<a href='https://www.eloqdata.com'>
+<img src="images/eloqdocatlasfull16crw.jpg" alt="EloqDoc vs. Atlas, 16-core mixed workload" width=500></img>
+</a>
+</div>
+
+**Read-only** – EloqDoc achieved high throughput even at moderate concurrency, sustaining about 60% higher throughput compared with Atlas.
+
+<div align="center">
+<a href='https://www.eloqdata.com'>
+<img src="images/eloqdocatlasfull16cro.jpg" alt="EloqDoc vs. Atlas, 16-core read-only workload" width=500></img>
+</a>
+</div>
+
+### Low Cache Hit Rate Results
+
+For datasets that exceed available memory, we configured both systems to serve 150 million documents, forcing regular cache misses. EloqDoc leverages local NVMe as a write-back cache layered over durable object storage. This architecture delivered hundreds of thousands of IOPS while keeping data fully resilient. In contrast, the Atlas deployment backed by network EBS volumes saturated its IO budget, leading to noticeably lower throughput and higher tail latency.
+
+<div align="center">
+<a href='https://www.eloqdata.com'>
+<img src="images/eloqdocatlas16c150mro.jpg" alt="EloqDoc vs. Atlas, 16-core low cache hit workload" width=500></img>
+</a>
+</div>
+
+We will publish a more detailed benchmark artifacts in future.
+
+  
 ---
 
 ## Quick Start
