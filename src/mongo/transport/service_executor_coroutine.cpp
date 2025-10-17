@@ -273,7 +273,7 @@ Status ServiceExecutorCoroutine::_startWorker(int16_t groupId) {
             }
         }
 
-        LOG(0) << "Exiting worker thread in " << _name << " service executor";
+        MONGO_LOG(0) << "Exiting worker thread in " << _name << " service executor";
     });
 }
 #endif

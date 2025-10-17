@@ -372,6 +372,7 @@ public:
                             RecordData* out,
                             bool isForWrite) const {
         assert(false);
+        return false;
     }
 
     virtual void deleteRecord(OperationContext* opCtx, const RecordId& dl) = 0;
