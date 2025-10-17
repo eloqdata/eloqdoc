@@ -364,19 +364,16 @@ mongod = env.Program(
         'base',
         'mongodmain',
     ],
+    SYSLIBDEPS=[
+        'mimalloc',
+        'brpc',
+    ] if env.TargetOSIs('linux') else [],
     INSTALL_ALIAS=[
         'core',
         'default',
         'servers',
     ],
 )
-
-if env.TargetOSIs('linux'):
-    # Adjust DT_NEEDED order using patchelf immediately after linking, before install
-    env.AddPostAction(mongod, 'patchelf --remove-needed libmimalloc.so.2 $TARGET')
-    env.AddPostAction(mongod, 'patchelf --remove-needed libbrpc.so $TARGET')
-    env.AddPostAction(mongod, 'patchelf --add-needed libbrpc.so $TARGET')
-    env.AddPostAction(mongod, 'patchelf --add-needed libmimalloc.so.2 $TARGET')
 
 hygienic = get_option('install-mode') == 'hygienic'
 

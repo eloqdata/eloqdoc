@@ -189,12 +189,14 @@ base_deps = [
     # FindLibPath("absl_bad_variant_access"),
     # FindLibPath("absl_bad_optional_access"),
     # FindLibPath("absl_str_format_internal"),
+    #
+    # mimalloc and brpc are also linked to eloqdoc in mongo/SConscript.
     FindLibPath("mimalloc"),
+    FindLibPath("brpc"),
+    FindLibPath("braft"),
     FindLibPath("gflags"),
     FindLibPath("protobuf"),
     FindLibPath("glog"),
-    FindLibPath("brpc"),
-    FindLibPath("braft"),
     # FindLibPath("tcmalloc_and_profiler"),
 ]
 

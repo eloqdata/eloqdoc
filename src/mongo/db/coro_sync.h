@@ -1,6 +1,8 @@
 #pragma once
 
 #include <condition_variable>
+#include <cstdint>
+#include <functional>
 #include <mutex>
 
 #include "mongo/util/time_support.h"
