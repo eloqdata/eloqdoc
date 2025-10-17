@@ -25,6 +25,8 @@ storage:
       collectActiveTxTsIntervalSec: 2
       checkpointerDelaySec: 5
       ccProtocol: "OccRead"
+      enableIOuring: true
+      txlogAsyncFsync: true
       # txlogServiceList: ["127.0.0.1:8500"]
       # txlogGroupReplicaNum: 1
       # skipRedoLog: true
