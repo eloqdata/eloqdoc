@@ -88,7 +88,7 @@ This architecture enable EloqDoc to support:
 
 ## Benchmark
 
-We evaluated EloqDoc against MongoDB Atlas across representative deployment scenarios, ranging from fully in-memory workloads to cases where the working set does not fit in cache. All tests were executed on 16-core database nodes configured with identical client concurrency and dataset characteristics.
+All tests were conducted on AWS EC2 i4i.4xlarge instances, featuring 16 vCPUs, 128 GB RAM, and high-performance local NVMe storage. We evaluated EloqDoc against MongoDB Atlas across representative deployment scenarios, ranging from fully in-memory workloads to cases where the working set exceeds cache capacity. Both systems were benchmarked using identical client concurrency levels and dataset characteristics to ensure fairness and reproducibility.
 
 **Key takeaways**
 - EloqDoc sustained up to 60% higher throughput than MongoDB Atlas for mixed 1:1 read/write workloads when the active dataset was fully cached.
@@ -123,7 +123,7 @@ For datasets that exceed available memory, we configured both systems to serve 1
 </a>
 </div>
 
-We will publish a more detailed benchmarks in future.
+We will publish more detailed benchmarks in future.
 
   
 ---
