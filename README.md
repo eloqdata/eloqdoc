@@ -38,29 +38,29 @@ Explore [EloqDoc](https://www.eloqdata.com/product/eloqdoc) for more details, or
 
 ## Key Features
 
-### ⚙️ MongoDB API Compatibility
+### MongoDB API Compatibility
 
 Seamlessly integrates with MongoDB clients, drivers, and tools, enabling you to use existing MongoDB workflows with a distributed backend.
 
-### 🗃️ Tiered Storage Architecture
+### Tiered Storage Architecture
 
 EloqDoc seamlessly manages hot and cold data across **memory, local NVMe cache, and object storage**. Since NVMe storage is ephemeral and lost when a node crashes, EloqDoc uses it strictly as a cache for object storage. This design ensures that all data remains safe and durable in cross-AZ object storage while still benefiting from NVMe-level performance for frequently accessed data.
 
-### 🌐 Truely Distributed Database
+### Truely Distributed Database
 
 Supports **multiple writers** and **fast distributed transactions**, ensuring high concurrency and fault tolerance across a cluster without sharding complexity.
 
-### 🔄 Elastic Scalability
+### Elastic Scalability
 
 - Scales compute and memory **100x faster** than traditional databases by avoiding data movement on disk.
 - Scales storage independently, so CPU resources remain constant when data volume grows but traffic stays the same.
 - Scales redo logs independently to optimize write throughput.
 
-### 🔥 High-Performance Transactions
+### High-Performance Transactions
 
 Delivers **ACID transaction support** with especially fast distributed transactions, making it suitable for mission-critical applications.
 
-### 🔒 Simplified Distributed Design
+### Simplified Distributed Design
 
 Operates as a distributed database without requiring a sharding coordinator (e.g., `mongos`), reducing operational complexity and overhead.
 
