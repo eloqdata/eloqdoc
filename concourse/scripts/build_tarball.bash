@@ -169,7 +169,7 @@ copy_libraries() {
     libraries=$(ldd "$executable" | awk 'NF==4{print $(NF-1)}{}')
     mkdir -p "$path"
     for lib in $libraries; do
-        rsync -avL --ignore-existing "$lib" "$path/"
+        rsync -aL --ignore-existing "$lib" "$path/"
         libname=$(basename "$lib")
         # Align with nightly: ensure each copied library has rpath set to $ORIGIN
         if [ -f "${path}/${libname}" ]; then

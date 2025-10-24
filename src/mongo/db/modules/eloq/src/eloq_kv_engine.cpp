@@ -644,6 +644,7 @@ void EloqKVEngine::initDataStoreService() {
     //     "/home/lzx/test-eloqsql/eloq_ds.ini";
     INIReader fake_config_reader(nullptr, 0);
     EloqDS::RocksDBConfig rocksdb_config(fake_config_reader, _dbPath);
+    rocksdb_config.query_worker_num_ = 10 * serverGlobalParams.reservedThreadNum;
     rocksdb_config.max_background_jobs_ = eloqGlobalOptions.rocksdbMaxBackgroundJobs;
     rocksdb_config.max_subcompactions_ = eloqGlobalOptions.rocksdbMaxSubCompactions;
 

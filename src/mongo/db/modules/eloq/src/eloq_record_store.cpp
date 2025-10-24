@@ -573,14 +573,15 @@ private:
             _endKey = Eloq::MongoKey::GetNegInfTxKey();
         }
 
+        bool endInclusive = false;
         bool isForWrite = _opCtx->isUpsert();
         _cursor->indexScanOpen(_tableName,
                                _keySchema->SchemaTs(),
                                txservice::ScanIndexType::Primary,
                                &_startKey,
-                               false,
+                               startInclusive,
                                &_endKey,
-                               false,
+                               endInclusive,
                                _forward ? txservice::ScanDirection::Forward
                                         : txservice::ScanDirection::Backward,
                                isForWrite);

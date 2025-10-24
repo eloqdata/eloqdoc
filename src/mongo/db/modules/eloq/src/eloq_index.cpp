@@ -274,7 +274,8 @@ private:
             }
         }
 
-        bool isForWrite = _opCtx->isUpsert();
+        bool endInclusive = false;
+        bool isForWrite = _opCtx->isUpsert() && _indexName->IsBase();
         // end_inclusive semantics has been handled by _endPosition
         _cursor->indexScanOpen(_indexName,
                                _indexSchema->SchemaTs(),
@@ -282,7 +283,7 @@ private:
                                &_startKey,
                                startInclusive,
                                &_endKey,
-                               false,
+                               endInclusive,
                                direction,
                                isForWrite);
 

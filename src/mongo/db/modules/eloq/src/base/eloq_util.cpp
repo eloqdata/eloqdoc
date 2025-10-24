@@ -12,7 +12,7 @@ Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr) {
     if (MONGO_likely(txErr == txservice::TxErrorCode::NO_ERROR))
         return Status::OK();
 
-    log() << "eloq engine error report: " << txservice::TxErrorMessage(txErr);
+    log() << "Eloq engine error report: " << txservice::TxErrorMessage(txErr);
 
     ErrorCodes::Error err;
     switch (txErr) {
@@ -30,6 +30,8 @@ Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr) {
             err = ErrorCodes::CannotCreateIndex;
             break;
         case txservice::TxErrorCode::READ_WRITE_CONFLICT:
+            err = ErrorCodes::SnapshotUnavailable;
+            break;
         case txservice::TxErrorCode::WRITE_WRITE_CONFLICT:
         case txservice::TxErrorCode::OCC_BREAK_REPEATABLE_READ:
         case txservice::TxErrorCode::DEAD_LOCK_ABORT:
@@ -58,6 +60,9 @@ Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr) {
             break;
         case txservice::TxErrorCode::UPSERT_TABLE_PREPARE_FAIL:
             err = ErrorCodes::OperationFailed;
+            break;
+        case txservice::TxErrorCode::REQUESTD_TABLE_NOT_EXISTS:
+            err = ErrorCodes::NamespaceNotFound;
             break;
         default:
             err = ErrorCodes::UnknownError;

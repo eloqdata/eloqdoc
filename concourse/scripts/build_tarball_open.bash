@@ -134,7 +134,7 @@ copy_libraries() {
 
   mkdir -p "$path"
   for lib in $libraries; do
-    rsync -avL --ignore-existing "$lib" "$path/"
+    rsync -aL --ignore-existing "$lib" "$path/"
     libname=$(basename "$lib")
     if [ -f "${path}/${libname}" ]; then
       patchelf --set-rpath '$ORIGIN' "${path}/${libname}"
