@@ -128,7 +128,7 @@ std::unique_ptr<txservice::CcScanner> MongoCatalogFactory::CreateRangeCcmScanner
     const txservice::KeySchema* key_schema,
     const txservice::TableName& range_table_name) {
     assert(range_table_name.Type() == txservice::TableType::RangePartition);
-    return std::make_unique<txservice::TemplateCcScanner<MongoKey, txservice::RangeRecord>>(
+    return std::make_unique<txservice::HashParitionCcScanner<MongoKey, txservice::RangeRecord>>(
         direction,
         range_table_name.IsBase() ? txservice::ScanIndexType::Primary
                                   : txservice::ScanIndexType::Secondary,
