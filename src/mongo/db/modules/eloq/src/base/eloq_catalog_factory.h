@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-#include "mongo/db/modules/eloq/tx_service/include/catalog_factory.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_factory.h"
 
 namespace Eloq {
 

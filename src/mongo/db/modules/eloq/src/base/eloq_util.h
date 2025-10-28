@@ -33,19 +33,21 @@
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
 #include "mongo/util/assert_util.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/constants.h"
-#include "mongo/db/modules/eloq/tx_service/include/error_messages.h"
-#include "mongo/db/modules/eloq/tx_service/include/store/data_store_handler.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/constants.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/error_messages.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/store/data_store_handler.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
+
+#include "mongo/db/modules/eloq/data_substrate/core/include/data_substrate.h"
 
 namespace txservice {}  // namespace txservice
 namespace Eloq {
-extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
 
 inline bool GetAllTables(std::vector<std::string>& tables,
                          const std::function<void()>* yieldFuncPtr,
                          const std::function<void()>* resumeFuncPtr) {
-    bool success = Eloq::storeHandler->DiscoverAllTableNames(tables, yieldFuncPtr, resumeFuncPtr);
+    auto* storeHandler = DataSubstrate::GetGlobal()->GetStoreHandler();
+    bool success = storeHandler->DiscoverAllTableNames(tables, yieldFuncPtr, resumeFuncPtr);
     if (!success) {
         return false;
     }

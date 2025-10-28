@@ -37,17 +37,17 @@
 #include "mongo/util/assert_util.h"
 #include "mongo/util/log.h"
 
+#include "mongo/db/modules/eloq/data_substrate/store_handler/kv_store.h"
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
 #include "mongo/db/modules/eloq/src/base/eloq_record.h"
 #include "mongo/db/modules/eloq/src/base/eloq_util.h"
 #include "mongo/db/modules/eloq/src/eloq_record_store.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
-#include "mongo/db/modules/eloq/store_handler/kv_store.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/catalog_key_record.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_key.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_request.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_key.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_request.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
 #include <butil/time.h>
 #include <bvar/latency_recorder.h>
@@ -57,9 +57,6 @@ bvar::LatencyRecorder kCatalogReadLatency{"mongo_catalog_read"};
 bvar::LatencyRecorder bVarUpdateRecord("update_record");
 }  // namespace recorder
 
-namespace Eloq {
-extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
-}
 namespace mongo {
 
 class EloqCatalogRecordStoreCursor : public SeekableRecordCursor {

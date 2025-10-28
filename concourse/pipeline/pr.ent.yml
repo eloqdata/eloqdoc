@@ -66,6 +66,10 @@ jobs:
         file: eloqdoc_pr/concourse/tasks/pr.ent.yml
         params:
           GIT_SSH_KEY: ((git-key))
+          ELOQ_AWS_ACCESS_KEY_ID: ((minio-access-key))
+          ELOQ_AWS_REGION: ((aws-region))
+          ELOQ_AWS_SECRET_KEY: ((minio-secret-key))
+          ELOQ_AWS_S3_ENDPOINT_URL: ((minio-endpoint))
         privileged: true
         on_failure:
           put: eloqdoc_pr
@@ -76,4 +80,3 @@ jobs:
         params:
           path: eloqdoc_pr
           status: success
-

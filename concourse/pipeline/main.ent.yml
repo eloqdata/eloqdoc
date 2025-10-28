@@ -51,3 +51,8 @@ jobs:
     image: eloq_ubuntu_2404
     file: eloqdoc_src/concourse/tasks/main.ent.yml
     privileged: true
+    params:
+      ELOQ_AWS_ACCESS_KEY_ID: ((minio-access-key))
+      ELOQ_AWS_REGION: ((aws-region))
+      ELOQ_AWS_SECRET_KEY: ((minio-secret-key))
+      ELOQ_AWS_S3_ENDPOINT_URL: ((minio-endpoint))

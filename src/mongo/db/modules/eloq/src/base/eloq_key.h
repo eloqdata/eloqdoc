@@ -30,7 +30,7 @@
 #include "mongo/db/record_id.h"
 #include "mongo/db/storage/key_string.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/tx_key.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_key.h"
 
 namespace Eloq {
 /**

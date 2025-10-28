@@ -35,7 +35,11 @@
 #include "mongo/util/log.h"
 
 #include "log_utils.h"
-#include "mongo/db/modules/eloq/eloq_metrics/include/metrics.h"
+#include "mongo/db/modules/eloq/data_substrate/eloq_metrics/include/metrics.h"
+#include "mongo/db/modules/eloq/data_substrate/store_handler/kv_store.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/dead_lock_check.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/sequences/sequences.h"
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
 #include "mongo/db/modules/eloq/src/base/eloq_log_agent.h"
 #include "mongo/db/modules/eloq/src/base/eloq_record.h"
@@ -46,17 +50,15 @@
 #include "mongo/db/modules/eloq/src/eloq_kv_engine.h"
 #include "mongo/db/modules/eloq/src/eloq_record_store.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
-#include "mongo/db/modules/eloq/store_handler/kv_store.h"
-#include "mongo/db/modules/eloq/tx_service/include/catalog_key_record.h"
-#include "mongo/db/modules/eloq/tx_service/include/dead_lock_check.h"
-#include "mongo/db/modules/eloq/tx_service/include/sequences/sequences.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/tx_key.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_record.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_service.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_service_metrics.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_util.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_key.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_record.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service_metrics.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_util.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
+
+#include "mongo/db/modules/eloq/data_substrate/core/include/data_substrate.h"
 
 #if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||  \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) || \
@@ -74,9 +76,9 @@
 #elif defined(DATA_STORE_TYPE_BIGTABLE)
 #include "store_handler/bigtable_handler.h"
 #elif ELOQDS
-#include "mongo/db/modules/eloq/store_handler/data_store_service_client.h"
-#include "mongo/db/modules/eloq/store_handler/eloq_data_store_service/data_store_service.h"
-#include "mongo/db/modules/eloq/store_handler/eloq_data_store_service/data_store_service_config.h"
+#include "mongo/db/modules/eloq/data_substrate/store_handler/data_store_service_client.h"
+#include "mongo/db/modules/eloq/data_substrate/store_handler/eloq_data_store_service/data_store_service.h"
+#include "mongo/db/modules/eloq/data_substrate/store_handler/eloq_data_store_service/data_store_service_config.h"
 #if ELOQDS_RKDB_CLOUD
 #include "store_handler/eloq_data_store_service/rocksdb_cloud_data_store_factory.h"
 #include "store_handler/eloq_data_store_service/rocksdb_config.h"
@@ -119,51 +121,20 @@
 #endif
 
 #if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-#include "mongo/db/modules/eloq/eloq_log_service/include/rocksdb_cloud_config.h"
+#include "mongo/db/modules/eloq/data_substrate/eloq_log_service/include/rocksdb_cloud_config.h"
 #endif
 
-#ifdef OPEN_LOG_SERVICE
-#include "mongo/db/modules/eloq/log_service/include/log_service_metrics.h"
-#else
-#include "mongo/db/modules/eloq/eloq_log_service/include/log_service_metrics.h"
-#endif
+// register catalog factory for data_substrate to link
+Eloq::MongoCatalogFactory catalogFactory;
+txservice::CatalogFactory* eloqdoc_catalog_factory = &catalogFactory;
 
-namespace Eloq {
-std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
-#if ELOQDS
-std::unique_ptr<EloqDS::DataStoreService> dataStoreService;
-#endif
+mongo::MongoSystemHandler mongoSystemHandler;
+txservice::SystemHandler* eloqdoc_system_handler = &mongoSystemHandler;
 
-}  // namespace Eloq
+// data substrate config
+DEFINE_string(data_substrate_config, "", "Data Substrate Configuration");
+
 namespace mongo {
-
-extern ServerGlobalParams serverGlobalParams;
-
-#if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
-
-
-Aws::SDKOptions aws_options;
-
-static int awsInit() {
-    log() << "AWS init";
-    std::filesystem::path systemLogPath(serverGlobalParams.logpath);
-    if (systemLogPath.has_parent_path()) {
-        static std::string logprefix = (systemLogPath.parent_path() / "aws_sdk_").string();
-        aws_options.loggingOptions.defaultLogPrefix = logprefix.c_str();
-    }
-    aws_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
-    Aws::InitAPI(aws_options);
-    return 0;
-}
-
-static int aws_deinit() {
-    log() << "AWS deinit";
-    Aws::ShutdownAPI(aws_options);
-    return 0;
-}
-#endif
-
 
 extern std::function<std::pair<std::function<void()>, std::function<void(int16_t)>>(int16_t)>
     getTxServiceFunctors;
@@ -176,98 +147,6 @@ std::string_view extractDbName(std::string_view nss) {
         return nss.substr(0, pos);
     }
 }
-
-
-#if defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-static void configureEloqStore(EloqDS::EloqStoreConfig& eloq_store_config,
-                               const std::string& dbPath) {
-    eloq_store_config.eloqstore_configs_.num_threads =
-        static_cast<uint16_t>(std::max(1U, eloqGlobalOptions.eloqStoreWorkerCount));
-
-    if (!eloqGlobalOptions.eloqStoreStoragePathList.empty()) {
-        EloqDS::EloqStoreConfig::ParseStoragePath(eloqGlobalOptions.eloqStoreStoragePathList,
-                                                  eloq_store_config.eloqstore_configs_.store_path);
-    } else {
-        eloq_store_config.eloqstore_configs_.store_path.emplace_back().append(dbPath).append(
-            "/dss_eloqstore");
-    }
-
-    eloq_store_config.eloqstore_configs_.fd_limit = eloqGlobalOptions.eloqStoreOpenFilesLimit;
-    eloq_store_config.eloqstore_configs_.cloud_store_path =
-        eloqGlobalOptions.eloqStoreCloudStorePath;
-
-    if (!eloq_store_config.eloqstore_configs_.cloud_store_path.empty()) {
-        log() << "EloqStore cloud store enabled";
-    }
-
-    eloq_store_config.eloqstore_configs_.data_page_restart_interval =
-        eloqGlobalOptions.eloqStoreDataPageRestartInterval;
-
-    eloq_store_config.eloqstore_configs_.index_page_restart_interval =
-        eloqGlobalOptions.eloqStoreIndexPageRestartInterval;
-
-    eloq_store_config.eloqstore_configs_.init_page_count = eloqGlobalOptions.eloqStoreInitPageCount;
-
-    eloq_store_config.eloqstore_configs_.skip_verify_checksum =
-        eloqGlobalOptions.eloqStoreSkipVerifyChecksum;
-
-    eloq_store_config.eloqstore_configs_.manifest_limit = eloqGlobalOptions.eloqStoreManifestLimit;
-
-    eloq_store_config.eloqstore_configs_.io_queue_size =
-        eloqGlobalOptions.eloqStoreIoQueueSize / eloq_store_config.eloqstore_configs_.num_threads;
-
-    eloq_store_config.eloqstore_configs_.max_inflight_write =
-        eloqGlobalOptions.eloqStoreMaxInflightWrite /
-        eloq_store_config.eloqstore_configs_.num_threads;
-
-    eloq_store_config.eloqstore_configs_.max_write_batch_pages =
-        eloqGlobalOptions.eloqStoreMaxWriteBatchPages;
-
-    eloq_store_config.eloqstore_configs_.buf_ring_size = eloqGlobalOptions.eloqStoreBufRingSize;
-
-    eloq_store_config.eloqstore_configs_.coroutine_stack_size =
-        eloqGlobalOptions.eloqStoreCoroutineStackSize;
-
-    eloq_store_config.eloqstore_configs_.num_retained_archives =
-        eloqGlobalOptions.eloqStoreNumRetainedArchives;
-
-    eloq_store_config.eloqstore_configs_.archive_interval_secs =
-        eloqGlobalOptions.eloqStoreArchiveIntervalSecs;
-
-    eloq_store_config.eloqstore_configs_.max_archive_tasks =
-        eloqGlobalOptions.eloqStoreMaxArchiveTasks;
-
-    eloq_store_config.eloqstore_configs_.file_amplify_factor =
-        eloqGlobalOptions.eloqStoreFileAmplifyFactor;
-
-    eloq_store_config.eloqstore_configs_.reserve_space_ratio =
-        eloqGlobalOptions.eloqStoreReserveSpaceRatio;
-
-    eloq_store_config.eloqstore_configs_.data_page_size = eloqGlobalOptions.eloqStoreDataPageSize;
-
-    eloq_store_config.eloqstore_configs_.pages_per_file_shift =
-        eloqGlobalOptions.eloqStorePagesPerFileShift;
-
-    eloq_store_config.eloqstore_configs_.overflow_pointers =
-        eloqGlobalOptions.eloqStoreOverflowPointers;
-
-    eloq_store_config.eloqstore_configs_.data_append_mode =
-        eloqGlobalOptions.eloqStoreDataAppendMode;
-
-    eloq_store_config.eloqstore_configs_.local_space_limit =
-        txlog::parse_size(eloqGlobalOptions.eloqStoreLocalSpaceLimit);
-
-    eloq_store_config.eloqstore_configs_.index_buffer_pool_size =
-        txlog::parse_size(eloqGlobalOptions.eloqStoreIndexBufferPoolSize) /
-        eloq_store_config.eloqstore_configs_.num_threads;
-
-    eloq_store_config.eloqstore_configs_.enable_compression =
-        eloqGlobalOptions.eloqStoreEnableCompression;
-
-    eloq_store_config.eloqstore_configs_.prewarm_cloud_cache =
-        eloqGlobalOptions.eloqStorePrewarmCloudCache;
-}
-#endif
 
 bool EloqKVEngine::InitMetricsRegistry() {
 
@@ -283,516 +162,19 @@ bool EloqKVEngine::InitMetricsRegistry() {
 }
 
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
-#ifdef ELOQ_MODULE_ENABLED
-    GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher", "true");
-    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "100000");  // 100ms
-    GFLAGS_NAMESPACE::SetCommandLineOption("max_body_size", "536870912");
-#endif
-    if (!eloqGlobalOptions.enableIOuring && eloqGlobalOptions.raftlogAsyncFsync) {
-        const char* errmsg =
-            "Invalid config: when set txlogAsyncFsync, should also set enableIOuring.";
-        error() << errmsg;
-        uasserted(ErrorCodes::InvalidOptions, errmsg);
-    }
-    GFLAGS_NAMESPACE::SetCommandLineOption("use_io_uring",
-                                           eloqGlobalOptions.enableIOuring ? "true" : "false");
-    GFLAGS_NAMESPACE::SetCommandLineOption("raft_use_bthread_fsync",
-                                           eloqGlobalOptions.raftlogAsyncFsync ? "true" : "false");
-
-    InitGlog();
-
-#if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
-    awsInit();
-#endif
-
     log() << "Starting Eloq storage engine. dbPath: " << path;
+    log() << "Standalone mode: Initializing data substrate...";
+    DataSubstrate::InitializeGlobal(FLAGS_data_substrate_config);
 
-    bool bootstrap = serverGlobalParams.bootstrap;
+    _logServer = DataSubstrate::GetGlobal()->GetLogServer();
+    _txService = DataSubstrate::GetGlobal()->GetTxService();
 
-    std::string localPath("local://");
-    localPath.append(path);
-    if (localPath.back() == '/') {
-        localPath.pop_back();
-    }
-
-    std::map<std::string, uint32_t> txServiceConf{
-        {"core_num", serverGlobalParams.reservedThreadNum},
-        {"range_split_worker_num", eloqGlobalOptions.rangeSplitWorkerNum},
-        {"checkpointer_interval", eloqGlobalOptions.checkpointerIntervalSec},
-        {"node_memory_limit_mb", eloqGlobalOptions.nodeMemoryLimitMB},
-        {"node_log_limit_mb", 100 /*deprecated option*/},
-        {"checkpointer_delay_seconds", eloqGlobalOptions.checkpointerDelaySec},
-        {"collect_active_tx_ts_interval_seconds", eloqGlobalOptions.collectActiveTxTsIntervalSec},
-        {"realtime_sampling", eloqGlobalOptions.realtimeSampling},
-        {"rep_group_cnt", eloqGlobalOptions.nodeGroupReplicaNum},
-        {"enable_key_cache", eloqGlobalOptions.useKeyCache ? 1 : 0},
-        {"enable_shard_heap_defragment", eloqGlobalOptions.enableHeapDefragment ? 1 : 0},
-        {"kickout_data_for_test", eloqGlobalOptions.kickoutDataForTest},
-    };
-
-    std::string hmIP = eloqGlobalOptions.hostManagerAddr.host();
-    uint16_t hmPort = eloqGlobalOptions.hostManagerAddr.port();
-
-    std::string hmBinPath = eloqGlobalOptions.hostManagerBinPath;
-
-#ifdef FORK_HM_PROCESS
-    // If the Eloqdoc is under bootstrap mode, we will not fork host manager.
-    // Otherwise, we will fork host manager if the option is enabled.
-    // Currently, when deploying on the cloud we do not fork host manager.
-    bool forkHostManager = !bootstrap && eloqGlobalOptions.forkHostManager;
-    if (forkHostManager && hmIP.empty()) {
-        hmIP = eloqGlobalOptions.localAddr.host();
-    }
-
-    if (forkHostManager && hmPort == 0) {
-        hmPort = eloqGlobalOptions.localAddr.port() + 4;
-    }
-
-#else
-    bool forkHostManager = false;
-#endif
-
-    std::unordered_map<uint32_t, std::vector<txservice::NodeConfig>> ngConfigs;
-    std::string clusterConfigPath = path + "/tx_service/cluster_config";
-    uint64_t clusterConfigVersion = 2;
-
-    if (bootstrap) {
-        std::vector<txservice::NodeConfig> soloConfig;
-        soloConfig.emplace_back(
-            0, eloqGlobalOptions.localAddr.host(), eloqGlobalOptions.localAddr.port(), true);
-        ngConfigs.try_emplace(0, std::move(soloConfig));
-    } else {
-        if (!txservice::ReadClusterConfigFile(clusterConfigPath, ngConfigs, clusterConfigVersion)) {
-            bool parse_res = txservice::ParseNgConfig(eloqGlobalOptions.ipList,
-                                                      "",
-                                                      "",
-                                                      ngConfigs,
-                                                      eloqGlobalOptions.nodeGroupReplicaNum,
-                                                      0);
-            if (!parse_res) {
-                error() << "Failed to extract cluster configs from ip_port_list.";
-                uasserted(ErrorCodes::InvalidOptions,
-                          "Failed to extract cluster configs from ip_port_list.");
-            }
-        }
-    }
-
-    log() << "local: " << eloqGlobalOptions.localAddr.host() << ":"
-          << eloqGlobalOptions.localAddr.port() << " ";
-    bool found = false;
-    uint32_t nodeId = UINT32_MAX, nativeNgId = 0;
-    // check whether this node is in cluster.
-    for (auto& pair : ngConfigs) {
-        auto& ngNodes = pair.second;
-        for (auto& ngNode : ngNodes) {
-            log() << "Node ip:" << ngNode.host_name_ << ":" << ngNode.port_ << " ";
-            if (ngNode.host_name_ == eloqGlobalOptions.localAddr.host() &&
-                ngNode.port_ == eloqGlobalOptions.localAddr.port()) {
-                nodeId = ngNode.node_id_;
-                found = true;
-                if (ngNode.is_candidate_) {
-                    // found native_ng_id.
-                    nativeNgId = pair.first;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (!found) {
-        error() << "Current node does not belong to any node group.";
-        uasserted(ErrorCodes::InternalError, "Current node does not belong to any node group.");
-    }
-
-    if (bootstrap) {
-        // For bootstrap mode, we need to fetch all node groups to init data store shards.
-        std::unordered_map<uint32_t, std::vector<txservice::NodeConfig>> tmpNgConfigs;
-        uint64_t clusterVersion = 2;
-        if (!txservice::ReadClusterConfigFile(clusterConfigPath, tmpNgConfigs, clusterVersion)) {
-            bool parse_res = txservice::ParseNgConfig(eloqGlobalOptions.ipList,
-                                                      "",
-                                                      "",
-                                                      tmpNgConfigs,
-                                                      eloqGlobalOptions.nodeGroupReplicaNum,
-                                                      0);
-            if (!parse_res) {
-                error() << "Failed to extract cluster configs from ip_port_list.";
-                uasserted(ErrorCodes::InvalidOptions,
-                          "Failed to extract cluster configs from ip_port_list.");
-            }
-        }
-
-        bool found = false;
-        uint32_t dssNodeId = UINT32_MAX;
-        // check whether this node is in cluster.
-        for (auto& pair : ngConfigs) {
-            auto& ngNodes = pair.second;
-            for (auto& ngNode : ngNodes) {
-                if (ngNode.host_name_ == eloqGlobalOptions.localAddr.host() &&
-                    ngNode.port_ == eloqGlobalOptions.localAddr.port()) {
-                    dssNodeId = ngNode.node_id_;
-                    found = true;
-                    break;
-                }
-            }
-        }
-
-        if (!found) {
-            error() << "Current node does not belong to any node group.";
-            uasserted(ErrorCodes::InternalError, "Current node does not belong to any node group.");
-        }
-
-        initDataStoreService(dssNodeId, tmpNgConfigs);
-    } else {
-        initDataStoreService(nodeId, ngConfigs);
-    }
-
-    std::vector<std::string> txlogIPs;
-    std::vector<uint16_t> txlogPorts;
-
-    if (eloqGlobalOptions.txlogServiceAddrs.empty()) {
-        log() << "Stand-alone txlog service is not provided, start bounded txlog service.";
-        std::string txlogPath(localPath);
-        txlogPath.append("/tx_log");
-
-        std::string txlogRocksDBPath;  // default rocksdb path is <data_home>/tx_log/rocksdb
-        if (eloqGlobalOptions.txlogRocksDBStoragePath.empty()) {
-            txlogRocksDBPath = txlogPath.substr(8) + "/rocksdb";  // remove "local://" prefix
-        } else {
-            txlogRocksDBPath = eloqGlobalOptions.txlogRocksDBStoragePath;
-        }
-
-        uint16_t logServerPort = eloqGlobalOptions.localAddr.port() + 2;
-        for (uint32_t ng = 0; ng < ngConfigs.size(); ng++) {
-            // Use cc node port + 2 for log server
-            txlogIPs.emplace_back(ngConfigs[ng][0].host_name_);
-            txlogPorts.emplace_back(ngConfigs[ng][0].port_ + 2);
-        }
-
-
-        bool enable_txlog_request_checkpoint = true;
-        std::string eloq_notify_checkpointer_threshold_size = "1GB";
-        uint64_t notify_checkpointer_threshold_size =
-            txlog::parse_size(eloq_notify_checkpointer_threshold_size);
-        log() << "eloq_enable_txlog_request_checkpoint: "
-              << (enable_txlog_request_checkpoint ? "ON" : "OFF");
-        if (enable_txlog_request_checkpoint) {
-            log() << "eloq_notify_checkpointer_threshold_size: "
-                  << eloq_notify_checkpointer_threshold_size;
-        }
-
-#if defined(LOG_STATE_TYPE_RKDB_ALL)
-        std::string eloq_rocksdb_target_file_size_base = "10MB";
-        size_t rocksdb_target_file_size_base_val =
-            txlog::parse_size(eloq_rocksdb_target_file_size_base);
-#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-        txlog::RocksDBCloudConfig rocksdb_cloud_config;
-#if defined(LOG_STATE_TYPE_RKDB_S3)
-        rocksdb_cloud_config.aws_access_key_id_ = eloqGlobalOptions.awsAccessKeyId;
-        rocksdb_cloud_config.aws_secret_key_ = eloqGlobalOptions.awsSecretKey;
-#endif /* LOG_STATE_TYPE_RKDB_S3 */
-        rocksdb_cloud_config.bucket_name_ = eloqGlobalOptions.txlogRocksDBCloudBucketName;
-        rocksdb_cloud_config.bucket_prefix_ = eloqGlobalOptions.txlogRocksDBCloudBucketPrefix;
-        rocksdb_cloud_config.object_path_ = eloqGlobalOptions.txlogRocksDBCloudObjectPath;
-        rocksdb_cloud_config.region_ = eloqGlobalOptions.txlogRocksDBCloudRegion;
-        rocksdb_cloud_config.endpoint_url_ = eloqGlobalOptions.txlogRocksDBCloudEndpointUrl;
-        rocksdb_cloud_config.sst_file_cache_size_ =
-            txlog::parse_size(eloqGlobalOptions.txlogRocksDBCloudSstFileCacheSize);
-        rocksdb_cloud_config.sst_file_cache_num_shard_bits_ =
-            eloqGlobalOptions.txlogRocksDBCloudSstFileCacheNumShardBits;
-        rocksdb_cloud_config.db_ready_timeout_us_ =
-            eloqGlobalOptions.txlogRocksDBCloudReadyTimeout * 1000 * 1000;
-        rocksdb_cloud_config.db_file_deletion_delay_ =
-            eloqGlobalOptions.txlogRocksDBCloudFileDeletionDelay;
-
-#if defined(OPEN_LOG_SERVICE)
-        _logServer = std::make_unique<txlog::LogServer>(
-            nodeId, logServerPort, txlogPath, 1, rocksdb_cloud_config);
-#else
-        _logServer = std::make_unique<txlog::LogServer>(
-            nodeId,
-            logServerPort,
-            txlogIPs,
-            txlogPorts,
-            txlogPath,
-            0,
-            eloqGlobalOptions.txlogGroupReplicaNum,
-            txlogRocksDBPath,
-            eloqGlobalOptions.txlogRocksDBScanThreads,
-            rocksdb_cloud_config
-            // eloq_rocksdb_cloud_in_mem_log_size_high_watermark,
-            // eloq_rocksdb_max_write_buffer_number,
-            // eloq_rocksdb_max_background_jobs, rocksdb_target_file_size_base_val,
-            // eloq_logserver_snapshot_interval, enable_txlog_request_checkpoint,
-            // eloq_check_replay_log_size_interval_sec,
-            // notify_checkpointer_threshold_size
-        );
-#endif
-
-#else  // rocksdb
-#if defined(OPEN_LOG_SERVICE)
-        _logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1);
-#else
-        // size_t rocksdb_sst_files_size_limit_val =
-        //     txlog::parse_size(eloq_rocksdb_sst_files_size_limit);
-        _logServer = std::make_unique<txlog::LogServer>(
-            nodeId,
-            logServerPort,
-            txlogIPs,
-            txlogPorts,
-            txlogPath,
-            0,
-            eloqGlobalOptions.txlogGroupReplicaNum,
-            txlogRocksDBPath,
-            eloqGlobalOptions.txlogRocksDBScanThreads
-            // rocksdb_sst_files_size_limit_val
-
-            // eloq_rocksdb_max_write_buffer_number,
-            // eloq_rocksdb_max_background_jobs, rocksdb_target_file_size_base_val,
-            // eloq_logserver_snapshot_interval, enable_txlog_request_checkpoint,
-            // eloq_check_replay_log_size_interval_sec,
-            // notify_checkpointer_threshold_size
-        );
-#endif
-#endif
-#endif /* LOG_STATE_TYPE_RKDB_ALL */
-
-
-        int err = _logServer->Start();
-        if (err != 0) {
-            error() << "Failed to start log service.";
-            uasserted(ErrorCodes::InternalError, "Failed to start log service");
-        }
-    } else {
-        txlogIPs = eloqGlobalOptions.TxlogIPs();
-        txlogPorts = eloqGlobalOptions.TxlogPorts();
-    }
-
-    // config metrics
-    metrics::enable_metrics = eloqGlobalOptions.enableMetrics;
-    setenv("ELOQ_METRICS_PORT", eloqGlobalOptions.metricsPortString.data(), false);
-    metrics::enable_log_service_metrics = eloqGlobalOptions.enableLogServiceMetrics;
-    metrics::enable_kv_metrics = eloqGlobalOptions.enableKVMetrics;
-    metrics::enable_memory_usage = eloqGlobalOptions.enableMemoryUsage;
-    metrics::collect_memory_usage_round = eloqGlobalOptions.collectMemoryUsageRound;
-    metrics::enable_cache_hit_rate = eloqGlobalOptions.enableCacheHitRate;
-    metrics::enable_tx_metrics = eloqGlobalOptions.enableTxMetrics;
-    metrics::collect_tx_duration_round = eloqGlobalOptions.collectTxDurationRound;
-    metrics::enable_busy_round_metrics = eloqGlobalOptions.enableBusyRoundMetrics;
-    metrics::busy_round_threshold = eloqGlobalOptions.busyRoundThreshold;
-    metrics::enable_remote_request_metrics = eloqGlobalOptions.enableRemoteRequestMetrics;
-    metrics::CommonLabels tx_service_common_labels{};
-    if (metrics::enable_metrics) {
-        if (!InitMetricsRegistry()) {
-            error() << "Failed to initialize MetricsRegristry!";
-            uasserted(ErrorCodes::InternalError, "MetricsRegristry initialization failed");
-        }
-
-        if (metrics::enable_kv_metrics) {
-            metrics::CommonLabels kv_common_common_labels{};
-            kv_common_common_labels["node_ip"] = eloqGlobalOptions.localAddr.host();
-            kv_common_common_labels["node_port"] =
-                std::to_string(eloqGlobalOptions.localAddr.port());
-            Eloq::storeHandler->RegisterKvMetrics(_metricsRegistry.get(), kv_common_common_labels);
-        }
-
-        // tx_service_common_labels
-        tx_service_common_labels["node_ip"] = eloqGlobalOptions.localAddr.host();
-        tx_service_common_labels["node_port"] = std::to_string(eloqGlobalOptions.localAddr.port());
-        tx_service_common_labels["node_id"] = std::to_string(nodeId);
-        log() << "Export metrics data on port: " << eloqGlobalOptions.metricsPort;
-    }
-
-    _logAgent = std::make_unique<Eloq::MongoLogAgent>(eloqGlobalOptions.txlogGroupReplicaNum);
-    txservice::CatalogFactory* catalog_factories[3] = {nullptr, nullptr, &_catalogFactory};
-    _txService = std::make_unique<txservice::TxService>(catalog_factories,
-                                                        &_mongoSystemHandler,
-                                                        txServiceConf,
-                                                        nodeId,
-                                                        nativeNgId,
-                                                        &ngConfigs,
-                                                        clusterConfigVersion,
-                                                        Eloq::storeHandler.get(),
-                                                        _logAgent.get(),
-                                                        storageGlobalParams.enableMVCC,
-                                                        eloqGlobalOptions.skipRedoLog,
-                                                        false,
-                                                        true,
-                                                        true,
-                                                        _metricsRegistry.get(),
-                                                        tx_service_common_labels);
-
-
-    if (_txService->Start(nodeId,
-                          nativeNgId,
-                          &ngConfigs,
-                          clusterConfigVersion,
-                          &txlogIPs,
-                          &txlogPorts,
-                          &hmIP,
-                          &hmPort,
-                          &hmBinPath,
-                          txServiceConf,
-                          std::move(_logAgent),
-                          localPath,
-                          clusterConfigPath,
-                          true,
-                          forkHostManager) < 0) {
-        error() << "Fail to start tx service. Terminated!";
-        uasserted(ErrorCodes::InternalError, "Failed to start tx service.");
-    }
-    log() << "Eloq tx service starting.";
-
-    txservice::Sequences::InitSequence(_txService.get(), Eloq::storeHandler.get());
-    txservice::DeadLockCheck::SetTimeInterval(eloqGlobalOptions.deadlockIntervalSec);
-    Eloq::storeHandler->SetTxService(_txService.get());
-
-    log() << "Tx Service waiting for cluster ready.";
-    _txService->WaitClusterReady();
-    _txService->WaitNodeBecomeNativeGroupLeader();
-
-    if (eloqGlobalOptions.localAddr !=
-        mongo::HostAndPort(ngConfigs[0][0].host_name_, ngConfigs[0][0].port_)) {
-        // waitBootstrap();
-    }
-
-    log() << "Start Eloq storage engine successfully.";
 #ifdef EXT_TX_PROC_ENABLED
     getTxServiceFunctors = _txService->GetTxProcFunctors();
 #endif
+
+    log() << "Eloq storage engine initialized.";
 }
-
-void EloqKVEngine::initDataStoreService(
-    uint32_t node_id,
-    const std::unordered_map<uint32_t, std::vector<txservice::NodeConfig>>& ngConfigs) {
-    txservice::CatalogFactory* catalog_factories[3] = {nullptr, nullptr, &_catalogFactory};
-    bool opt_bootstrap = serverGlobalParams.bootstrap;
-    bool isSingleNode = (ngConfigs.size() == 1 && ngConfigs.begin()->second.size() == 1);
-    std::string ds_peer_node = eloqGlobalOptions.dssPeerNode;
-
-    std::string dss_config_file_path = "";
-    EloqDS::DataStoreServiceClusterManager ds_config;
-    if (!ds_peer_node.empty()) {
-        auto localIp = eloqGlobalOptions.localAddr.host();
-        auto localPort = eloqGlobalOptions.localAddr.port();
-        ds_config.SetThisNode(localIp, EloqDS::DataStoreServiceClient::TxPort2DssPort(localPort));
-        // Fetch ds topology from peer node
-        if (!EloqDS::DataStoreService::FetchConfigFromPeer(ds_peer_node, ds_config)) {
-            error() << "Failed to fetch config from peer node: " << ds_peer_node;
-            uasserted(ErrorCodes::InternalError,
-                      +"DataStoreService initialization failed: unable to fetch config from peer " +
-                          ds_peer_node);
-        }
-    } else {
-        std::unordered_map<uint32_t, uint32_t> ng_leaders;
-        if (opt_bootstrap || isSingleNode) {
-            // For bootstrap, start all data store shards in current node.
-            for (auto& ng : ngConfigs) {
-                ng_leaders.emplace(ng.first, node_id);
-            }
-        }
-
-        EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
-            node_id, ngConfigs, ng_leaders, ds_config);
-    }
-
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) || \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-    std::string& dss_branch_name = eloqGlobalOptions.dssBranchName;
-    // std::string ds_rocksdb_config_file_path=
-    //     "/home/lzx/test-eloqsql/eloq_ds.ini";
-    INIReader fake_config_reader(nullptr, 0);
-    EloqDS::RocksDBConfig rocksdb_config(fake_config_reader, _dbPath);
-    rocksdb_config.query_worker_num_ = 10 * serverGlobalParams.reservedThreadNum;
-    rocksdb_config.max_background_jobs_ = eloqGlobalOptions.rocksdbMaxBackgroundJobs;
-    rocksdb_config.max_subcompactions_ = eloqGlobalOptions.rocksdbMaxSubCompactions;
-
-    rocksdb_config.storage_path_ = eloqGlobalOptions.rocksdbCloudStoragePath;
-    if (rocksdb_config.storage_path_.empty()) {
-        rocksdb_config.storage_path_ = _dbPath + "/dss_rocksdb_cloud";
-    }
-    EloqDS::RocksDBCloudConfig rocksdb_cloud_config(fake_config_reader);
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
-    rocksdb_cloud_config.aws_access_key_id_ = eloqGlobalOptions.awsAccessKeyId;
-    rocksdb_cloud_config.aws_secret_key_ = eloqGlobalOptions.awsSecretKey;
-#endif
-    rocksdb_cloud_config.bucket_name_ = eloqGlobalOptions.rocksdbCloudBucketName;
-    rocksdb_cloud_config.bucket_prefix_ = eloqGlobalOptions.rocksdbCloudBucketPrefix;
-    rocksdb_cloud_config.object_path_ = eloqGlobalOptions.rocksdbCloudObjectPath;
-    rocksdb_cloud_config.region_ = eloqGlobalOptions.rocksdbCloudRegion;
-    rocksdb_cloud_config.s3_endpoint_url_ = eloqGlobalOptions.rocksdbCloudEndpointUrl;
-    rocksdb_cloud_config.sst_file_cache_size_ =
-        txlog::parse_size(eloqGlobalOptions.rocksdbCloudSstFileCacheSize);
-    rocksdb_cloud_config.sst_file_cache_num_shard_bits_ =
-        eloqGlobalOptions.txlogRocksDBCloudSstFileCacheNumShardBits;
-    rocksdb_cloud_config.db_ready_timeout_us_ =
-        eloqGlobalOptions.txlogRocksDBCloudReadyTimeout * 1000 * 1000;
-    rocksdb_cloud_config.db_file_deletion_delay_ =
-        eloqGlobalOptions.txlogRocksDBCloudFileDeletionDelay;
-    rocksdb_cloud_config.purger_periodicity_millis_ =
-        static_cast<size_t>(eloqGlobalOptions.rocksdbCloudPurgerPeriodicitySecs) * 1000;
-    rocksdb_cloud_config.branch_name_ = dss_branch_name;
-
-    bool enable_cache_replacement_ =
-        fake_config_reader.GetBoolean("local", "enable_cache_replacement", false);
-    auto ds_factory = std::make_unique<EloqDS::RocksDBCloudDataStoreFactory>(
-        rocksdb_config, rocksdb_cloud_config, enable_cache_replacement_);
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-    // setup rocksdb data store
-    INIReader fake_config_reader(nullptr, 0);
-    EloqDS::RocksDBConfig rocksdb_config(fake_config_reader, _dbPath);
-    bool enable_cache_replacement_ =
-        fake_config_reader.GetBoolean("local", "enable_cache_replacement", false);
-    auto ds_factory = std::make_unique<EloqDS::RocksDBDataStoreFactory>(rocksdb_config,
-                                                                        enable_cache_replacement_);
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-    EloqDS::EloqStoreConfig eloq_store_config;
-    configureEloqStore(eloq_store_config, _dbPath);
-    auto ds_factory =
-        std::make_unique<EloqDS::EloqStoreDataStoreFactory>(std::move(eloq_store_config));
-#endif
-
-    Eloq::dataStoreService = std::make_unique<EloqDS::DataStoreService>(
-        ds_config, dss_config_file_path, _dbPath + "/DSMigrateLog", std::move(ds_factory));
-
-
-    // setup local data store service, the data store will start data store if needed.
-    bool ret = true;
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-    // For non shared storage like rocksdb,
-    // we always set create_if_missing to true
-    // since non conflicts will happen under
-    // multi-node deployment.
-    ret = Eloq::dataStoreService->StartService(true);
-#else
-    ret = Eloq::dataStoreService->StartService((opt_bootstrap || isSingleNode));
-#endif
-    if (!ret) {
-        error() << "Failed to start data store service";
-        uasserted(ErrorCodes::InternalError, "DataStoreService failed to start service");
-    }
-
-    // setup data store service client
-    Eloq::storeHandler = std::make_unique<EloqDS::DataStoreServiceClient>(
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-        true,
-#else
-        (opt_bootstrap || isSingleNode),
-#endif
-        catalog_factories,
-        ds_config,
-        ds_peer_node.empty(),
-        Eloq::dataStoreService.get());
-
-    if (!Eloq::storeHandler->Connect()) {
-        error() << "!!!!!!!! Failed to connect ELOQ_DS server, EloqDB "
-                   "startup is terminated !!!!!!!!";
-        uasserted(ErrorCodes::InternalError, "Failed to connect ELOQ_DS server");
-    }
-    log() << "Data store service initialize success.";
-}
-
 
 EloqKVEngine::~EloqKVEngine() {
     MONGO_LOG(1) << "EloqKVEngine::~EloqKVEngine";
@@ -800,104 +182,6 @@ EloqKVEngine::~EloqKVEngine() {
         cleanShutdown();
     }
 }
-
-// void EloqKVEngine::waitBootstrap() {
-//     std::thread bootstrapThread([this]() {
-//         MONGO_LOG(1) << "EloqKVEngine::waitBootstrap started in a background thread";
-//         std::this_thread::sleep_for(std::chrono::milliseconds{500});
-//         auto txm = txservice::NewTxInit(_txService.get(),
-//                                         txservice::IsolationLevel::ReadCommitted,
-//                                         txservice::CcProtocol::OCC,
-//                                         UINT32_MAX,
-//                                         -1);
-//         txservice::TableName tableName{std::string{"local.startup_log"},
-//                                        txservice::TableType::Primary,
-//                                        txservice::TableEngine::EloqDoc};
-//         txservice::CatalogKey catalogKey{tableName};
-//         txservice::CatalogRecord catalogRecord;
-//         bool exists{false};
-
-//         for (uint16_t i = 0; i < 1000; ++i) {
-//             txservice::TxKey catalogTxKey(&catalogKey);
-//             txservice::ReadTxRequest readTxReq(&txservice::catalog_ccm_name,
-//                                                0,
-//                                                &catalogTxKey,
-//                                                &catalogRecord,
-//                                                false,
-//                                                false,
-//                                                true,
-//                                                0,
-//                                                false,
-//                                                false);
-
-//             auto errorCode = txservice::TxReadCatalog(txm, readTxReq, exists);
-//             if (errorCode != txservice::TxErrorCode::NO_ERROR) {
-//                 MONGO_LOG(1) << "readCatalog for local.startup_log error occur. ErrorCode: "
-//                              << errorCode;
-//             }
-//             if (exists) {
-//                 txservice::AbortTx(txm);
-//                 MONGO_LOG(1) << "local.startup_log exists. Bootstrap success. Exiting program.";
-//                 std::exit(0); // Exit program on successful bootstrap
-//             } else {
-//                 MONGO_LOG(1) << "local.startup_log not exists. Wait for bootstrap.";
-//             }
-
-//             MONGO_LOG(0) << "Retry count: " << i;
-//             std::this_thread::sleep_for(std::chrono::milliseconds{50});
-//             catalogRecord.Reset();
-//         }
-//         error() << "Retry too many times. Waiting for boostrap fail. Exiting program.";
-//         std::exit(-1); // Exit program on bootstrap failure
-//     });
-//     bootstrapThread.detach(); // Detach the thread to run in the background
-//     MONGO_LOG(1) << "EloqKVEngine::waitBootstrap";
-//     std::this_thread::sleep_for(std::chrono::milliseconds{500});
-//     auto txm = txservice::NewTxInit(_txService.get(),
-//                                     txservice::IsolationLevel::ReadCommitted,
-//                                     txservice::CcProtocol::OCC,
-//                                     UINT32_MAX,
-//                                     -1);
-//     txservice::TableName tableName{std::string{"local.startup_log"},
-//                                    txservice::TableType::Primary,
-//                                    txservice::TableEngine::EloqDoc};
-//     txservice::CatalogKey catalogKey{tableName};
-//     txservice::CatalogRecord catalogRecord;
-//     bool exists{false};
-
-//     for (uint16_t i = 0; i < 1000; ++i) {
-//         txservice::TxKey catalogTxKey(&catalogKey);
-//         txservice::ReadTxRequest readTxReq(&txservice::catalog_ccm_name,
-//                                            0,
-//                                            &catalogTxKey,
-//                                            &catalogRecord,
-//                                            false,
-//                                            false,
-//                                            true,
-//                                            0,
-//                                            false,
-//                                            false);
-
-//         auto errorCode = txservice::TxReadCatalog(txm, readTxReq, exists);
-//         if (errorCode != txservice::TxErrorCode::NO_ERROR) {
-//             MONGO_LOG(1) << "readCatalog for local.startup_log error occur. ErrorCode: "
-//                          << errorCode;
-//         }
-//         if (exists) {
-//             txservice::AbortTx(txm);
-//             MONGO_LOG(1) << "local.startup_log exists. Bootstrap success.";
-//             return;
-//         } else {
-//             MONGO_LOG(1) << "local.startup_log not exists. Wait for bootstrap.";
-//         }
-
-//         MONGO_LOG(0) << "Retry count: " << i;
-//         std::this_thread::sleep_for(std::chrono::milliseconds{50});
-//         catalogRecord.Reset();
-//     }
-//     error() << "Retry too many times. Waiting for boostrap fail.";
-//     uasserted(ErrorCodes::InternalError, "Retry too many times. Waiting for boostrap fail.");
-// }
 
 bool EloqKVEngine::supportsRecoveryTimestamp() const {
     return false;
@@ -910,7 +194,8 @@ boost::optional<Timestamp> EloqKVEngine::getRecoveryTimestamp() const {
 
 RecoveryUnit* EloqKVEngine::newRecoveryUnit() {
     MONGO_LOG(1) << "EloqKVEngine::newRecoveryUnit";
-    return new EloqRecoveryUnit(_txService.get());
+    invariant(_txService != nullptr);
+    return new EloqRecoveryUnit(_txService);
 }
 
 RecoveryUnit::UPtr EloqKVEngine::newRecoveryUnitUPtr() {
@@ -1295,25 +580,11 @@ std::vector<std::string> EloqKVEngine::getAllIdents(OperationContext* opCtx) con
 
 void EloqKVEngine::cleanShutdown() {
     MONGO_LOG(0) << "EloqKVEngine::cleanShutdown";
-
-    shutdownTxService();
-    _logServer = nullptr;
-    Eloq::storeHandler.reset();
-    Eloq::dataStoreService.reset();
-
-#if defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
-    aws_deinit();
-#endif
-
-    _txService.reset();
-
-    google::ShutdownGoogleLogging();
-}
-
-void EloqKVEngine::shutdownTxService() {
 #ifndef ELOQ_MODULE_ENABLED
-    _txService->Shutdown();
+    auto* data_substrate = DataSubstrate::GetGlobal();
+    if (data_substrate != nullptr) {
+        data_substrate->Shutdown();
+    }
 #else
     // 1.When merged into ConvergedDB, `_txService->Shutdown()` should be moved out.
     // 2.eloq::unregister_module is not allowed to called in a brpc-worker thread.
@@ -1322,7 +593,10 @@ void EloqKVEngine::shutdownTxService() {
     coro::ConditionVariable cv;
     std::thread thd([this, &done, &mux, &cv]() {
         std::unique_lock lk(mux);
-        _txService->Shutdown();
+        auto* data_substrate = DataSubstrate::GetGlobal();
+        if (data_substrate != nullptr) {
+            data_substrate->Shutdown();
+        }
         done = true;
         cv.notify_one();
     });
@@ -1330,6 +604,8 @@ void EloqKVEngine::shutdownTxService() {
     std::unique_lock lk(mux);
     cv.wait(lk, [&done]() { return done; });
 #endif
+    _txService = nullptr;
+    _logServer = nullptr;
 }
 
 void EloqKVEngine::setJournalListener(JournalListener* jl) {

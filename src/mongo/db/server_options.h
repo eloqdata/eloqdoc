@@ -79,7 +79,8 @@ struct ServerGlobalParams {
     std::string serviceExecutor;
 
     size_t maxConns = DEFAULT_MAX_CONN;  // Maximum number of simultaneous open connections.
-    bool enableCoroutine{true};
+    bool enableCoroutine{true};          // This is always true regardless of the option,
+                                         // as EloqDoc relies on coroutine support.
     size_t reservedThreadNum = 1;
     size_t adaptiveThreadNum = 1;
 

@@ -9,55 +9,13 @@ net:
   port: 27017
   bindIp: "0.0.0.0"
   serviceExecutor: "adaptive"
+  adaptiveThreadNum: 1
 storage:
   dbPath: "/home/eloq/workspace/mongo/install/data/"
   engine: "eloq"
   eloq:
-    enableCoroutine: true
-    reservedThreadNum: 2
-    adaptiveThreadNum: 1
     txService:
-      # localIP: "127.0.0.1:10000"
-      # ipList: ["127.0.0.1:10000"]
-      checkpointerIntervalSec: 10
-      nodeMemoryLimitMB: 8192
-      realtimeSampling: true
-      collectActiveTxTsIntervalSec: 2
-      checkpointerDelaySec: 5
       ccProtocol: "OccRead"
-      enableIOuring: true
-      txlogAsyncFsync: true
-      # txlogServiceList: ["127.0.0.1:8500"]
-      # txlogGroupReplicaNum: 1
-      # skipRedoLog: true
-      txlogRocksDBStoragePath: "/home/eloq/workspace/mongo/install/data/log_service_rocksdb"
-      txlogRocksDBCloudRegion: "ap-northeast-1"
-      txlogRocksDBCloudBucketName: "eloqdoc-storage"
-      txlogRocksDBCloudBucketPrefix: "rocksdb-cloud-"
-      txlogRocksDBCloudObjectPath: "eloqdoc_txlog"
-      txlogRocksDBCloudEndpointUrl: "http://172.31.5.203:9900"
-    metrics:
-      enableMetrics: true
-      metricsPort: 18081
-      enableMemoryUsage: true
-      collectMemoryUsageRound: 10000
-      enableCacheHitRate: true
-      enableTxMetrics: true
-      collectTxDurationRound: 100
-      enableBusyRoundMetrics: true
-      busyRoundThreshold: 10
-    storage:
-      dataStoreServiceConfigFilePath: ""
-      # dssPeerNode: "127.0.0.1:9100"
-      rocksdbCloudStoragePath: "/home/eloq/workspace/mongo/install/data/dss_rocksdb_cloud"
-      rocksdbCloudSstFileCacheSize: "5GB"
-      awsAccessKeyId: "35cxOCh64Ef1Mk5U1bgU"
-      awsSecretKey: "M6oJQWdFCr27TUUS40wS6POQzbKhbFTHG9bRayoC"
-      rocksdbCloudBucketName: "eloqdoc-storage"
-      rocksdbCloudBucketPrefix: "rocksdb-cloud-"
-      rocksdbCloudObjectPath: "eloqdoc_db"
-      rocksdbCloudRegion: "ap-northeast-1"
-      rocksdbCloudEndpointUrl: "http://172.31.5.203:9900"
 
 setParameter:
   diagnosticDataCollectionEnabled: false

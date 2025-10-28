@@ -32,17 +32,19 @@
 #include "mongo/util/concurrency/thread_name.h"
 #include "mongo/util/log.h"
 
+#include "mongo/db/modules/eloq/data_substrate/store_handler/kv_store.h"
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
 #include "mongo/db/modules/eloq/src/base/eloq_record.h"
 #include "mongo/db/modules/eloq/src/base/eloq_table_schema.h"
 #include "mongo/db/modules/eloq/src/base/eloq_util.h"
 #include "mongo/db/modules/eloq/src/eloq_global_options.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
-#include "mongo/db/modules/eloq/store_handler/kv_store.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_util.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc_protocol.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_util.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
+
+#include "mongo/db/modules/eloq/data_substrate/core/include/data_substrate.h"
 
 #include <butil/time.h>
 #include <bvar/latency_recorder.h>
@@ -53,11 +55,6 @@ bvar::LatencyRecorder kDBRequestHandleLatency{"mongo_dbrequest_handle"};
 bvar::Adder<int64_t> kConflictCounter("mongo_transaction_conflict_total");
 
 }  // namespace recorder
-
-
-namespace Eloq {
-extern std::unique_ptr<txservice::store::DataStoreHandler> storeHandler;
-}
 
 namespace mongo {
 
@@ -519,7 +516,12 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
 
     std::string schemaImage{EloqDS::SerializeSchemaImage(std::string{metadata}, "", "")};
     Eloq::MongoTableSchema tempSchema(tableName, schemaImage, 0);
-    std::string kvInfo = Eloq::storeHandler->CreateKVCatalogInfo(&tempSchema);
+    auto* ds = DataSubstrate::GetGlobal();
+    invariant(ds != nullptr);
+    auto* storeHandler = ds->GetStoreHandler();
+    invariant(storeHandler != nullptr);
+    std::string kvInfo = storeHandler->CreateKVCatalogInfo(&tempSchema);
+    invariant(!kvInfo.empty());  // or uassert with InternalError if emptiness can signify failure
     std::string emptyImage{""};
     std::string newImage = EloqDS::SerializeSchemaImage(std::string{metadata}, kvInfo, "");
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -649,8 +651,9 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
 
     // 3. Generate new schema kv info and altered table info whose index
     // kv name is not empty.
+    auto* storeHandler = DataSubstrate::GetGlobal()->GetStoreHandler();
     std::string new_kv_info =
-        Eloq::storeHandler->CreateNewKVCatalogInfo(tableName, currentTableSchema, alterTableInfo);
+        storeHandler->CreateNewKVCatalogInfo(tableName, currentTableSchema, alterTableInfo);
 
     // 4. Serialized altered table info.
     std::string alterTableInfoImage = alterTableInfo.SerializeAlteredTableInfo();

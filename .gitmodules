@@ -1,12 +1,3 @@
-[submodule "src/mongo/db/modules/eloq/eloq_metrics"]
-	path = src/mongo/db/modules/eloq/eloq_metrics
-	url = https://github.com/eloqdata/eloq-metrics.git
-[submodule "src/mongo/db/modules/eloq/tx_service"]
-	path = src/mongo/db/modules/eloq/tx_service
+[submodule "src/mongo/db/modules/eloq/data_substrate"]
+	path = src/mongo/db/modules/eloq/data_substrate
 	url = https://github.com/eloqdata/tx_service.git
-[submodule "src/mongo/db/modules/eloq/store_handler"]
-	path = src/mongo/db/modules/eloq/store_handler
-	url = https://github.com/eloqdata/store_handler.git
-[submodule "src/mongo/db/modules/eloq/log_service"]
-	path = src/mongo/db/modules/eloq/log_service
-	url = https://github.com/eloqdata/log_service

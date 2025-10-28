@@ -129,23 +129,13 @@ Status addGeneralServerOptions(moe::OptionSection* options) {
         .hidden()
         .setDefault(moe::Value("synchronous"));
 
-    // register options in config file
-    options->addOptionChaining("storage.eloq.enableCoroutine",
-                               "eloqEnableCoroutine",
-                               moe::Bool,
-                               "whether to enable coroutine");
-    options->addOptionChaining("storage.eloq.reservedThreadNum",
-                               "eloqReservedThreadNum",
-                               moe::Unsigned,
-                               "set the thread num for coroutine service executor mode");
-    options->addOptionChaining("storage.eloq.adaptiveThreadNum",
-                               "eloqAdaptiveThreadNum",
-                               moe::Unsigned,
-                               "set the thread num for adaptive service executor mode");
     options
-        ->addOptionChaining(
-            "storage.eloq.bootstrap", "eloqBootstrap", moe::Bool, "Bootstrap the Eloq cluster.")
-        .setDefault(moe::Value(false));
+        ->addOptionChaining("net.adaptiveThreadNum",
+                            "adaptiveThreadNum",
+                            moe::Int,
+                            "set the thread num for adaptive service executor mode")
+        .setDefault(moe::Value(1));
+
 #if MONGO_ENTERPRISE_VERSION
     options->addOptionChaining("security.redactClientLogData",
                                "redactClientLogData",
@@ -568,35 +558,14 @@ Status storeServerOptions(const moe::Environment& params) {
         serverGlobalParams.serviceExecutor = "synchronous";
     }
 
-    if (params.count("storage.eloq.enableCoroutine")) {
-        serverGlobalParams.enableCoroutine = params["storage.eloq.enableCoroutine"].as<bool>();
-        if (serverGlobalParams.enableCoroutine &&
-            serverGlobalParams.serviceExecutor != "adaptive") {
-            return Status(ErrorCodes::BadValue,
-                          "Coroutine mode can only work with adaptive ServiceExecutor");
+    if (params.count("net.adaptiveThreadNum")) {
+        if (serverGlobalParams.serviceExecutor != "adaptive") {
+            return {ErrorCodes::BadValue,
+                    "adaptiveThreadNum can only be used with serviceExecutor=adaptive"};
         }
-    }
-
-    if (params.count("storage.eloq.reservedThreadNum")) {
-        serverGlobalParams.reservedThreadNum =
-            params["storage.eloq.reservedThreadNum"].as<unsigned>();
-        if (serverGlobalParams.reservedThreadNum < 1) {
-            return Status(ErrorCodes::BadValue, "reservedThreadNum has to be at least 1");
-        }
-    }
-    if (params.count("storage.eloq.adaptiveThreadNum")) {
-        serverGlobalParams.adaptiveThreadNum =
-            params["storage.eloq.adaptiveThreadNum"].as<unsigned>();
+        serverGlobalParams.adaptiveThreadNum = params["net.adaptiveThreadNum"].as<int>();
         if (serverGlobalParams.adaptiveThreadNum < 1) {
-            return Status(ErrorCodes::BadValue, "adaptiveThreadNum has to be at least 1");
-        }
-    }
-
-    if (params.count("storage.eloq.bootstrap")) {
-        serverGlobalParams.bootstrap = params["storage.eloq.bootstrap"].as<bool>();
-        if (serverGlobalParams.bootstrap) {
-            log() << "This is a bootstrap for EloqDoc. The program will automatically exit after "
-                     "bootstrap.";
+            return {ErrorCodes::BadValue, "adaptiveThreadNum has to be at least 1"};
         }
     }
 

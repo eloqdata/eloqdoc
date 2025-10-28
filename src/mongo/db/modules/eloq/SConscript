@@ -65,6 +65,9 @@ LOG_STATE_TYPE_RKDB = 2
 LOG_STATE_TYPE_RKDB_S3 = 3
 LOG_STATE_TYPE_RKDB_GCS = 4
 
+# Add ELOQDOC module for data_substrate
+env.Append(CPPDEFINES=["ELOQ_MODULE_ELOQDOC"])
+
 # Read from environment variable (default to ROCKSDB_CLOUD if not set)
 data_store_type_str = os.environ.get("WITH_DATA_STORE", "ELOQDSS_ROCKSDB_CLOUD_S3").upper()
 
@@ -105,9 +108,9 @@ elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
 
 if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["OPEN_LOG_SERVICE"])
-    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/log_service/include"])
+    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/data_substrate/log_service/include"])
 else:
-    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/eloq_log_service/include"])
+    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/data_substrate/eloq_log_service/include"])
 
 with_log_state_str = os.environ.get("WITH_LOG_STATE", "ROCKSDB").upper()
 if with_log_state_str == "MEMORY":
@@ -130,32 +133,24 @@ else:
 if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["FORK_HM_PROCESS"])
 
-env.Append(CPPDEFINES=[
-    "OVERRIDE_GFLAGS_NAMESPACE",
-    "BRPC_WITH_GLOG",
-    # "BRPC_ENABLE_CPU_PROFILER",
-    "EXT_TX_PROC_ENABLED",
-    "STATISTICS",
-    ("GFLAGS_NAMESPACE", "gflags")
-])
 env["CPPPATH"].extend(SYSTEM_INCLUDE_PATH)
 env["CPPPATH"].extend(
     [
         "$ELOQ_ENGINE_ROOT",
         "$ELOQ_ENGINE_ROOT/src",
         "$ELOQ_ENGINE_ROOT/src/base",
-        "$ELOQ_ENGINE_ROOT/src/eloq_data_store_service",
-        "$ELOQ_ENGINE_ROOT/tx_service/include",
-        "$ELOQ_ENGINE_ROOT/tx_service/include/cc",
-        "$ELOQ_ENGINE_ROOT/tx_service/include/fault",
-        "$ELOQ_ENGINE_ROOT/tx_service/include/proto",
-        "$ELOQ_ENGINE_ROOT/tx_service/include/remote",
-        "$ELOQ_ENGINE_ROOT/tx_service/include/store",
-        "$ELOQ_ENGINE_ROOT/tx_service/include/sequences",
-        "$ELOQ_ENGINE_ROOT/tx_service/tx-log-protos",
-        "$ELOQ_ENGINE_ROOT/tx_service/abseil-cpp",
-        "$ELOQ_ENGINE_ROOT/store_handler",
-        "$ELOQ_ENGINE_ROOT/eloq_metrics/include",
+        "$ELOQ_ENGINE_ROOT/data_substrate",
+	"$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/cc",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/fault",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/proto",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/remote",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/store",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/sequences",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/tx-log-protos",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/abseil-cpp",
+        "$ELOQ_ENGINE_ROOT/data_substrate/store_handler",
+        "$ELOQ_ENGINE_ROOT/data_substrate/eloq_metrics/include",
         FindIncludePath("mimalloc-2.1"),
         FindIncludePath("aws/core"),
         FindIncludePath("aws/kinesis"),
@@ -188,7 +183,11 @@ if data_store_type in [DATA_STORE_TYPE_ROCKSDB_CLOUD_S3, DATA_STORE_TYPE_ROCKSDB
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     env["CPPPATH"].extend([FindIncludePath("rocksdb")])
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
-    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/store_handler/eloq_data_store_service/eloqstore"])
+    env["CPPPATH"].extend(
+        [
+            "$ELOQ_ENGINE_ROOT/data_substrate/store_handler/eloq_data_store_service/eloqstore",
+        ]
+    )
 
 base_deps = [
     # FindLibPath("absl_bad_variant_access"),
@@ -241,31 +240,32 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
    store_deps = []
 
-eloq_dependencies = base_deps + store_deps + log_deps
+eloq_dependencies = [lib for lib in (base_deps + store_deps + log_deps) if lib]
 
-env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build/tx_service/abseil-cpp/absl/base"])
-env.Append(LIBS=["absl_log_severity", "absl_raw_logging_internal"])
+absl_lib_root = "$ELOQ_ENGINE_ROOT/build/data_substrate/tx_service/abseil-cpp"
+env.PrependUnique(
+    LIBPATH=[
+        os.path.join(absl_lib_root, "absl", "base"),
+        os.path.join(absl_lib_root, "absl", "hash"),
+        os.path.join(absl_lib_root, "absl", "container"),
+    ]
+)
+env.Append(LIBS=["absl_throw_delegate", "absl_log_severity", "absl_raw_logging_internal"])
+env.Append(LIBS=["absl_hash"])
+env.Append(LIBS=["absl_raw_hash_set"])
 
-print("CPPDEFINES: ", env["CPPDEFINES"])
-print("CPPPATH: ", env["CPPPATH"])
-print("LIBPATH: ", env["LIBPATH"])
-print("LIBS: ", env["LIBS"])
-print("LINKFLAGS: ", env["LINKFLAGS"])
-print("eloq_dependencies: ", eloq_dependencies)
-print("MALLOC:", env['MONGO_ALLOCATOR'])
-
-
-env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build"])
+env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build/data_substrate"])
 
 # Ensure the linker can find CMake-produced shared libs and link them explicitly.
 # CMake installs txservice/logservice/datastore/eloq_metrics into DEST_DIR/lib.
 dest_dir = os.environ.get("DEST_DIR", "")
+print("dest_dir: ", dest_dir)
 dest_lib_dir = os.path.join(dest_dir, "lib") if dest_dir else None
 if dest_lib_dir and os.path.isdir(dest_lib_dir):
     env.Append(LIBPATH=[dest_lib_dir])
 
 # Always link against the CMake-built module libraries to resolve txlog and service symbols.
-cmake_module_libs = ["logservice", "txservice", "datastore", "eloq_metrics"]
+cmake_module_libs = ["data_substrate", "logservice", "txservice", "eloq-metrics"]
 env.Append(LIBS=cmake_module_libs)
 
 # For RocksDB Cloud backends, ensure AWS/GCS SDKs are linked when needed because
@@ -304,6 +304,14 @@ elif with_log_state == LOG_STATE_TYPE_RKDB_GCS:
         "ssl",
         ])
 
+print("CPPDEFINES: ", env["CPPDEFINES"])
+print("CPPPATH: ", env["CPPPATH"])
+print("LIBPATH: ", env["LIBPATH"])
+print("LIBS: ", env["LIBS"])
+print("LINKFLAGS: ", env["LINKFLAGS"])
+print("eloq_dependencies: ", eloq_dependencies)
+print("MALLOC:", env['MONGO_ALLOCATOR'])
+
 env.Library(
     target="storage_eloq_core",
     source=[
@@ -331,10 +339,6 @@ env.Library(
         "$BUILD_DIR/mongo/db/storage/index_entry_comparison",
         "$BUILD_DIR/mongo/db/storage/oplog_hack",
         "$BUILD_DIR/mongo/db/storage/kv/kv_engine",
-        "$ELOQ_ENGINE_ROOT/build/txservice",
-        "$ELOQ_ENGINE_ROOT/build/logservice",
-        "$ELOQ_ENGINE_ROOT/build/datastore",
-        "$ELOQ_ENGINE_ROOT/build/eloq_metrics",
     ],
     LIBDEPS_PRIVATE=[],
     SYSLIBDEPS=eloq_dependencies,

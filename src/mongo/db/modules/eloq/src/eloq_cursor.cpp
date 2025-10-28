@@ -22,8 +22,8 @@
 #include "mongo/db/modules/eloq/src/eloq_cursor.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/tx_execution.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_record.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_execution.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_record.h"
 
 namespace mongo {
 EloqCursor::EloqCursor(OperationContext* opCtx) : _opCtx(opCtx), _ru(EloqRecoveryUnit::get(opCtx)) {

@@ -1,13 +1,15 @@
 #!/bin/bash
 set -exo pipefail
 
+export WORKSPACE=$PWD
+export CASS_HOST=$CASS_HOST
+
+export PREFIX="/home/eloq/workspace/mongo/install"
+
 source "$(dirname "$0")/common.sh"
 
 CWDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ls
-export WORKSPACE=$PWD
-export CASS_HOST=$CASS_HOST
-
 cd $WORKSPACE
 whoami
 pwd

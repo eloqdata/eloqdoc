@@ -6,12 +6,44 @@ pyenv global 2.7.18
 
 # Set MinIO credentials and endpoint
 pip3 install minio
-MINIO_ENDPOINT="http://172.17.0.1:9000"
-MINIO_ACCESS_KEY="35cxOCh64Ef1Mk5U1bgU"
-MINIO_SECRET_KEY="M6oJQWdFCr27TUUS40wS6POQzbKhbFTHG9bRayoC"
 
 # Setup Minio mc Client command
-mc alias set minio_server ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}
+mc alias set minio_server ${ELOQ_AWS_S3_ENDPOINT_URL} ${ELOQ_AWS_ACCESS_KEY_ID} ${ELOQ_AWS_SECRET_KEY}
+
+# Helper function to update config template file with required settings
+update_config_template() {
+    local config_file="$1"
+    if [ ! -f "$config_file" ]; then
+        echo "Warning: Config file $config_file does not exist"
+        return 1
+    fi
+
+    # ak/sk
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${ELOQ_AWS_ACCESS_KEY_ID}/g" "$config_file"
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${ELOQ_AWS_SECRET_KEY}/g" "$config_file"
+    # OSS settings
+    sed -i "s|rocksdb_cloud_s3_endpoint_url.*=.\+|rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL}|g" "$config_file"
+    sed -i "s|txlog_rocksdb_cloud_s3_endpoint_url.*=.\+|eloq_txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL}|g" "$config_file"
+    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${BUCKET_NAME}/g" "$config_file"
+    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${BUCKET_NAME}/g" "$config_file"
+    sed -i "s/rocksdb_cloud_region.*=.\+/rocksdb_cloud_region=${ELOQ_AWS_REGION}/g" "$config_file"
+    sed -i "s/txlog_rocksdb_cloud_region.*=.\+/txlog_rocksdb_cloud_region=${ELOQ_AWS_REGION}/g" "$config_file"
+    sed -i "s/rocksdb_cloud_bucket_prefix.*=.\+/rocksdb_cloud_bucket_prefix=${BUCKET_PREFIX}/g" "$config_file"
+    sed -i "s/txlog_rocksdb_cloud_bucket_prefix.*=.\+/eloq_txlog_rocksdb_cloud_bucket_prefix=${BUCKET_PREFIX}/g" "$config_file"
+    sed -i "s|eloq_dss_config_file_path.*=.\+|eloq_dss_config_file_path=${WORKSPACE}/eloqsql_src/concourse/scripts/dss_config.example.ini|g" "$config_file"
+}
+
+pushd $WORKSPACE/eloqdoc_src/concourse/
+update_config_template ./scripts/data_substrate.cnf
+
+update_config_template ./artifact/ELOQDSS_ROCKSDB/data_substrate.cnf
+
+# Update all data_substrate*.cnf files in ELOQDSS_ROCKSDB_CLOUD_S3
+update_config_template ./artifact/ELOQDSS_ROCKSDB_CLOUD_S3/data_substrate.cnf
+update_config_template ./artifact/ELOQDSS_ROCKSDB_CLOUD_S3/data_substrate_cluster_a.cnf
+update_config_template ./artifact/ELOQDSS_ROCKSDB_CLOUD_S3/data_substrate_cluster_b.cnf
+update_config_template ./artifact/ELOQDSS_ROCKSDB_CLOUD_S3/data_substrate_cluster_c.cnf
+popd
 
 # Make coredump dir writable.
 if [ ! -d "/var/crash" ]; then sudo mkdir -p /var/crash; fi
@@ -21,7 +53,6 @@ ulimit -c unlimited
 
 # Prepare the build and execution environment
 export ASAN_OPTIONS=abort_on_error=1:leak_check_at_exit=0
-export PREFIX="/home/eloq/workspace/mongo/install"
 
 # Clears data for the log and storage services from the shared RocksDB Cloud bucket.
 # A single bucket with distinct path prefixes is used for both services
@@ -55,6 +86,7 @@ compile_and_install() {
       export ASAN_OPTIONS=abort_on_error=1:leak_check_at_exit=0
       echo "cmake compile and install eloq."
       cmake -G "Ninja" \
+            -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
             -S src/mongo/db/modules/eloq \
             -B src/mongo/db/modules/eloq/build \
@@ -76,10 +108,10 @@ compile_and_install() {
       # Detect CPU cores for optimal parallel builds
       # CPU_CORE_SIZE=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
       CPU_CORE_SIZE=4
-      OPEN_LOG_SERVICE=ON python2 scripts/buildscripts/scons.py MONGO_VERSION=4.0.3 \
+      OPEN_LOG_SERVICE=ON WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 python2 scripts/buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
-            CPPDEFINES="ELOQ_MODULE_ENABLED" \
+            CPPDEFINES="ELOQ_MODULE_ENABLED EXT_TX_PROC_ENABLED" \
             --build-dir=#build \
             --prefix="$PREFIX" \
             --dbg=on \
@@ -103,6 +135,7 @@ compile_and_install_ent() {
       export ASAN_OPTIONS=abort_on_error=1:leak_check_at_exit=0
       echo "cmake compile and install eloq."
       cmake -G "Ninja" \
+            -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
             -S src/mongo/db/modules/eloq \
             -B src/mongo/db/modules/eloq/build \
@@ -131,7 +164,7 @@ compile_and_install_ent() {
       python2 scripts/buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
-            CPPDEFINES="ELOQ_MODULE_ENABLED" \
+            CPPDEFINES="ELOQ_MODULE_ENABLED EXT_TX_PROC_ENABLED" \
             --build-dir=#build \
             --prefix="$PREFIX" \
             --dbg=on \
@@ -154,36 +187,42 @@ launch_eloqdoc() {
       local bucket_prefix="$2"
       echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       mkdir -p "$PREFIX/log" "$PREFIX/data"
-      sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
-      sed -i "s|txlogRocksDBCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|txlogRocksDBCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
-      nohup $PREFIX/bin/eloqdoc \
-            --config ./concourse/scripts/store_rocksdb_cloud.yaml \
-            --eloqRocksdbCloudBucketName="$bucket_name" \
-            --eloqRocksdbCloudBucketPrefix="$bucket_prefix" \
-            --eloqTxlogRocksDBCloudBucketName="$bucket_name" \
-            --eloqTxlogRocksDBCloudBucketPrefix="$bucket_prefix" \
+      nohup env LD_LIBRARY_PATH=$PREFIX/lib/:${LD_LIBRARY_PATH} $PREFIX/bin/eloqdoc \
+            --config=./concourse/scripts/store_rocksdb_cloud.yaml \
+	    --data_substrate_config=./concourse/scripts/data_substrate.cnf \
+            --rocksdb_cloud_bucket_name="$bucket_name" \
+            --rocksdb_cloud_bucket_prefix="$bucket_prefix" \
+	    --rocksdb_cloud_object_path="dss" \
+	    --rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
+            --txlog_rocksdb_cloud_bucket_name="$bucket_name" \
+            --txlog_rocksdb_cloud_bucket_prefix="$bucket_prefix" \
+	    --txlog_rocksdb_cloud_object_path="txlog" \
+	    --txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
             &>$PREFIX/log/eloqdoc.out &
 }
 
 launch_eloqdoc_fast() {
       if [ $# -lt 2 ]; then
             echo "Error: bucket_name and bucket_prefix parameters are required"
-            echo "Usage: launch_eloqdoc_fast <bucket_name> <bucket_prefix>"
+            echo "Usage: launch_eloqdoc <bucket_name> <bucket_prefix>"
             exit 1
       fi
       local bucket_name="$1"
       local bucket_prefix="$2"
-      echo "launch eloqdoc fast with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
+      echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       mkdir -p "$PREFIX/log" "$PREFIX/data"
-      sed -i "s|rocksdbCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|rocksdbCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
-      sed -i "s|txlogRocksDBCloudEndpointUrl: \"http://[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:[0-9]\+\"|txlogRocksDBCloudEndpointUrl: \"${MINIO_ENDPOINT}\"|g" /home/eloq/workspace/mongo/concourse/scripts/store_rocksdb_cloud.yaml
-      nohup $PREFIX/bin/eloqdoc \
-            --config ./concourse/scripts/store_rocksdb_cloud.yaml \
-            --eloqSkipRedoLog=1 \
-            --eloqRocksdbCloudBucketName="$bucket_name" \
-            --eloqRocksdbCloudBucketPrefix="$bucket_prefix" \
-            --eloqTxlogRocksDBCloudBucketName="$bucket_name" \
-            --eloqTxlogRocksDBCloudBucketPrefix="$bucket_prefix" \
+      nohup env LD_LIBRARY_PATH=$PREFIX/lib/:${LD_LIBRARY_PATH} $PREFIX/bin/eloqdoc \
+            --config=./concourse/scripts/store_rocksdb_cloud.yaml \
+            --data_substrate_config=./concourse/scripts/data_substrate.cnf \
+            --rocksdb_cloud_bucket_name="$bucket_name" \
+            --rocksdb_cloud_bucket_prefix="$bucket_prefix" \
+            --rocksdb_cloud_object_path="dss" \
+            --rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
+            --txlog_rocksdb_cloud_bucket_name="$bucket_name" \
+            --txlog_rocksdb_cloud_bucket_prefix="$bucket_prefix" \
+            --txlog_rocksdb_cloud_object_path="txlog" \
+            --txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
+            --enable_wal=false \
             &>$PREFIX/log/eloqdoc.out &
 }
 
@@ -216,7 +255,7 @@ try_connect() {
 
 run_jstests() {
       echo "run jstests"
-      env PATH=$PREFIX/bin:$PATH \
+      env LD_LIBRARY_PATH=$PREFIX/lib/:${LD_LIBRARY_PATH} PATH=$PREFIX/bin:$PATH \
       python2 scripts/buildscripts/resmoke.py --mongo=$PREFIX/bin/eloqdoc-cli --suites=eloq_basic,eloq_core --shellPort=27017 --continueOnFailure
 }
 

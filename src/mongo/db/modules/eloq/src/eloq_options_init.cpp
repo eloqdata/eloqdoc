@@ -44,4 +44,5 @@ MONGO_STARTUP_OPTIONS_STORE(eloqOptions)(InitializerContext* context) {
     }
     return Status::OK();
 }
+
 }  // namespace mongo

@@ -25,6 +25,8 @@ if (ELOQ_MODULE_ENABLED)
   add_definitions(-DELOQ_MODULE_ENABLED)
 endif()
 
+add_definitions(-DELOQ_MODULE_ELOQDOC)
+
 # --- ELOQ Metrics Options ---
 option(ENABLE_BENCHMARK "Enable Google Benchmark for eloq_metrics." OFF)
 option(WITH_GLOG "Enable glog for eloq_metrics module (distinct from BRPC_WITH_GLOG)." OFF) # Note: This is specific to eloq_metrics
@@ -42,32 +44,6 @@ if (OPEN_LOG_SERVICE)
    add_compile_definitions(OPEN_LOG_SERVICE=1)
 endif()
 
-# --- Data Store Configuration (Set externally, e.g., -DWITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3) ---
-# WITH_DATA_STORE: Specifies the backend data store.
-# Supported values: DYNAMODB, BIGTABLE, ELOQDSS_ROCKSDB_CLOUD_S3, ELOQDSS_ROCKSDB_CLOUD_GCS, ELOQDSS_ROCKSDB, etc.
-# This variable is not an option() but a cache variable that drives major build paths.
-# Its handling is primarily in build_data_store.cmake and find_dependencies.cmake for SDKs.
-set(WITH_DATA_STORE "ELOQDSS_ROCKSDB_CLOUD_S3" CACHE STRING "The KV data store for EloqDoc")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB" "ELOQDSS_ELOQSTORE")
-if(DEFINED WITH_DATA_STORE)
-    message(STATUS "WITH_DATA_STORE is set to: ${WITH_DATA_STORE}")
-else()
-    message(STATUS "WITH_DATA_STORE is not set. Defaulting or error will occur in build_data_store.cmake.")
-endif()
-
-# --- Apply relevant global definitions based on options ---
-if(EXT_TX_PROC_ENABLED)
-    add_definitions(-DEXT_TX_PROC_ENABLED)
-    message(STATUS "Global: EXT_TX_PROC_ENABLED definition added.")
-endif()
-
-if(FORK_HM_PROCESS)
-    add_definitions(-DFORK_HM_PROCESS) # This definition is used by tx_service
-    message(STATUS "Global: FORK_HM_PROCESS definition added.")
-endif()
-
-#  STATISTICS, SMALL_RANGE definitions are handled in build_tx_service.cmake
-
 if(USE_ASAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
@@ -75,59 +51,5 @@ if(USE_ASAN)
     message(STATUS "Global: ASan flags enabled for CXX, EXE_LINKER, SHARED_LINKER.")
 endif()
 
-# --- Global Include Directories ---
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/cc)
-# log_service and tx_service both has fault_inject.h
-# include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/fault)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/proto)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/remote)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/sequences)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/include/store)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/abseil-cpp)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-protos) # For shared protos
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/eloq_metrics/include)
-if (OPEN_LOG_SERVICE)
-    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/log_service/include)
-else()
-    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/eloq_log_service/include)
-endif()
-
 # --- Include build system modules ---
-add_subdirectory(tx_service/abseil-cpp)
-include(cmake/find_dependencies.cmake) # Finds common and conditional dependencies
-include(cmake/compile_protos.cmake)   # Helper function for proto compilation
-include(cmake/build_eloq_metrics.cmake)
-include(cmake/build_tx_service.cmake)
-if (OPEN_LOG_SERVICE)
-    include(cmake/build_log_service.cmake)
-else()
-    include(cmake/build_eloq_log_service.cmake)
-endif()
-include(cmake/build_data_store.cmake)
-
-
-
-# --- Installation Rules ---
-# install tx_service lib and includes files
-install(TARGETS txservice_shared
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib)
-
-install(TARGETS logservice_shared
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib)
-
-install(TARGETS datastore_shared
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib)
-
-install(TARGETS eloq_metrics_shared
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib)
-
-if(FORK_HM_PROCESS) # Only install host_manager if it's built
-    install(TARGETS host_manager
-            RUNTIME DESTINATION bin)
-endif()
+add_subdirectory(data_substrate)

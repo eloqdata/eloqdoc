@@ -8,4 +8,3 @@ inputs:
   - name: py_tpcc_src
 run:
   path: eloqdoc_pr/concourse/scripts/pr.ent.bash
-  args: ["((cass-host))"]

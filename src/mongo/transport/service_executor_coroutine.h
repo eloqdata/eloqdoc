@@ -7,7 +7,7 @@
 #include <string_view>
 
 #include "mongo/base/status.h"
-#include "mongo/db/modules/eloq/tx_service/include/concurrent_queue_wsize.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/concurrent_queue_wsize.h"
 #include "mongo/platform/atomic_word.h"
 #include "mongo/stdx/condition_variable.h"
 #include "mongo/stdx/mutex.h"

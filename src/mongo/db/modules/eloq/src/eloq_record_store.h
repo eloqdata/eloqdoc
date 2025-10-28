@@ -22,7 +22,7 @@
 #include "mongo/bson/ordering.h"
 #include "mongo/db/storage/record_store.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
 namespace mongo {
 inline BSONObj kIdKeyPattern = BSON("_id" << 1);

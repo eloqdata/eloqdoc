@@ -367,6 +367,7 @@ mongod = env.Program(
     SYSLIBDEPS=[
         'mimalloc',
         'brpc',
+	'gflags',
     ] if env.TargetOSIs('linux') else [],
     INSTALL_ALIAS=[
         'core',

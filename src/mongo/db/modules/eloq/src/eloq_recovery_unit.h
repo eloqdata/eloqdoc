@@ -36,11 +36,11 @@
 #include "mongo/db/modules/eloq/src/base/eloq_table_schema.h"
 #include "mongo/db/modules/eloq/src/eloq_cursor.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/catalog_key_record.h"
-#include "mongo/db/modules/eloq/tx_service/include/cc_protocol.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_execution.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_service.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc_protocol.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_execution.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 namespace mongo {
 class EloqKVPair {
 public:

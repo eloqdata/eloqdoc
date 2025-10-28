@@ -183,3 +183,6 @@ config/*/*.conf
 *.pb.*
 .pre-commit-config.yaml
 install
+data
+pyvenv
+venv

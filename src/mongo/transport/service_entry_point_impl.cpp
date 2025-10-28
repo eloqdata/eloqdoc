@@ -72,6 +72,8 @@ ServiceEntryPointImpl::ServiceEntryPointImpl(ServiceContext* svcCtx) : _svcCtx(s
 
     _maxNumConnections = supportedMax;
 
+    MONGO_LOG(1) << "enableCoroutine: " << serverGlobalParams.enableCoroutine
+                 << ", reservedThreadNum: " << serverGlobalParams.reservedThreadNum;
     if (serverGlobalParams.enableCoroutine && serverGlobalParams.reservedThreadNum) {
         _coroutineExecutor = std::make_unique<transport::ServiceExecutorCoroutine>(
             _svcCtx, serverGlobalParams.reservedThreadNum);

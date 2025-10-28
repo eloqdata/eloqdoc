@@ -1,12 +1,13 @@
 #!/bin/bash
 set -exo pipefail
 
-source "$(dirname "$0")/common.sh"
+export WORKSPACE=$PWD
+export CASS_HOST=$CASS_HOST
+
+export PREFIX="/home/eloq/workspace/mongo/install"
 
 CWDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ls
-export WORKSPACE=$PWD
-export CASS_HOST=$CASS_HOST
 
 cd $WORKSPACE
 whoami
@@ -24,6 +25,9 @@ if [ ! -d "/home/$current_user/workspace" ]; then
 fi
 
 sudo chown -R $current_user /home/$current_user/workspace
+
+source "$(dirname "$0")/common.sh"
+
 cd /home/$current_user/workspace
 ln -s $WORKSPACE/py_tpcc_src py-tpcc
 ln -s $WORKSPACE/eloqdoc_src mongo
@@ -31,7 +35,7 @@ cd mongo
 git submodule sync
 git submodule update --init --recursive
 
-cd src/mongo/db/modules/eloq
+cd src/mongo/db/modules/eloq/data_substrate
 ln -s $WORKSPACE/eloq_logservice_src eloq_log_service
 
 pushd tx_service
@@ -41,8 +45,10 @@ popd
 cd /home/$current_user/workspace/mongo
 
 # Generate unique bucket names for main test
-BUCKET_NAME="main-test"
-BUCKET_PREFIX="rocksdb-cloud-"
+timestamp=$(($(date +%s%N)/1000000))
+export BUCKET_NAME="main-test-${timestamp}"
+export BUCKET_PREFIX="elqdoc-"
+echo "bucket_name is ${BUCKET_PREFIX}${BUCKET_NAME}"
 DATA_DIR="/home/eloq/workspace/mongo/install/data"
 
 compile_and_install_ent

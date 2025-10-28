@@ -23,7 +23,7 @@
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/sorted_data_interface.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
 namespace mongo {
 // please refer class WiredTigerIdIndex and https://www.mongodb.com/docs/manual/indexes/

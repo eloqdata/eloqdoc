@@ -21,8 +21,8 @@
 
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/tx_execution.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_request.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_execution.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_request.h"
 
 namespace mongo {
 class EloqRecoveryUnit;

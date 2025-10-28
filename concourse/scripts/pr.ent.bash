@@ -1,10 +1,11 @@
 #!/bin/bash
 set -exo pipefail
 
+export PREFIX="/home/eloq/workspace/mongo/install"
+
 source "$(dirname "$0")/common.sh"
 
 CWDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 
 mkdir -p ~/.ssh
 echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa
@@ -41,7 +42,7 @@ git config remote.origin.fetch "+refs/heads/${pr_branch_name}:refs/remotes/origi
 git submodule sync
 git submodule update --init --recursive
 
-cd src/mongo/db/modules/eloq
+cd src/mongo/db/modules/eloq/data_substrate
 ln -s $WORKSPACE/eloq_logservice_src eloq_log_service
 
 pushd eloq_log_service
@@ -66,8 +67,10 @@ popd
 cd /home/$current_user/workspace/mongo
 
 # Generate unique bucket names for pr test
-BUCKET_NAME="pr-test"
+timestamp=$(($(date +%s%N)/1000000))
+BUCKET_NAME="pr-test-${timestamp}"
 BUCKET_PREFIX="rocksdb-cloud-"
+echo "bucket_name is ${BUCKET_PREFIX}${BUCKET_NAME}"
 DATA_DIR="/home/eloq/workspace/mongo/install/data"
 
 compile_and_install_ent

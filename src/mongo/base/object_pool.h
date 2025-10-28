@@ -4,7 +4,7 @@
 #include <stack>
 #include <vector>
 
-#include "mongo/db/modules/eloq/tx_service/include/circular_queue.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/circular_queue.h"
 
 namespace mongo {
 template <typename T>

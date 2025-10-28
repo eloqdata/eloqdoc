@@ -26,13 +26,13 @@
 #undef verify
 #endif
 
-#include "mongo/db/modules/eloq/tx_service/include/cc/ccm_scanner.h"
-#include "mongo/db/modules/eloq/tx_service/include/cc/range_cc_map.h"
-#include "mongo/db/modules/eloq/tx_service/include/cc/scan.h"
-#include "mongo/db/modules/eloq/tx_service/include/cc/template_cc_map.h"
-#include "mongo/db/modules/eloq/tx_service/include/sequences/sequences.h"
-#include "mongo/db/modules/eloq/tx_service/include/table_statistics.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc/ccm_scanner.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc/range_cc_map.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc/scan.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc/template_cc_map.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/sequences/sequences.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/table_statistics.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
 namespace Eloq {
 txservice::TableSchema::uptr MongoCatalogFactory::CreateTableSchema(

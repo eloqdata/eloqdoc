@@ -32,9 +32,9 @@
 #include "mongo/db/modules/eloq/src/eloq_index.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
 
-#include "mongo/db/modules/eloq/tx_service/include/tx_key.h"
-#include "mongo/db/modules/eloq/tx_service/include/tx_request.h"
-#include "mongo/db/modules/eloq/tx_service/include/type.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_key.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_request.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
 #include <butil/time.h>
 #include <bvar/latency_recorder.h>
