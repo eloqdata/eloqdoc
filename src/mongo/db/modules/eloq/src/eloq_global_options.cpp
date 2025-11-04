@@ -704,7 +704,11 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         }
 
         eloqGlobalOptions.hostManagerAddr = mongo::HostAndPort(hmIP, hmPort);
+    } else {
+        eloqGlobalOptions.hostManagerAddr = mongo::HostAndPort("", 0);
     }
+
+
     if (params.count("storage.eloq.txService.hmBinPath")) {
         auto hmBinPath = params["storage.eloq.txService.hmBinPath"].as<std::string>();
         if (hmBinPath.empty()) {

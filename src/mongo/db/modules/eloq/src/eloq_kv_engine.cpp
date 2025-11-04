@@ -311,14 +311,24 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         {"kickout_data_for_test", eloqGlobalOptions.kickoutDataForTest},
     };
 
-    const std::string& hmIP = eloqGlobalOptions.hostManagerAddr.host();
+    std::string hmIP = eloqGlobalOptions.hostManagerAddr.host();
     uint16_t hmPort = eloqGlobalOptions.hostManagerAddr.port();
-    const std::string& hmBinPath = eloqGlobalOptions.hostManagerBinPath;
+
+    std::string hmBinPath = eloqGlobalOptions.hostManagerBinPath;
+
 #ifdef FORK_HM_PROCESS
     // If the Eloqdoc is under bootstrap mode, we will not fork host manager.
     // Otherwise, we will fork host manager if the option is enabled.
     // Currently, when deploying on the cloud we do not fork host manager.
     bool forkHostManager = !bootstrap && eloqGlobalOptions.forkHostManager;
+    if (hmIP.empty()) {
+        hmIP = eloqGlobalOptions.localAddr.host();
+    }
+
+    if (hmPort == 0) {
+        hmPort = eloqGlobalOptions.localAddr.port() + 4;
+    }
+
 #else
     bool forkHostManager = false;
 #endif
@@ -550,9 +560,9 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                           clusterConfigVersion,
                           &txlogIPs,
                           &txlogPorts,
-                          forkHostManager ? nullptr : &hmIP,
-                          forkHostManager ? nullptr : &hmPort,
-                          forkHostManager ? nullptr : &hmBinPath,
+                          &hmIP,
+                          &hmPort,
+                          &hmBinPath,
                           txServiceConf,
                           std::move(_logAgent),
                           localPath,
