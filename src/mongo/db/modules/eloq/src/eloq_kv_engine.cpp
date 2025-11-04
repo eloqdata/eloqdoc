@@ -186,14 +186,6 @@ static void configureEloqStore(EloqDS::EloqStoreConfig& eloq_store_config,
         log() << "EloqStore cloud store enabled";
     }
 
-    eloq_store_config.eloqstore_configs_.num_gc_threads =
-        eloq_store_config.eloqstore_configs_.cloud_store_path.empty()
-        ? eloqGlobalOptions.eloqStoreGcThreads
-        : 0;
-
-    eloq_store_config.eloqstore_configs_.rclone_threads =
-        eloqGlobalOptions.eloqStoreCloudWorkerCount;
-
     eloq_store_config.eloqstore_configs_.data_page_restart_interval =
         eloqGlobalOptions.eloqStoreDataPageRestartInterval;
 

@@ -426,20 +426,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "EloqStore cloud store path (Disable cloud store if empty)")
         .setDefault(moe::Value(""));
     eloqOptions
-        .addOptionChaining("storage.eloq.storage.eloqStoreGcThreads",
-                           "eloqEloqStoreGcThreads",
-                           moe::Int,
-                           "EloqStore gc threads (Must be 0 if cloud store is enabled)")
-        .validRange(0, UINT32_MAX)
-        .setDefault(moe::Value(1));
-    eloqOptions
-        .addOptionChaining("storage.eloq.storage.eloqStoreCloudWorkerCount",
-                           "eloqEloqStoreCloudWorkerCount",
-                           moe::Int,
-                           "EloqStore cloud worker count")
-        .validRange(1, UINT32_MAX)
-        .setDefault(moe::Value(1));
-    eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreDataPageRestartInterval",
                            "eloqEloqStoreDataPageRestartInterval",
                            moe::Int,
@@ -986,14 +972,6 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.storage.eloqStoreCloudStorePath")) {
         eloqGlobalOptions.eloqStoreCloudStorePath =
             params["storage.eloq.storage.eloqStoreCloudStorePath"].as<std::string>();
-    }
-    if (params.count("storage.eloq.storage.eloqStoreGcThreads")) {
-        eloqGlobalOptions.eloqStoreGcThreads =
-            params["storage.eloq.storage.eloqStoreGcThreads"].as<int>();
-    }
-    if (params.count("storage.eloq.storage.eloqStoreCloudWorkerCount")) {
-        eloqGlobalOptions.eloqStoreCloudWorkerCount =
-            params["storage.eloq.storage.eloqStoreCloudWorkerCount"].as<int>();
     }
     if (params.count("storage.eloq.storage.eloqStoreDataPageRestartInterval")) {
         eloqGlobalOptions.eloqStoreDataPageRestartInterval =

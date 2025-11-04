@@ -123,8 +123,6 @@ public:
     std::string eloqStoreStoragePathList;
     uint32_t eloqStoreOpenFilesLimit{1024};
     std::string eloqStoreCloudStorePath;
-    uint32_t eloqStoreGcThreads{1};
-    uint32_t eloqStoreCloudWorkerCount{1};
     uint32_t eloqStoreDataPageRestartInterval{16};
     uint32_t eloqStoreIndexPageRestartInterval{16};
     uint32_t eloqStoreInitPageCount{1 << 15};
