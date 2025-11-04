@@ -1,18 +1,16 @@
-# Deploy EloqDoc on AWS EKS with Operator
+# Deploy EloqDoc on AWS EKS with Eloq Operator
 
-This guide walks you through deploying EloqDoc on AWS EKS using the EloqDoc Operator. The operator simplifies management and provides a declarative way to deploy and configure EloqDoc clusters.
+This guide walks you through deploying EloqDoc on AWS EKS using the Eloq Operator. The operator simplifies management and provides a declarative way to deploy and configure EloqDoc clusters.
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
-- AWS CLI configured with appropriate credentials
-- `eksctl` installed (v0.150.0 or later)
 - `kubectl` installed (v1.28 or later)
 - `helm` installed (v3.0 or later)
 - An AWS account with permissions to create EKS clusters, IAM policies, and S3 buckets
-
-> **Note:** You don't need to create S3 buckets beforehand. EloqDoc will automatically create the required S3 buckets when deployed.
+- AWS CLI configured with appropriate credentials
+- `eksctl` installed (v0.150.0 or later)
 
 ## Step 1: Create EKS Cluster
 
@@ -634,7 +632,7 @@ kubectl get pods -n openebs
 
 ### 3.4 Install cert-manager
 
-cert-manager is required by the EloqDoc Operator for webhook certificate management.
+cert-manager is required by the Eloq Operator for webhook certificate management.
 
 ```bash
 # Install cert-manager
@@ -767,9 +765,9 @@ eksctl create iamserviceaccount \
 kubectl get sa -n ns-eloqdoc eloq-aws-access -o yaml
 ```
 
-## Step 6: Install EloqDoc Operator
+## Step 6: Install Eloq Operator
 
-The EloqDoc Operator manages the lifecycle of EloqDoc clusters.
+The Eloq Operator manages the lifecycle of EloqDoc clusters.
 
 ```bash
 # Add EloqData Helm repository

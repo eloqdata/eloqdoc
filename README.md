@@ -193,7 +193,7 @@ MongoDB server version: 4.0.3
 * Follow [compile tutorial](docs/how-to-compile.md) to learn how to compile EloqDoc-RocksDB and EloqDocRocksDBCloud from scratch.
 * Follow [deploy cluster](docs/how-to-deploy-cluster.md) to learn how to deploy an EloqDoc-RocksDBCloud cluster.
 * Follow [configuration description](docs/configuration-description.md) to learn major configuration parameters.
-* For deployments on AWS EKS using the **EloqDoc Operator**, see the [deployment guide](docs/deploy-with-operator.md).
+* Follow [Kubernetes deployment guide](docs/deploy-with-operator/README.md) to learn how to deploy EloqDoc on managed Kubernetes services (AWS EKS, Baidu CCE) using the Eloq Operator.
 ---
 
 **Star This Repo ⭐** to Support Our Journey — Every Star Helps Us Reach More Developers!
