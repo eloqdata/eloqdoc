@@ -321,11 +321,11 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     // Otherwise, we will fork host manager if the option is enabled.
     // Currently, when deploying on the cloud we do not fork host manager.
     bool forkHostManager = !bootstrap && eloqGlobalOptions.forkHostManager;
-    if (hmIP.empty()) {
+    if (forkHostManager && hmIP.empty()) {
         hmIP = eloqGlobalOptions.localAddr.host();
     }
 
-    if (hmPort == 0) {
+    if (forkHostManager && hmPort == 0) {
         hmPort = eloqGlobalOptions.localAddr.port() + 4;
     }
 
