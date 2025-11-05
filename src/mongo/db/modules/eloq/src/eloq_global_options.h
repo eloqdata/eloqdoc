@@ -119,15 +119,14 @@ public:
     uint32_t rocksdbMaxSubCompactions{1};  // no subcompactions
 
     // eloqstore
+    bool eloqStoreSkipVerifyChecksum{false};
+    bool eloqStoreDataAppendMode{false};
+    bool eloqStoreEnableCompression{false};
     uint32_t eloqStoreWorkerCount{1};
-    std::string eloqStoreStoragePathList;
     uint32_t eloqStoreOpenFilesLimit{1024};
-    std::string eloqStoreCloudStorePath;
     uint32_t eloqStoreDataPageRestartInterval{16};
     uint32_t eloqStoreIndexPageRestartInterval{16};
     uint32_t eloqStoreInitPageCount{1 << 15};
-    bool eloqStoreSkipVerifyChecksum{false};
-    uint32_t eloqStoreIndexBufferPoolSize{1 << 15};
     uint32_t eloqStoreManifestLimit{8 << 20};
     uint32_t eloqStoreIoQueueSize{4096};
     uint32_t eloqStoreMaxInflightWrite{64 << 10};
@@ -138,12 +137,14 @@ public:
     uint32_t eloqStoreArchiveIntervalSecs{86400};
     uint32_t eloqStoreMaxArchiveTasks{256};
     uint32_t eloqStoreFileAmplifyFactor{4};
-    std::string eloqStoreLocalSpaceLimit;
     uint32_t eloqStoreReserveSpaceRatio{100};
     uint32_t eloqStoreDataPageSize{1 << 12};
     uint32_t eloqStorePagesPerFileShift{11};
     uint32_t eloqStoreOverflowPointers{16};
-    bool eloqStoreDataAppendMode{false};
+    std::string eloqStoreCloudStorePath;
+    std::string eloqStoreLocalSpaceLimit;
+    std::string eloqStoreStoragePathList;
+    std::string eloqStoreIndexBufferPoolSize;
 
     // metrics
     bool enableMetrics{false};

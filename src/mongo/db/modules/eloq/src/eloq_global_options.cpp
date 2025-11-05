@@ -453,13 +453,6 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "EloqStore skip verify checksum")
         .setDefault(moe::Value(false));
     eloqOptions
-        .addOptionChaining("storage.eloq.storage.eloqStoreIndexBufferPoolSize",
-                           "eloqEloqStoreIndexBufferPoolSize",
-                           moe::Int,
-                           "EloqStore index buffer pool size")
-        .validRange(1, UINT32_MAX)
-        .setDefault(moe::Value(1 << 15));
-    eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreManifestLimit",
                            "eloqEloqStoreManifestLimit",
                            moe::Int,
@@ -536,6 +529,12 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "EloqStore local space limit")
         .setDefault(moe::Value("1TB"));
     eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreLocalSpaceLimit",
+                           "eloqEloqStoreLocalSpaceLimit",
+                           moe::String,
+                           "EloqStore local space limit")
+        .setDefault(moe::Value("1TB"));
+    eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreReserveSpaceRatio",
                            "eloqEloqStoreReserveSpaceRatio",
                            moe::Int,
@@ -568,6 +567,12 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "eloqEloqStoreDataAppendMode",
                            moe::Bool,
                            "EloqStore data append mode")
+        .setDefault(moe::Value(false));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.eloqStoreEnableCompression",
+                       "eloqEloqStoreEnableCompression",
+                       moe::Bool,
+                       "EloqStore enable compression")
         .setDefault(moe::Value(false));
 
     // Options for metrics
@@ -989,10 +994,6 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.eloqStoreSkipVerifyChecksum =
             params["storage.eloq.storage.eloqStoreSkipVerifyChecksum"].as<bool>();
     }
-    if (params.count("storage.eloq.storage.eloqStoreIndexBufferPoolSize")) {
-        eloqGlobalOptions.eloqStoreIndexBufferPoolSize =
-            params["storage.eloq.storage.eloqStoreIndexBufferPoolSize"].as<int>();
-    }
     if (params.count("storage.eloq.storage.eloqStoreManifestLimit")) {
         eloqGlobalOptions.eloqStoreManifestLimit =
             params["storage.eloq.storage.eloqStoreManifestLimit"].as<int>();
@@ -1037,6 +1038,10 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.eloqStoreLocalSpaceLimit =
             params["storage.eloq.storage.eloqStoreLocalSpaceLimit"].as<std::string>();
     }
+    if (params.count("storage.eloq.storage.eloqStoreIndexBufferPoolSize")) {
+        eloqGlobalOptions.eloqStoreIndexBufferPoolSize =
+            params["storage.eloq.storage.eloqStoreIndexBufferPoolSize"].as<std::string>();
+    }
     if (params.count("storage.eloq.storage.eloqStoreReserveSpaceRatio")) {
         eloqGlobalOptions.eloqStoreReserveSpaceRatio =
             params["storage.eloq.storage.eloqStoreReserveSpaceRatio"].as<int>();
@@ -1056,6 +1061,10 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.storage.eloqStoreDataAppendMode")) {
         eloqGlobalOptions.eloqStoreDataAppendMode =
             params["storage.eloq.storage.eloqStoreDataAppendMode"].as<bool>();
+    }
+    if (params.count("storage.eloq.storage.eloqStoreEnableCompression")) {
+        eloqGlobalOptions.eloqStoreEnableCompression =
+            params["storage.eloq.storage.eloqStoreEnableCompression"].as<bool>();
     }
 
     // Parse metrics options
