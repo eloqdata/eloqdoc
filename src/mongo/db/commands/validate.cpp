@@ -43,6 +43,10 @@
 #include "mongo/util/log.h"
 #include "mongo/util/scopeguard.h"
 
+#ifdef D_USE_CORO_SYNC
+#include "mongo/db/coro_sync.h"
+#endif
+
 namespace mongo {
 
 using std::endl;
@@ -53,11 +57,16 @@ MONGO_FAIL_POINT_DEFINE(validateCmdCollectionNotValid);
 
 namespace {
 
+#ifndef D_USE_CORO_SYNC
 // Protects `_validationQueue`
 stdx::mutex _validationMutex;
 
 // Wakes up `_validationQueue`
 stdx::condition_variable _validationNotifier;
+#else
+coro::Mutex _validationMutex;
+coro::ConditionVariable _validationNotifier;
+#endif
 
 // Holds the set of full `database.collections` namespace strings in progress.
 std::set<std::string> _validationsInProgress;
@@ -162,7 +171,7 @@ public:
 
         // Only one validation per collection can be in progress, the rest wait in order.
         {
-            stdx::unique_lock<stdx::mutex> lock(_validationMutex);
+            stdx::unique_lock lock(_validationMutex);
             try {
                 while (_validationsInProgress.find(nss.ns()) != _validationsInProgress.end()) {
                     opCtx->waitForConditionOrInterrupt(_validationNotifier, lock);
@@ -179,7 +188,7 @@ public:
         }
 
         ON_BLOCK_EXIT([&] {
-            stdx::lock_guard<stdx::mutex> lock(_validationMutex);
+            stdx::lock_guard lock(_validationMutex);
             _validationsInProgress.erase(nss.ns());
             _validationNotifier.notify_all();
         });
@@ -226,4 +235,4 @@ public:
     }
 
 } validateCmd;
-}
+}  // namespace mongo

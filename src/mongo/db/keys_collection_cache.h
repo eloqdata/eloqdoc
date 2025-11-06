@@ -33,7 +33,12 @@
 #include "mongo/base/status_with.h"
 #include "mongo/db/keys_collection_document.h"
 #include "mongo/db/operation_context.h"
+
+#ifndef D_USE_CORO_SYNC
 #include "mongo/stdx/mutex.h"
+#else
+#include "mongo/db/coro_sync.h"
+#endif
 
 namespace mongo {
 
@@ -67,7 +72,11 @@ private:
     const std::string _purpose;
     KeysCollectionClient* const _client;
 
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _cacheMutex;
+#else
+    coro::Mutex _cacheMutex;
+#endif
     std::map<LogicalTime, KeysCollectionDocument> _cache;  // expiresAt -> KeysDocument
 };
 

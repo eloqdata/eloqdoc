@@ -39,6 +39,10 @@
 #include "mongo/stdx/thread.h"
 #include "mongo/util/lru_cache.h"
 
+#ifdef D_USE_CORO_SYNC
+#include "mongo/db/coro_sync.h"
+#endif
+
 namespace mongo {
 
 class Client;
@@ -158,10 +162,18 @@ private:
     std::unique_ptr<ServiceLiaison> _service;
     std::shared_ptr<SessionsCollection> _sessionsColl;
 
+#ifndef D_USE_CORO_SYNC
     mutable stdx::mutex _reaperMutex;
+#else
+    mutable coro::Mutex _reaperMutex;
+#endif
     std::shared_ptr<TransactionReaper> _transactionReaper;
 
+#ifndef D_USE_CORO_SYNC
     mutable stdx::mutex _cacheMutex;
+#else
+    mutable coro::Mutex _cacheMutex;
+#endif
 
     LogicalSessionIdMap<LogicalSessionRecord> _activeSessions;
 

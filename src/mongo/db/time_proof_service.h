@@ -31,7 +31,12 @@
 #include "mongo/base/status.h"
 #include "mongo/crypto/sha1_block.h"
 #include "mongo/db/logical_time.h"
+
+#ifndef D_USE_CORO_SYNC
 #include "mongo/stdx/mutex.h"
+#else
+#include "mongo/db/coro_sync.h"
+#endif
 
 namespace mongo {
 
@@ -89,7 +94,11 @@ private:
     };
 
     // protects _cache
+#ifndef D_USE_CORO_SYNC
     stdx::mutex _cacheMutex;
+#else
+    coro::Mutex _cacheMutex;
+#endif
 
     // one-entry cache
     boost::optional<CacheEntry> _cache;

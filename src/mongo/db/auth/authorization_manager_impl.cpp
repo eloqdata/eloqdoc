@@ -246,7 +246,7 @@ private:
     OID _startGeneration;
     bool _isThisGuardInFetchPhase;
     AuthorizationManagerImpl* _authzManager;
-    stdx::unique_lock<stdx::mutex> _lock;
+    stdx::unique_lock<decltype(AuthorizationManagerImpl::_cacheMutex)> _lock;
 };
 
 AuthorizationManagerImpl::AuthorizationManagerImpl()
@@ -324,7 +324,7 @@ bool AuthorizationManagerImpl::isAuthEnabled() const {
 }
 
 bool AuthorizationManagerImpl::hasAnyPrivilegeDocuments(OperationContext* opCtx) {
-    stdx::unique_lock<stdx::mutex> lk(_privilegeDocsExistMutex);
+    stdx::unique_lock lk(_privilegeDocsExistMutex);
     if (_privilegeDocsExist) {
         // If we know that a user exists, don't re-check.
         return true;

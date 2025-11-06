@@ -38,7 +38,12 @@
 #include "mongo/db/query/plan_cache_indexability.h"
 #include "mongo/db/query/query_planner_params.h"
 #include "mongo/platform/atomic_word.h"
+
+#ifndef D_USE_CORO_SYNC
 #include "mongo/stdx/mutex.h"
+#else
+#include "mongo/db/coro_sync.h"
+#endif
 
 namespace mongo {
 
@@ -422,7 +427,11 @@ private:
     LRUKeyValue<PlanCacheKey, PlanCacheEntry> _cache;
 
     // Protects _cache.
+#ifndef D_USE_CORO_SYNC
     mutable stdx::mutex _cacheMutex;
+#else
+    mutable coro::Mutex _cacheMutex;
+#endif
 
     // Full namespace of collection.
     std::string _ns;

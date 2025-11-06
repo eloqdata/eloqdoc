@@ -48,10 +48,16 @@
 #include "mongo/db/jsobj.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/server_options.h"
+
+#ifndef D_USE_CORO_SYNC
 #include "mongo/stdx/condition_variable.h"
-#include "mongo/stdx/functional.h"
 #include "mongo/stdx/mutex.h"
+#else
+#include "mongo/db/coro_sync.h"
+#endif
+#include "mongo/stdx/functional.h"
 #include "mongo/stdx/unordered_map.h"
+
 
 namespace mongo {
 class AuthorizationSession;
@@ -195,7 +201,11 @@ private:
     bool _privilegeDocsExist;
 
     // Protects _privilegeDocsExist
+#ifndef D_USE_CORO_SYNC
     mutable stdx::mutex _privilegeDocsExistMutex;
+#else
+    mutable coro::Mutex _privilegeDocsExistMutex;
+#endif
 
     std::unique_ptr<AuthzManagerExternalState> _externalState;
 
@@ -231,6 +241,7 @@ private:
      */
     bool _isFetchPhaseBusy;
 
+#ifndef D_USE_CORO_SYNC
     /**
      * Protects _userCache, _cacheGeneration, _version and _isFetchPhaseBusy.  Manipulated
      * via CacheGuard.
@@ -242,5 +253,9 @@ private:
      * Manipulated via CacheGuard.
      */
     stdx::condition_variable _fetchPhaseIsReady;
+#else
+    coro::Mutex _cacheMutex;
+    coro::ConditionVariable _fetchPhaseIsReady;
+#endif
 };
 }  // namespace mongo
