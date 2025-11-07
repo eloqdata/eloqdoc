@@ -529,11 +529,11 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "EloqStore local space limit")
         .setDefault(moe::Value("1TB"));
     eloqOptions
-        .addOptionChaining("storage.eloq.storage.eloqStoreLocalSpaceLimit",
-                           "eloqEloqStoreLocalSpaceLimit",
+        .addOptionChaining("storage.eloq.storage.eloqStoreIndexBufferPoolSize",
+                           "eloqStoreIndexBufferPoolSize",
                            moe::String,
-                           "EloqStore local space limit")
-        .setDefault(moe::Value("1TB"));
+                           "EloqStore index buffer pool size")
+        .setDefault(moe::Value("128MB"));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreReserveSpaceRatio",
                            "eloqEloqStoreReserveSpaceRatio",
