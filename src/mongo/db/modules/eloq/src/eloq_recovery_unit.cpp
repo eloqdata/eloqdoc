@@ -467,6 +467,7 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
 
     bool isForShare = false;
     bool readLocal = false;
+    bool point_read_on_miss = false;
     txservice::BatchReadTxRequest batchReadTxReq(&tableName,
                                                  keySchemaVersion,
                                                  batch,
@@ -475,7 +476,8 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                                                  readLocal,
                                                  coro.yieldFuncPtr,
                                                  coro.resumeFuncPtr,
-                                                 _txm);
+                                                 _txm,
+                                                 point_read_on_miss);
     _txm->Execute(&batchReadTxReq);
     batchReadTxReq.Wait();
     txservice::TxErrorCode err = batchReadTxReq.ErrorCode();
