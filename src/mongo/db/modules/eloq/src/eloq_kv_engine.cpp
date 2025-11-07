@@ -248,7 +248,8 @@ static void configureEloqStore(EloqDS::EloqStoreConfig& eloq_store_config,
         txlog::parse_size(eloqGlobalOptions.eloqStoreLocalSpaceLimit);
 
     eloq_store_config.eloqstore_configs_.index_buffer_pool_size =
-        txlog::parse_size(eloqGlobalOptions.eloqStoreIndexBufferPoolSize);
+        txlog::parse_size(eloqGlobalOptions.eloqStoreIndexBufferPoolSize) /
+        eloq_store_config.eloqstore_configs_.num_threads;
 
     eloq_store_config.eloqstore_configs_.enable_compression =
         eloqGlobalOptions.eloqStoreEnableCompression;
