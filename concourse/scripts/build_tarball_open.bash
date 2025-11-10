@@ -175,7 +175,6 @@ SCONS_VARIANT=${BUILD_TYPE}
 python2 scripts/buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
-    LIBPATH=/usr/local/lib \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$DEST_DIR \

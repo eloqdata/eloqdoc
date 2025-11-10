@@ -66,7 +66,6 @@ elif [[ "$OS_ID" == ubuntu* ]]; then
     sudo apt install rsync -y
     INSTALL_PSQL="DEBIAN_FRONTEND=noninteractive sudo apt install -y postgresql-client"
 fi
-export LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64:/usr/lib:/usr/lib64:/lib:/lib64:$LD_LIBRARY_PATH
 
 # Kernel version from the running system
 KERNEL_VERSION="$(uname -r || true)"
@@ -229,7 +228,6 @@ env OPEN_LOG_SERVICE=$OPEN_LOG_SERVICE FORK_HM_PROCESS=$FORK_HM_PROCESS WITH_DAT
 python2 scripts/buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
-    LIBPATH=/usr/local/lib \
     CFLAGS="-Wno-nonnull" \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     CXX=${CXX} \

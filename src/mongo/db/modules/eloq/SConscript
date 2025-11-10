@@ -16,7 +16,6 @@ def FindIncludePath(file_name):
                 return os.path.dirname(candidate)
     return None
 
-SYSTEM_LIBRARY_PATH = ['/usr/lib','/usr/lib/x86_64-linux-gnu', '/usr/local/lib', '/opt/lib', '/usr/lib64', '/usr/local/lib64', '/opt/lib64']
 def FindLibPath(lib_name):
     """Search for a static or dynamic library in a list of directories."""
     prefixes = ['lib']
@@ -30,7 +29,7 @@ def FindLibPath(lib_name):
     # Prefer dynamic link
     extensions = [dynamic_ext, static_ext]
     for ext in extensions:
-        for path in SYSTEM_LIBRARY_PATH:
+        for path in env["LIBPATH"]:
             for prefix in prefixes:
                 base_name = prefix + lib_name + ext
                 candidate = os.path.join(path, base_name)
@@ -246,7 +245,7 @@ env.Append(LIBS=cmake_module_libs)
 # For RocksDB Cloud backends, ensure AWS/GCS SDKs are linked when needed because
 # this module directly references AWS Init/Shutdown APIs under S3 builds.
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD:
-    # Prefer explicit names; system library paths are already searched via SYSTEM_LIBRARY_PATH.
+    # Prefer explicit names; system library paths are already searched via env["LIBPATH"].
     if data_store_type_str == "ELOQDSS_ROCKSDB_CLOUD_S3":
         env.Append(LIBS=["aws-cpp-sdk-core"])  # Aws::InitAPI/Aws::ShutdownAPI
         env.Append(LIBS=["aws-cpp-sdk-kinesis", "aws-cpp-sdk-s3", "rocksdb-cloud-aws"])

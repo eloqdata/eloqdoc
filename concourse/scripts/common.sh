@@ -78,7 +78,6 @@ compile_and_install() {
       CPU_CORE_SIZE=4
       OPEN_LOG_SERVICE=ON python2 scripts/buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
-            LIBPATH=/usr/local/lib \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
             CPPDEFINES="ELOQ_MODULE_ENABLED" \
             --build-dir=#build \
@@ -131,7 +130,6 @@ compile_and_install_ent() {
       env OPEN_LOG_SERVICE=0 WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 WITH_LOG_STATE=ROCKSDB_CLOUD_S3 FORK_HM_PROCESS=1 \
       python2 scripts/buildscripts/scons.py MONGO_VERSION=4.0.3 \
             VARIANT_DIR=Debug \
-            LIBPATH=/usr/local/lib \
             CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
             CPPDEFINES="ELOQ_MODULE_ENABLED" \
             --build-dir=#build \

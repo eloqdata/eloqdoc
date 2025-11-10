@@ -56,7 +56,6 @@ env WITH_DATA_STORE=ELOQDSS_ROCKSDB \
 python scripts/buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=RelWithDebInfo \
-    LIBPATH=/usr/local/lib \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$INSTALL_PREFIX \
@@ -107,7 +106,6 @@ env WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3 \
 python scripts/buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=RelWithDebInfo \
-    LIBPATH=/usr/local/lib \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     --build-dir=#build \
     --prefix=$INSTALL_PREFIX \
