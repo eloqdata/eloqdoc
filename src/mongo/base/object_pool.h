@@ -65,20 +65,6 @@ public:
         return std::unique_ptr<Base, void (*)(Base*)>(ptr, &PolyDeleter<Base>);
     }
 
-    template <typename... Args>
-    static std::shared_ptr<T> newObjectSharedPointer(Args&&... args) {
-        T* ptr{nullptr};
-
-        if (_localPool.Size() == 0) {
-            ptr = new T(std::forward<Args>(args)...);
-        } else {
-            ptr = _localPool.Peek().release();
-            _localPool.Dequeue();
-            ptr->reset(std::forward<Args>(args)...);
-        }
-        return std::shared_ptr<T>(ptr, Deleter());
-    }
-
     /*
       Some Mongo classes have owned custom deleter.
       We could modify their custom to reuse Object

@@ -221,16 +221,15 @@ private:
     bool _haveTakenOwnership = false;
 };
 
-// static moodycamel::ConcurrentQueue<std::unique_ptr<ServiceStateMachine>> ssmPool{};
-
 std::shared_ptr<ServiceStateMachine> ServiceStateMachine::create(ServiceContext* svcContext,
                                                                  transport::SessionHandle session,
                                                                  transport::Mode transportMode,
                                                                  uint16_t groupId) {
-    // return std::make_shared<ServiceStateMachine>(svcContext, std::move(session), transportMode,
-    // 0);
-    return ObjectPool<ServiceStateMachine>::newObjectSharedPointer(
+    // Allocate a new ServiceStateMachine instead of reusing from the ObjectPool. The ObjectPool is
+    // designed as thread local cache, but ServiceStateMachine is managed by shared_ptr.
+    return std::make_shared<ServiceStateMachine>(
         svcContext, std::move(session), transportMode, groupId);
+
     // ServiceStateMachine* ssm{nullptr};
     // std::unique_ptr<ServiceStateMachine> ssmUptr{nullptr};
     // bool success = ssmPool.try_dequeue(ssmUptr);
@@ -276,6 +275,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
 }
 
 ServiceStateMachine::~ServiceStateMachine() {
+    MONGO_LOG(1) << "ServiceStateMachine::~ServiceStateMachine";
     _source = {};
     ::munmap(_coroStack, kCoroStackSize);
 }
