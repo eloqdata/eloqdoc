@@ -1535,6 +1535,32 @@ else:
     env.AppendUnique( CPPDEFINES=[ 'NDEBUG' ] )
 
 if env.TargetOSIs('linux'):
+    # Build architecture-specific multiarch library path
+    multiarch_mapping = {
+        'x86_64': 'x86_64-linux-gnu',
+        'aarch64': 'aarch64-linux-gnu',
+        'ppc64le': 'powerpc64le-linux-gnu',
+        's390x': 's390x-linux-gnu',
+        'arm': 'arm-linux-gnueabihf',
+        'i386': 'i386-linux-gnu',
+    }
+    
+    libpaths = [
+        '/usr/lib',
+        '/usr/local/lib',
+        '/opt/lib',
+        '/usr/lib64',
+        '/usr/local/lib64',
+        '/opt/lib64',
+    ]
+    
+    # Add multiarch path if we have a mapping for this architecture
+    arch_triplet = multiarch_mapping.get(env['TARGET_ARCH'])
+    if arch_triplet:
+        libpaths.insert(1, '/usr/lib/' + arch_triplet)
+    
+    env.Append(
+        LIBPATH=libpaths)
     env.Append( LIBS=["m"] )
     if not env.TargetOSIs('android'):
         env.Append( LIBS=["resolv"] )

@@ -20,18 +20,6 @@ env.InjectThirdPartyIncludePaths(libraries=[
     'pcre',
 ])
 
-env.Append(
-    LIBPATH=[
-        '/usr/lib',
-        '/usr/lib/x86_64-linux-gnu',
-        '/usr/local/lib',
-        '/opt/lib',
-        '/usr/lib64',
-        '/usr/local/lib64',
-        '/opt/lib64',
-    ])
-
-
 # Run the core mongodb SConscript.
 env.SConscript('mongo/SConscript', exports=['env'])
 
