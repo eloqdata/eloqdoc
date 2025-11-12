@@ -42,6 +42,7 @@
 #include "mongo/db/matcher/expression_parser.h"
 #include "mongo/db/matcher/path.h"
 #include "mongo/db/query/collation/collator_interface.h"
+#include "mongo/platform/overflow_arithmetic.h"
 #include "mongo/stdx/memory.h"
 #include "mongo/util/mongoutils/str.h"
 
@@ -297,7 +298,7 @@ ModMatchExpression::ModMatchExpression(StringData path, int divisor, int remaind
 bool ModMatchExpression::matchesSingleElement(const BSONElement& e, MatchDetails* details) const {
     if (!e.isNumber())
         return false;
-    return e.numberLong() % _divisor == _remainder;
+    return mongoSignedModulo64(e.numberLong(), static_cast<long long>(_divisor)) == _remainder;
 }
 
 void ModMatchExpression::debugString(StringBuilder& debug, int level) const {
@@ -794,4 +795,4 @@ bool BitTestMatchExpression::equivalent(const MatchExpression* other) const {
 
     return path() == realOther->path() && myBitPositions == otherBitPositions;
 }
-}
+}  // namespace mongo

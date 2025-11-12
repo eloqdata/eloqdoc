@@ -33,6 +33,8 @@
 #include <safeint.h>
 #endif
 
+#include "mongo/util/assert_util.h"
+
 namespace mongo {
 
 /**
@@ -55,6 +57,24 @@ inline bool mongoUnsignedAddOverflow64(uint64_t lhs, uint64_t rhs, uint64_t* sum
  */
 inline bool mongoSignedSubtractOverflow64(int64_t lhs, int64_t rhs, int64_t* difference);
 inline bool mongoUnsignedSubtractOverflow64(uint64_t lhs, uint64_t rhs, uint64_t* difference);
+
+/**
+ * Safely computes the modulo operation (dividend % divisor) for signed integers.
+ * Handles the special case where dividend is the minimum value and divisor is -1, which would
+ * otherwise cause undefined behavior (SIGFPE on most platforms).
+ *
+ * Mathematical note: For any integer n, n % 1 == 0 and n % -1 == 0, including LLONG_MIN % -1.
+ *
+ * Throws an exception if divisor is zero.
+ */
+template <typename T>
+inline T mongoSignedModulo64(T dividend, T divisor) {
+    uassert(70006, "can't mod by zero", divisor != 0);
+    if (divisor == 1 || divisor == -1) {
+        return 0;
+    }
+    return dividend % divisor;
+}
 
 
 #ifdef _MSC_VER
