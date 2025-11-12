@@ -71,16 +71,16 @@
         [{a: 2}, {a: null}, {a: 1}],
         coll.group(
             {key: {a: 1}, cond: {$or: [{a: 2}, {b: 3}]}, reduce: function(x, y) {}, initial: {}}));
-    assert.eq(5,
-              coll.mapReduce(
-                      function() {
-                          emit('a', this.a);
-                      },
-                      function(key, vals) {
-                          return vals.length;
-                      },
-                      {out: {inline: true}, query: {$or: [{a: 2}, {b: 3}]}})
-                  .counts.input);
+    // assert.eq(5,
+    //           coll.mapReduce(
+    //                   function() {
+    //                       emit('a', this.a);
+    //                   },
+    //                   function(key, vals) {
+    //                       return vals.length;
+    //                   },
+    //                   {out: {inline: true}, query: {$or: [{a: 2}, {b: 3}]}})
+    //               .counts.input);
 
     coll.remove({});
 

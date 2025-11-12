@@ -84,7 +84,9 @@ void ExpressionContext::reset(OperationContext* opCtx,
     tempDir.clear();
     this->opCtx = opCtx;
     this->mongoProcessInterface = std::move(mongoProcessInterface);
-    timeZoneDatabase = nullptr;
+    timeZoneDatabase = opCtx && opCtx->getServiceContext()
+        ? TimeZoneDatabase::get(opCtx->getServiceContext())
+        : nullptr;
     collation = request.getCollation();
     variables = Variables{};
     variablesParseState = VariablesParseState{variables.useIdGenerator()};

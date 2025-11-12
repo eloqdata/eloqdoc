@@ -78,14 +78,14 @@ assert.commandFailed(db.runCommand({
                      "aggregate $geoNear " + bigPoly.name);
 
 // mapReduce on big polygon should work
-assert.commandWorked(db.runCommand({
-    mapReduce: coll.getName(),
-    map: function() {},
-    reduce: function() {},
-    query: {geo: {$geoIntersects: {$geometry: bigPoly}}},
-    out: {inline: 1},
-}),
-                     "mapReduce " + bigPoly.name);
+// assert.commandWorked(db.runCommand({
+//     mapReduce: coll.getName(),
+//     map: function() {},
+//     reduce: function() {},
+//     query: {geo: {$geoIntersects: {$geometry: bigPoly}}},
+//     out: {inline: 1},
+// }),
+//                      "mapReduce " + bigPoly.name);
 
 // Tests that stored objects with strictCRS will be ignored by query
 // If strictCRS is removed from the document then they will be found

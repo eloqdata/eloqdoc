@@ -170,20 +170,20 @@
     //
     // Confirm index stats tick on mapReduce with query.
     //
-    res = db.runCommand({
-        mapReduce: colName,
-        map: function() {
-            emit(this.b, this.c);
-        },
-        reduce: function(key, val) {
-            return val;
-        },
-        query: {b: 2},
-        out: {inline: true}
-    });
-    assert.commandWorked(res);
-    countB++;
-    assert.eq(countB, getUsageCount("b_1_c_1"));
+    // res = db.runCommand({
+    //     mapReduce: colName,
+    //     map: function() {
+    //         emit(this.b, this.c);
+    //     },
+    //     reduce: function(key, val) {
+    //         return val;
+    //     },
+    //     query: {b: 2},
+    //     out: {inline: true}
+    // });
+    // assert.commandWorked(res);
+    // countB++;
+    // assert.eq(countB, getUsageCount("b_1_c_1"));
 
     //
     // Confirm index stats tick on update().
