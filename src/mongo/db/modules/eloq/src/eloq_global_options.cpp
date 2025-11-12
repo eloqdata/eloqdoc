@@ -570,9 +570,9 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .setDefault(moe::Value(false));
     eloqOptions
         .addOptionChaining("storage.eloq.storage.eloqStoreEnableCompression",
-                       "eloqEloqStoreEnableCompression",
-                       moe::Bool,
-                       "EloqStore enable compression")
+                           "eloqEloqStoreEnableCompression",
+                           moe::Bool,
+                           "EloqStore enable compression")
         .setDefault(moe::Value(false));
 
     // Options for metrics

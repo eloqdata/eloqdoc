@@ -1395,6 +1395,10 @@ public:
                    const BSONObj& cmd,
                    string& errmsg,
                    BSONObjBuilder& result) {
+        errmsg = "Unsupported feature. The Eloq storage engine does not support mapreduce command.";
+        return false;
+
+
         Timer t;
         // Don't let a lock acquisition in map-reduce get interrupted.
         UninterruptibleLockGuard noInterrupt(opCtx->lockState());

@@ -66,6 +66,7 @@ elif [[ "$OS_ID" == ubuntu* ]]; then
     sudo apt install rsync -y
     INSTALL_PSQL="DEBIAN_FRONTEND=noninteractive sudo apt install -y postgresql-client"
 fi
+export LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64:/usr/lib:/usr/lib64:/lib:/lib64:$LD_LIBRARY_PATH
 
 # Kernel version from the running system
 KERNEL_VERSION="$(uname -r || true)"
