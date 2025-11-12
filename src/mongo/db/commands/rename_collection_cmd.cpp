@@ -94,6 +94,11 @@ public:
                            const BSONObj& cmdObj,
                            string& errmsg,
                            BSONObjBuilder& result) {
+        errmsg =
+            "Unsupported feature. The Eloq storage engine does not support rename collection "
+            "command.";
+        return false;
+
         const auto sourceNsElt = cmdObj[getName()];
         const auto targetNsElt = cmdObj["to"];
 

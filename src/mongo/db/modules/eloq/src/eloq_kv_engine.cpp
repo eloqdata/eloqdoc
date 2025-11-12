@@ -1178,8 +1178,15 @@ std::vector<std::string> EloqKVEngine::getAllIdents(OperationContext* opCtx) con
         txservice::CatalogKey catalogKey{tableName};
         txservice::CatalogRecord catalogRecord;
         auto [exists, errorCode] = ru->readCatalog(catalogKey, catalogRecord, false);
-        // todo: Does exists==false valid? When does Mongo do full table scan on Catalog?
-        assert(exists);
+        if (errorCode != txservice::TxErrorCode::NO_ERROR) {
+            error() << "ReadCatalog Error. [ErrorCode]: " << errorCode << ", "
+                    << txservice::TxErrorMessage(errorCode) << tableName.StringView();
+            uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
+        }
+        if (!exists) {
+            MONGO_LOG(0) << "Collection not exists. " << tableName.StringView();
+            continue;
+        }
 
         std::string metadata, kvInfo, keySchemaTsString;
         EloqDS::DeserializeSchemaImage(
