@@ -247,6 +247,14 @@ Desc: Object path in the bucket for data.
 
 ### storage.eloq.txService
 
+#### storage.eloq.txService.forkHostManager
+
+Type: Boolean
+Requried: False
+Accepted Value: true|false
+Default: false
+Desc: Enable raft host manager.
+
 #### storage.eloq.txService.nodeGroupReplicaNum
 
 Type: Number
