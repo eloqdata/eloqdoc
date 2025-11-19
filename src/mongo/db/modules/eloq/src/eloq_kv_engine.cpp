@@ -19,9 +19,9 @@
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -130,6 +130,8 @@ std::unique_ptr<EloqDS::DataStoreService> dataStoreService;
 }  // namespace Eloq
 namespace mongo {
 
+extern ServerGlobalParams serverGlobalParams;
+
 #if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
 
@@ -138,6 +140,11 @@ Aws::SDKOptions aws_options;
 
 static int awsInit() {
     log() << "AWS init";
+    std::filesystem::path systemLogPath(serverGlobalParams.logpath);
+    if (systemLogPath.has_parent_path()) {
+        static std::string logprefix = systemLogPath.parent_path() + "/aws_sdk_";
+        aws_options.loggingOptions.defaultLogPrefix = logprefix.c_str();
+    }
     aws_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
     Aws::InitAPI(aws_options);
     return 0;
@@ -280,6 +287,8 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                                            eloqGlobalOptions.enableIOuring ? "true" : "false");
     GFLAGS_NAMESPACE::SetCommandLineOption("raft_use_bthread_fsync",
                                            eloqGlobalOptions.raftlogAsyncFsync ? "true" : "false");
+
+    InitGlog();
 
 #if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
@@ -1273,6 +1282,15 @@ void EloqKVEngine::startOplogManager(OperationContext* opCtx, EloqRecordStore* o
 
 void EloqKVEngine::haltOplogManager(EloqRecordStore* oplogRecordStore, bool shuttingDown) {
     //
+}
+
+void EloqKVEngine::InitGlog() {
+    google::InitGoogleLogging("txservice");
+    std::filesystem::path systemLogPath(serverGlobalParams.logpath);
+    if (systemLogPath.has_parent_path()) {
+        std::filesystem::path logdir = systemLogPath.parent_path();
+        GFLAGS_NAMESPACE::SetCommandLineOption("log_dir", logdir.c_str());
+    }
 }
 
 MongoSystemHandler::MongoSystemHandler() {

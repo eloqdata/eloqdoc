@@ -168,6 +168,7 @@ jobs:
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
+      ELOQ_MODULE_ENABLED: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -183,6 +184,7 @@ jobs:
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
+      ELOQ_MODULE_ENABLED: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))

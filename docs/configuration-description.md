@@ -128,6 +128,22 @@ Accepted Values: 512 - 1000000
 Default: 8000
 Desc: Memory limit. Set it to no more than 80% memory of your hardware.
 
+#### storage.eloq.txService.enableIOuring
+
+Type: Boolean
+Required: False
+Accepted Value: true|false
+Default: false
+Desc: Enable io_uring. Available on high version kernel.
+
+#### storage.eloq.txService.txlogAsyncFsync
+
+Type: Boolean
+Required: False
+Accepted Value: true|false
+Default: false
+Desc: Enable async fsync with io_uring. Available when [enableIOuring](#storageeloqtxserviceenableiouring) is enabled.
+
 ## EloqDoc-RocksDBCloud Parameters
 
 ### storage.eloq.txService

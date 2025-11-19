@@ -163,6 +163,7 @@ cmake -G "Unix Makefiles" \
       -DCMAKE_INSTALL_PREFIX="$DEST_DIR" \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+      -DELOQ_MODULE_ENABLED=${ELOQ_MODULE_ENABLED} \
       -DUSE_ASAN=${ASAN} \
       -DWITH_DATA_STORE=${DATA_STORE_TYPE} \
       ${CMAKE_EXTRA_ARGS}
@@ -176,6 +177,7 @@ python2 scripts/buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=${SCONS_VARIANT} \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+    CPPDEFINES=$( [ ${ELOQ_MODULE_ENABLED} = "ON" ] && echo "ELOQ_MODULE_ENABLED" ) \
     --build-dir=#build \
     --prefix=$DEST_DIR \
     $( if [ "${BUILD_TYPE}" = "Debug" ]; then echo --dbg=on --opt=off; elif [ "${BUILD_TYPE}" = "RelWithDebInfo" ]; then echo --dbg=off --opt=on; else echo --dbg=off --opt=on; fi ) \

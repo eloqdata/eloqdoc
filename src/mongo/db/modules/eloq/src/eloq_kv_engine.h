@@ -193,6 +193,8 @@ public:
 private:
     bool InitMetricsRegistry();
 
+    void InitGlog();
+
     void shutdownTxService();
 
 private:

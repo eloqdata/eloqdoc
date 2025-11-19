@@ -91,6 +91,13 @@ if [ -n "${TAGGED}" ]; then
     # scripts/git-checkout.sh "${TAGGED}" || true
 fi
 
+if [ "$ELOQ_MODULE_ENABLED" = "true" ]; then
+    ELOQ_MODULE_ENABLED=ON
+else
+    ELOQ_MODULE_ENABLED=OFF
+fi
+
+
 S3_BUCKET="eloq-release"
 S3_PREFIX="s3://${S3_BUCKET}/eloqdoc"
 
@@ -202,6 +209,7 @@ cmake -G "Unix Makefiles" \
       -DCOROUTINE_ENABLED=ON \
       -DEXT_TX_PROC_ENABLED=ON \
       -DSTATISTICS=ON \
+      -DELOQ_MODULE_ENABLED=${ELOQ_MODULE_ENABLED} \
       -DUSE_ASAN=${ASAN:-OFF} \
       -DWITH_DATA_STORE=${DATA_STORE_TYPE} \
       -DFORK_HM_PROCESS=ON \
@@ -231,6 +239,7 @@ python2 scripts/buildscripts/scons.py \
     VARIANT_DIR=${SCONS_VARIANT} \
     CFLAGS="-Wno-nonnull" \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+    CPPDEFINES=$( [ ${ELOQ_MODULE_ENABLED} = "ON" ] && echo "ELOQ_MODULE_ENABLED" ) \
     CXX=${CXX} \
     CC=${CC} \
     $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \
