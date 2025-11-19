@@ -144,6 +144,13 @@ copy_libraries() {
 
 echo "Configuring and building EloqDoc (OPEN_LOG_SERVICE=ON)"
 pyenv local 2.7.18
+
+if [ "$ELOQ_MODULE_ENABLED" = "true" ]; then
+    ELOQ_MODULE_ENABLED=ON
+else
+    ELOQ_MODULE_ENABLED=OFF
+fi
+
 export OPEN_LOG_SERVICE=1 FORK_HM_PROCESS=0
 
 # Configure and build engine via CMake

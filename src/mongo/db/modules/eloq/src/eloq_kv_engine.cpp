@@ -142,7 +142,7 @@ static int awsInit() {
     log() << "AWS init";
     std::filesystem::path systemLogPath(serverGlobalParams.logpath);
     if (systemLogPath.has_parent_path()) {
-        static std::string logprefix = systemLogPath.parent_path() + "/aws_sdk_";
+        static std::string logprefix = (systemLogPath.parent_path() / "aws_sdk_").string();
         aws_options.loggingOptions.defaultLogPrefix = logprefix.c_str();
     }
     aws_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
@@ -1288,7 +1288,7 @@ void EloqKVEngine::InitGlog() {
     google::InitGoogleLogging("txservice");
     std::filesystem::path systemLogPath(serverGlobalParams.logpath);
     if (systemLogPath.has_parent_path()) {
-        std::filesystem::path logdir = systemLogPath.parent_path();
+        static std::filesystem::path logdir = systemLogPath.parent_path();
         GFLAGS_NAMESPACE::SetCommandLineOption("log_dir", logdir.c_str());
     }
 }
