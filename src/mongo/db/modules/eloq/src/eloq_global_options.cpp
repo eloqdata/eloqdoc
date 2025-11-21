@@ -652,6 +652,13 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "Enable log service metrics.")
         .setDefault(moe::Value(true));
 
+    eloqOptions
+        .addOptionChaining("storage.eloq.metrics.enableKVMetrics",
+                           "eloqEnableKVMetrics",
+                           moe::Bool,
+                           "Enable KV metrics.")
+        .setDefault(moe::Value(true));
+
 
     return options->addSection(eloqOptions);
 }
@@ -1130,6 +1137,11 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.metrics.enableLogServiceMetrics")) {
         enableLogServiceMetrics =
             enableMetrics && params["storage.eloq.metrics.enableLogServiceMetrics"].as<bool>();
+    }
+
+    if (params.count("storage.eloq.metrics.enableKVMetrics")) {
+        enableKVMetrics =
+            enableMetrics && params["storage.eloq.metrics.enableKVMetrics"].as<bool>();
     }
 
 

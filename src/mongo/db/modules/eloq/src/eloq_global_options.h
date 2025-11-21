@@ -159,6 +159,7 @@ public:
     uint32_t busyRoundThreshold{10};
     bool enableRemoteRequestMetrics{true};
     bool enableLogServiceMetrics{true};
+    bool enableKVMetrics{true};
 };
 
 extern EloqGlobalOptions eloqGlobalOptions;

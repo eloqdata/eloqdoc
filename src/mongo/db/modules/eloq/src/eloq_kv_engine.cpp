@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <iomanip>  // std::setfill, std::setw
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -569,6 +570,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     metrics::enable_metrics = eloqGlobalOptions.enableMetrics;
     setenv("ELOQ_METRICS_PORT", eloqGlobalOptions.metricsPortString.data(), false);
     metrics::enable_log_service_metrics = eloqGlobalOptions.enableLogServiceMetrics;
+    metrics::enable_kv_metrics = eloqGlobalOptions.enableKVMetrics;
     metrics::enable_memory_usage = eloqGlobalOptions.enableMemoryUsage;
     metrics::collect_memory_usage_round = eloqGlobalOptions.collectMemoryUsageRound;
     metrics::enable_cache_hit_rate = eloqGlobalOptions.enableCacheHitRate;
@@ -583,6 +585,15 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
             error() << "Failed to initialize MetricsRegristry!";
             uasserted(ErrorCodes::InternalError, "MetricsRegristry initialization failed");
         }
+
+        if (metrics::enable_kv_metrics) {
+            metrics::CommonLabels kv_common_common_labels{};
+            kv_common_common_labels["node_ip"] = eloqGlobalOptions.localAddr.host();
+            kv_common_common_labels["node_port"] =
+                std::to_string(eloqGlobalOptions.localAddr.port());
+            Eloq::storeHandler->RegisterKvMetrics(_metricsRegistry.get(), kv_common_common_labels);
+        }
+
         // tx_service_common_labels
         tx_service_common_labels["node_ip"] = eloqGlobalOptions.localAddr.host();
         tx_service_common_labels["node_port"] = std::to_string(eloqGlobalOptions.localAddr.port());
@@ -1283,6 +1294,7 @@ void EloqKVEngine::cleanShutdown() {
     MONGO_LOG(0) << "EloqKVEngine::cleanShutdown";
 
     shutdownTxService();
+    _logServer = nullptr;
     Eloq::storeHandler.reset();
     Eloq::dataStoreService.reset();
 
@@ -1292,6 +1304,8 @@ void EloqKVEngine::cleanShutdown() {
 #endif
 
     _txService.reset();
+
+    google::ShutdownGoogleLogging();
 }
 
 void EloqKVEngine::shutdownTxService() {
@@ -1331,13 +1345,53 @@ void EloqKVEngine::haltOplogManager(EloqRecordStore* oplogRecordStore, bool shut
     //
 }
 
+inline void CustomPrefix(std::ostream& s, const google::LogMessageInfo& l, void*) {
+    s << "["                                   //
+      << std::setw(4) << 1900 + l.time.year()  // YY
+      << '-'                                   // -
+      << std::setw(2) << 1 + l.time.month()    // MM
+      << '-'                                   // -
+      << std::setw(2) << l.time.day()          // DD
+      << 'T'                                   // T
+      << std::setw(2) << l.time.hour()         // hh
+      << ':'                                   // :
+      << std::setw(2) << l.time.min()          // mm
+      << ':'                                   // :
+      << std::setw(2) << l.time.sec()          // ss
+      << '.'                                   // .
+      << std::setfill('0') << std::setw(6)     //
+      << l.time.usec()                         // usec
+      << " " << l.severity[0] << " "
+      << "" << l.thread_id << "] "
+#ifndef DISABLE_CODE_LINE_IN_LOG
+      << "[" << l.filename << ':' << l.line_number << "]";
+#else
+        ;
+#endif
+};
+
 void EloqKVEngine::InitGlog() {
-    google::InitGoogleLogging("txservice");
     std::filesystem::path systemLogPath(serverGlobalParams.logpath);
+    std::string logFilePath;
     if (systemLogPath.has_parent_path()) {
-        static std::filesystem::path logdir = systemLogPath.parent_path();
-        GFLAGS_NAMESPACE::SetCommandLineOption("log_dir", logdir.c_str());
+        logFilePath = systemLogPath.parent_path().string();
+        logFilePath.append("/txservice");
+    } else {
+        logFilePath = "txservice";
     }
+    FLAGS_logtostdout = false;
+    FLAGS_logtostderr = false;
+    FLAGS_minloglevel = 0;
+    FLAGS_stderrthreshold = google::GLOG_FATAL;
+    FLAGS_logbuflevel = -1;
+    FLAGS_log_file_header = false;
+    google::SetLogDestination(google::INFO, (logFilePath + ".INFO.").c_str());
+    google::SetLogDestination(google::WARNING, (logFilePath + ".WARNING.").c_str());
+    google::SetLogDestination(google::ERROR, (logFilePath + ".ERROR.").c_str());
+    google::SetLogSymlink(google::INFO, "txservice");
+    google::SetLogSymlink(google::WARNING, "txservice");
+    google::SetLogSymlink(google::ERROR, "txservice");
+    google::InitGoogleLogging("txservice", &CustomPrefix);
 }
 
 MongoSystemHandler::MongoSystemHandler() {

@@ -19,6 +19,10 @@ sudo chown -R $current_user $PWD
 if [ ! -d "/var/crash" ]; then sudo mkdir -p /var/crash; fi
 sudo chmod 777 /var/crash
 
+if [ ! -d "/home/$current_user/workspace" ]; then
+  mkdir /home/$current_user/workspace
+fi
+
 sudo chown -R $current_user /home/$current_user/workspace
 cd /home/$current_user/workspace
 ln -s $WORKSPACE/py_tpcc_src py-tpcc
