@@ -282,6 +282,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
 #ifdef ELOQ_MODULE_ENABLED
     GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher", "true");
     GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "100000");  // 100ms
+    GFLAGS_NAMESPACE::SetCommandLineOption("max_body_size", "536870912");
 #endif
     if (!eloqGlobalOptions.enableIOuring && eloqGlobalOptions.raftlogAsyncFsync) {
         const char* errmsg =
