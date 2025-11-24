@@ -26,6 +26,12 @@ resources:
       branch: main
       private_key: ((git-key))
       uri: git@github.com:eloqdata/eloqdoc.git
+  - name: eloqstore_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloqstore.git
+      private_key: ((git-key))
   - name: raft_host_manager_src
     type: git
     source:
@@ -118,6 +124,22 @@ jobs:
             - get: raft_host_manager_src
             - get: eloq_logservice_src
             - get: image_ubuntu2204
+            - get: eloqstore_src
+      - task: build-eloqdss-eloqstore-type
+        image: image_ubuntu2204
+        params:
+          ASAN: "OFF"
+          TAGGED: ""
+          GIT_SSH_KEY: ((git-key))
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_DEFAULT_REGION: ((aws-region))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          BUILD_LOG_SRV: "true"
+          BUILD_TYPE: RelWithDebInfo
+          DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+          OUT_NAME: "nightly"
+          CLOUDFRONT_DIST: ((cloudfront-dist))
+        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
       - task: rocksdb-cloud-s3
         image: image_ubuntu2204
         params:
@@ -177,7 +199,23 @@ jobs:
                 submodules: all
             - get: raft_host_manager_src
             - get: eloq_logservice_src
+            - get: eloqstore_src
             - get: image_ubuntu2404
+      - task: eloqdss-eloqstore
+        image: image_ubuntu2404
+        params:
+          DATA_STORE_TYPE: "ELOQDSS_ELOQSTORE"
+          BUILD_LOG_SRV: "true"
+          GIT_SSH_KEY: ((git-key))
+          ASAN: "OFF"
+          TAGGED: ""
+          BUILD_TYPE: RelWithDebInfo
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          AWS_DEFAULT_REGION: ((aws-region))
+          CLOUDFRONT_DIST: ((cloudfront-dist))
+          OUT_NAME: "nightly"
+        file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
       - task: rocksdb-cloud-s3
         image: image_ubuntu2404
         params:

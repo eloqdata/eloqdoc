@@ -26,6 +26,13 @@ ln -s $WORKSPACE/eloq_logservice_src src/mongo/db/modules/eloq/eloq_log_service
 pushd src/mongo/db/modules/eloq/tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
+
+if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
+  pushd src/mongo/db/modules/eloq/store_handler/eloq_data_store_service
+  ln -s $WORKSPACE/eloqstore_src eloqstore
+  popd
+fi
+
 ELOQDOC_SRC=${PWD}
 
 # Get OS information from /etc/os-release
@@ -114,6 +121,8 @@ elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
   DATA_STORE_ID="rocks_gcs"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
   DATA_STORE_ID="eloqdss_rocksdb"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
+  DATA_STORE_ID="eloqdss_eloqstore"
 else
   echo "Unsupported DATA_STORE_TYPE: ${DATA_STORE_TYPE}. Supported: ELOQDSS_ROCKSDB_CLOUD_S3, ELOQDSS_ROCKSDB_CLOUD_GCS, ELOQDSS_ROCKSDB"
   exit 1
