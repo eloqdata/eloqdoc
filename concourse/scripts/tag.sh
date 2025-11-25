@@ -10,6 +10,9 @@ ln -s $WORKSPACE/eloq_logservice_src src/mongo/db/modules/eloq/eloq_log_service
 pushd src/mongo/db/modules/eloq/tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
+pushd src/mongo/db/modules/eloq/store_handler/eloq_data_store_service
+ln -s $WORKSPACE/eloqstore_src eloqstore
+popd
 
 git config --global user.email "concourse@noreply.com"
 git config --global user.name "concourse-ci"
