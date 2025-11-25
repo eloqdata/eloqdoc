@@ -13,11 +13,6 @@ resources:
     uri: git@github.com:eloqdata/eloqstore.git
     private_key: ((git-key))
 
-- name: image_ubuntu2404-main
-    type: registry-image
-    source:
-      repository: eloqdata/eloq-dev-ci-ubuntu2404
-
 - name: image_ubuntu2204_main
   type: registry-image
   source:
@@ -67,6 +62,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+      ELOQ_MODULE_ENABLED: "true"
       OUT_NAME: debug
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
@@ -83,6 +79,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      ELOQ_MODULE_ENABLED: "true"
       OUT_NAME: debug
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
@@ -99,6 +96,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_GCS
+      ELOQ_MODULE_ENABLED: "true"
       OUT_NAME: debug
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
@@ -115,6 +113,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      ELOQ_MODULE_ENABLED: "true"
       OUT_NAME: debug
       CLOUDFRONT_DIST: ((cloudfront-dist))
 

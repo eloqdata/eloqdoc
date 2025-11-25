@@ -71,6 +71,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
@@ -103,6 +104,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
@@ -137,6 +139,7 @@ jobs:
           BUILD_LOG_SRV: "true"
           BUILD_TYPE: RelWithDebInfo
           DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+          ELOQ_MODULE_ENABLED: "true"
           OUT_NAME: "nightly"
           CLOUDFRONT_DIST: ((cloudfront-dist))
         file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
@@ -149,6 +152,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
@@ -179,6 +183,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
@@ -210,6 +215,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
@@ -225,6 +231,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
@@ -255,6 +262,7 @@ jobs:
           ASAN: "OFF"
           TAGGED: ""
           BUILD_TYPE: RelWithDebInfo
+          ELOQ_MODULE_ENABLED: "true"
           AWS_ACCESS_KEY_ID: ((aws_access_key_id))
           AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
           AWS_DEFAULT_REGION: ((aws-region))
