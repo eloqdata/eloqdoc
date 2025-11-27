@@ -624,55 +624,6 @@ void EloqKVEngine::haltOplogManager(EloqRecordStore* oplogRecordStore, bool shut
     //
 }
 
-inline void CustomPrefix(std::ostream& s, const google::LogMessageInfo& l, void*) {
-    s << "["                                   //
-      << std::setw(4) << 1900 + l.time.year()  // YY
-      << '-'                                   // -
-      << std::setw(2) << 1 + l.time.month()    // MM
-      << '-'                                   // -
-      << std::setw(2) << l.time.day()          // DD
-      << 'T'                                   // T
-      << std::setw(2) << l.time.hour()         // hh
-      << ':'                                   // :
-      << std::setw(2) << l.time.min()          // mm
-      << ':'                                   // :
-      << std::setw(2) << l.time.sec()          // ss
-      << '.'                                   // .
-      << std::setfill('0') << std::setw(6)     //
-      << l.time.usec()                         // usec
-      << " " << l.severity[0] << " "
-      << "" << l.thread_id << "] "
-#ifndef DISABLE_CODE_LINE_IN_LOG
-      << "[" << l.filename << ':' << l.line_number << "]";
-#else
-        ;
-#endif
-};
-
-void EloqKVEngine::InitGlog() {
-    std::filesystem::path systemLogPath(serverGlobalParams.logpath);
-    std::string logFilePath;
-    if (systemLogPath.has_parent_path()) {
-        logFilePath = systemLogPath.parent_path().string();
-        logFilePath.append("/txservice");
-    } else {
-        logFilePath = "txservice";
-    }
-    FLAGS_logtostdout = false;
-    FLAGS_logtostderr = false;
-    FLAGS_minloglevel = 0;
-    FLAGS_stderrthreshold = google::GLOG_FATAL;
-    FLAGS_logbuflevel = -1;
-    FLAGS_log_file_header = false;
-    google::SetLogDestination(google::INFO, (logFilePath + ".INFO.").c_str());
-    google::SetLogDestination(google::WARNING, (logFilePath + ".WARNING.").c_str());
-    google::SetLogDestination(google::ERROR, (logFilePath + ".ERROR.").c_str());
-    google::SetLogSymlink(google::INFO, "txservice");
-    google::SetLogSymlink(google::WARNING, "txservice");
-    google::SetLogSymlink(google::ERROR, "txservice");
-    google::InitGoogleLogging("txservice", &CustomPrefix);
-}
-
 MongoSystemHandler::MongoSystemHandler() {
     thd_ = std::thread([this]() {
         while (shutdown_.load(std::memory_order_acquire) == false) {
