@@ -23,13 +23,13 @@ update_config_template() {
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${ELOQ_AWS_SECRET_KEY}/g" "$config_file"
     # OSS settings
     sed -i "s|rocksdb_cloud_s3_endpoint_url.*=.\+|rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL}|g" "$config_file"
-    sed -i "s|txlog_rocksdb_cloud_s3_endpoint_url.*=.\+|eloq_txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL}|g" "$config_file"
+    sed -i "s|txlog_rocksdb_cloud_s3_endpoint_url.*=.\+|txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL}|g" "$config_file"
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${BUCKET_NAME}/g" "$config_file"
     sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${BUCKET_NAME}/g" "$config_file"
     sed -i "s/rocksdb_cloud_region.*=.\+/rocksdb_cloud_region=${ELOQ_AWS_REGION}/g" "$config_file"
     sed -i "s/txlog_rocksdb_cloud_region.*=.\+/txlog_rocksdb_cloud_region=${ELOQ_AWS_REGION}/g" "$config_file"
     sed -i "s/rocksdb_cloud_bucket_prefix.*=.\+/rocksdb_cloud_bucket_prefix=${BUCKET_PREFIX}/g" "$config_file"
-    sed -i "s/txlog_rocksdb_cloud_bucket_prefix.*=.\+/eloq_txlog_rocksdb_cloud_bucket_prefix=${BUCKET_PREFIX}/g" "$config_file"
+    sed -i "s/txlog_rocksdb_cloud_bucket_prefix.*=.\+/txlog_rocksdb_cloud_bucket_prefix=${BUCKET_PREFIX}/g" "$config_file"
     sed -i "s|eloq_dss_config_file_path.*=.\+|eloq_dss_config_file_path=${WORKSPACE}/eloqsql_src/concourse/scripts/dss_config.example.ini|g" "$config_file"
 }
 
