@@ -53,6 +53,7 @@ public:
     // uint16_t coreNum{0};
     uint16_t rangeSplitWorkerNum{0};
     uint32_t nodeMemoryLimitMB{0};
+    uint32_t rangeSliceMemoryLimitPercent{0};  // 0 = use conditional default (20% if key cache enabled, 10% otherwise)
     uint32_t checkpointerIntervalSec{0};
     uint32_t checkpointerDelaySec{0};
     uint32_t collectActiveTxTsIntervalSec{0};

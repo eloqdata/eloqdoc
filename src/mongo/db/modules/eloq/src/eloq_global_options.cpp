@@ -90,6 +90,13 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
         .validRange(512, 1000000)
         .setDefault(moe::Value(8000));
     eloqOptions
+        .addOptionChaining("storage.eloq.txService.rangeSliceMemoryLimitPercent",
+                           "eloqRangeSliceMemoryLimitPercent",
+                           moe::Int,
+                           "Percentage of node memory to use for range slice memory limit. If not set, defaults to 20% when key cache is enabled, 10% otherwise.")
+        .validRange(1, 100)
+        .setDefault(moe::Value(0));  // 0 = use conditional default
+    eloqOptions
         .addOptionChaining("storage.eloq.txService.checkpointerIntervalSec",
                            "eloqCheckpointerIntervalSec",
                            moe::Int,
@@ -749,6 +756,10 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.nodeMemoryLimitMB")) {
         eloqGlobalOptions.nodeMemoryLimitMB =
             params["storage.eloq.txService.nodeMemoryLimitMB"].as<int>();
+    }
+    if (params.count("storage.eloq.txService.rangeSliceMemoryLimitPercent")) {
+        eloqGlobalOptions.rangeSliceMemoryLimitPercent =
+            params["storage.eloq.txService.rangeSliceMemoryLimitPercent"].as<int>();
     }
     if (params.count("storage.eloq.txService.checkpointerIntervalSec")) {
         eloqGlobalOptions.checkpointerIntervalSec =

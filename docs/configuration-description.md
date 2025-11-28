@@ -128,6 +128,14 @@ Accepted Values: 512 - 1000000
 Default: 8000
 Desc: Memory limit. Set it to no more than 80% memory of your hardware.
 
+#### storage.eloq.txService.rangeSliceMemoryLimitPercent
+
+Type: Number
+Required: False
+Accepted Values: 1 - 100
+Default: Conditional (20% if key cache enabled, 10% otherwise)
+Desc: Percentage of node memory to use for range slice memory limit. This controls the maximum memory that can be allocated for range slices info in the table ranges heap. If not specified, defaults to 20% when key cache is enabled and MVCC is disabled, otherwise defaults to 10%.
+
 #### storage.eloq.txService.enableIOuring
 
 Type: Boolean

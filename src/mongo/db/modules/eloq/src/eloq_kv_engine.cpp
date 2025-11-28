@@ -316,6 +316,13 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         localPath.pop_back();
     }
 
+    // Calculate default percentage based on key cache and MVCC settings
+    uint32_t rangeSliceMemoryLimitPercent = eloqGlobalOptions.rangeSliceMemoryLimitPercent;
+    if (rangeSliceMemoryLimitPercent == 0) {
+        // Apply conditional default: 20% if key cache enabled and MVCC disabled, 10% otherwise
+        rangeSliceMemoryLimitPercent = (eloqGlobalOptions.useKeyCache && !storageGlobalParams.enableMVCC) ? 20 : 10;
+    }
+
     std::map<std::string, uint32_t> txServiceConf{
         {"core_num", serverGlobalParams.reservedThreadNum},
         {"range_split_worker_num", eloqGlobalOptions.rangeSplitWorkerNum},
@@ -329,6 +336,7 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         {"enable_key_cache", eloqGlobalOptions.useKeyCache ? 1 : 0},
         {"enable_shard_heap_defragment", eloqGlobalOptions.enableHeapDefragment ? 1 : 0},
         {"kickout_data_for_test", eloqGlobalOptions.kickoutDataForTest},
+        {"range_slice_memory_limit_percent", rangeSliceMemoryLimitPercent},
     };
 
     std::string hmIP = eloqGlobalOptions.hostManagerAddr.host();
