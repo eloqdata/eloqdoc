@@ -25,5 +25,5 @@ rocksdb_cloud_bucket_prefix=eloq-
 rocksdb_cloud_bucket_name=test
 rocksdb_cloud_object_path=dss
 rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9900
-aws_access_key_id=35cxOCh64Ef1Mk5U1bgU
-aws_secret_key=M6oJQWdFCr27TUUS40wS6POQzbKhbFTHG9bRayoC
+aws_access_key_id=CHANGEME
+aws_secret_key=CHANGEME
