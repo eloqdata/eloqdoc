@@ -238,7 +238,7 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_S3:
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
    store_deps = [FindLibPath("rocksdb")]
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
-   store_deps = []
+   store_deps = [FindLibPath("aws-cpp-sdk-core")]
 
 eloq_dependencies = [lib for lib in (base_deps + store_deps + log_deps) if lib]
 
