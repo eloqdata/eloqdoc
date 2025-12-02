@@ -126,10 +126,8 @@
 
 // register catalog factory for data_substrate to link
 Eloq::MongoCatalogFactory catalogFactory;
-txservice::CatalogFactory* eloqdoc_catalog_factory = &catalogFactory;
 
 mongo::MongoSystemHandler mongoSystemHandler;
-txservice::SystemHandler* eloqdoc_system_handler = &mongoSystemHandler;
 
 // data substrate config
 DEFINE_string(data_substrate_config, "", "Data Substrate Configuration");
@@ -164,10 +162,18 @@ bool EloqKVEngine::InitMetricsRegistry() {
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     log() << "Starting Eloq storage engine. dbPath: " << path;
     log() << "Standalone mode: Initializing data substrate...";
-    DataSubstrate::InitializeGlobal(FLAGS_data_substrate_config);
+    DataSubstrate::Instance().Init(FLAGS_data_substrate_config);
 
-    _logServer = DataSubstrate::GetGlobal()->GetLogServer();
-    _txService = DataSubstrate::GetGlobal()->GetTxService();
+    auto& ds = DataSubstrate::Instance();
+
+    DataSubstrate::Instance().EnableEngine(txservice::TableEngine::EloqDoc);
+
+    ds.RegisterEngine(
+        txservice::TableEngine::EloqDoc, &catalogFactory, &mongoSystemHandler, {}, {});
+    ds.Start();
+
+    _logServer = ds.GetLogServer();
+    _txService = ds.GetTxService();
 
 #ifdef EXT_TX_PROC_ENABLED
     getTxServiceFunctors = _txService->GetTxProcFunctors();
@@ -239,8 +245,7 @@ void EloqKVEngine::listDatabases(std::vector<std::string>& out) const {
 }
 
 bool EloqKVEngine::databaseExists(std::string_view dbName) const {
-    MONGO_LOG(1) << "EloqKVEngine::databaseExists"
-                 << ". dbName: " << dbName;
+    MONGO_LOG(1) << "EloqKVEngine::databaseExists" << ". dbName: " << dbName;
 
     std::vector<std::string> tables;
 
@@ -260,8 +265,7 @@ bool EloqKVEngine::databaseExists(std::string_view dbName) const {
 }
 
 void EloqKVEngine::listCollections(std::string_view dbName, std::vector<std::string>& out) const {
-    MONGO_LOG(1) << "EloqKVEngine::listCollections"
-                 << ". db: " << dbName;
+    MONGO_LOG(1) << "EloqKVEngine::listCollections" << ". db: " << dbName;
     std::vector<std::string> allCollections;
 
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -284,8 +288,7 @@ void EloqKVEngine::listCollections(std::string_view dbName, std::vector<std::str
     MONGO_LOG(1) << "tables: " << str;
 }
 void EloqKVEngine::listCollections(std::string_view dbName, std::set<std::string>& out) const {
-    MONGO_LOG(1) << "EloqKVEngine::listCollections"
-                 << ". db: " << dbName;
+    MONGO_LOG(1) << "EloqKVEngine::listCollections" << ". db: " << dbName;
     std::vector<std::string> allCollections;
 
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -310,8 +313,8 @@ void EloqKVEngine::listCollections(std::string_view dbName, std::set<std::string
 
 Status EloqKVEngine::lockCollection(
     OperationContext* opCtx, StringData ns, bool isForWrite, bool* exists, std::string* version) {
-    MONGO_LOG(1) << "EloqKVEngine::lockCollection"
-                 << ". ns: " << ns << ", isForWrite: " << isForWrite;
+    MONGO_LOG(1) << "EloqKVEngine::lockCollection" << ". ns: " << ns
+                 << ", isForWrite: " << isForWrite;
     auto ru = EloqRecoveryUnit::get(opCtx);
     txservice::TableName tableName = Eloq::MongoTableToTxServiceTableName(ns.toStringView(), false);
 
@@ -350,8 +353,7 @@ std::unique_ptr<RecordStore> EloqKVEngine::getRecordStore(OperationContext* opCt
                                                           StringData ns,
                                                           StringData ident,
                                                           const CollectionOptions& options) {
-    MONGO_LOG(1) << "EloqKVEngine::getRecordStore"
-                 << ". ns: " << ns << ". ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::getRecordStore" << ". ns: " << ns << ". ident: " << ident;
     if (isMongoCatalog(ident.toStringView())) {
         return std::make_unique<EloqCatalogRecordStore>(opCtx, ns);
     }
@@ -383,8 +385,7 @@ Status EloqKVEngine::createRecordStore(OperationContext* opCtx,
                                        StringData ns,
                                        StringData ident,
                                        const CollectionOptions& options) {
-    MONGO_LOG(1) << "EloqKVEngine::createRecordStore"
-                 << ". ns: " << ns << ". ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::createRecordStore" << ". ns: " << ns << ". ident: " << ident;
     if (!isMongoCatalog(ns.toStringView())) {
         MONGO_LOG(1) << "Eloq do nothing here for normal table";
         return Status::OK();
@@ -398,8 +399,7 @@ Status EloqKVEngine::createGroupedRecordStore(OperationContext* opCtx,
                                               StringData ident,
                                               const CollectionOptions& options,
                                               KVPrefix prefix) {
-    MONGO_LOG(1) << "EloqKVEngine::createGroupedRecordStore"
-                 << ". prefix: " << prefix.toString();
+    MONGO_LOG(1) << "EloqKVEngine::createGroupedRecordStore" << ". prefix: " << prefix.toString();
 
     invariant(prefix == KVPrefix::kNotPrefixed);
     return createRecordStore(opCtx, ns, ident, options);
@@ -408,8 +408,7 @@ Status EloqKVEngine::createGroupedRecordStore(OperationContext* opCtx,
 SortedDataInterface* EloqKVEngine::getSortedDataInterface(OperationContext* opCtx,
                                                           StringData ident,
                                                           const IndexDescriptor* desc) {
-    MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface"
-                 << ". ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface" << ". ident: " << ident;
 
     txservice::TableName tableName{Eloq::MongoTableToTxServiceTableName(desc->parentNS(), true)};
     txservice::TableName indexName{desc->isIdIndex()
@@ -421,19 +420,16 @@ SortedDataInterface* EloqKVEngine::getSortedDataInterface(OperationContext* opCt
     std::unique_ptr<EloqIndex> index;
 
     if (desc->isIdIndex()) {
-        MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface"
-                     << ". IdIndex";
+        MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface" << ". IdIndex";
         index =
             std::make_unique<EloqIdIndex>(opCtx, std::move(tableName), std::move(indexName), desc);
     } else {
         if (desc->unique()) {
-            MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface"
-                         << ". UniqueIndex";
+            MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface" << ". UniqueIndex";
             index = std::make_unique<EloqUniqueIndex>(
                 opCtx, std::move(tableName), std::move(indexName), desc);
         } else {
-            MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface"
-                         << ". StandardIndex";
+            MONGO_LOG(1) << "EloqKVEngine::getSortedDataInterface" << ". StandardIndex";
             index = std::make_unique<EloqStandardIndex>(
                 opCtx, std::move(tableName), std::move(indexName), desc);
         }
@@ -455,8 +451,7 @@ SortedDataInterface* EloqKVEngine::getGroupedSortedDataInterface(OperationContex
 Status EloqKVEngine::createSortedDataInterface(OperationContext* opCtx,
                                                StringData ident,
                                                const IndexDescriptor* desc) {
-    MONGO_LOG(1) << "EloqKVEngine::createSortedDataInterface. "
-                 << "ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::createSortedDataInterface. " << "ident: " << ident;
 
     assert(!isMongoCatalog(ident.toStringView()));
     MONGO_LOG(1) << "Eloq do nothing here";
@@ -474,8 +469,7 @@ Status EloqKVEngine::createGroupedSortedDataInterface(OperationContext* opCtx,
 }
 
 int64_t EloqKVEngine::getIdentSize(OperationContext* opCtx, StringData ident) {
-    MONGO_LOG(1) << "EloqKVEngine::getIdentSize"
-                 << ". ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::getIdentSize" << ". ident: " << ident;
     return 0;
 }
 
@@ -486,8 +480,7 @@ Status EloqKVEngine::repairIdent(OperationContext* opCtx, StringData ident) {
 }
 
 Status EloqKVEngine::dropIdent(OperationContext* opCtx, StringData ident) {
-    MONGO_LOG(1) << "EloqKVEngine::dropIdent"
-                 << ". ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::dropIdent" << ". ident: " << ident;
     // Attention please!
     // EloqRecordStore and EloqIndex now have been destructed
     return Status::OK();
@@ -498,8 +491,7 @@ bool EloqKVEngine::supportsDirectoryPerDB() const {
 }
 
 bool EloqKVEngine::hasIdent(OperationContext* opCtx, StringData ident) const {
-    MONGO_LOG(1) << "EloqKVEngine::hasIdent"
-                 << ". ident: " << ident;
+    MONGO_LOG(1) << "EloqKVEngine::hasIdent" << ". ident: " << ident;
     if (isMongoCatalog(ident.toStringView())) {
         return true;
     }
@@ -581,10 +573,7 @@ std::vector<std::string> EloqKVEngine::getAllIdents(OperationContext* opCtx) con
 void EloqKVEngine::cleanShutdown() {
     MONGO_LOG(0) << "EloqKVEngine::cleanShutdown";
 #ifndef ELOQ_MODULE_ENABLED
-    auto* data_substrate = DataSubstrate::GetGlobal();
-    if (data_substrate != nullptr) {
-        data_substrate->Shutdown();
-    }
+    DataSubstrate::Instance().Shutdown();
 #else
     // 1.When merged into ConvergedDB, `_txService->Shutdown()` should be moved out.
     // 2.eloq::unregister_module is not allowed to called in a brpc-worker thread.
@@ -593,10 +582,7 @@ void EloqKVEngine::cleanShutdown() {
     coro::ConditionVariable cv;
     std::thread thd([this, &done, &mux, &cv]() {
         std::unique_lock lk(mux);
-        auto* data_substrate = DataSubstrate::GetGlobal();
-        if (data_substrate != nullptr) {
-            data_substrate->Shutdown();
-        }
+        DataSubstrate::Instance().Shutdown();
         done = true;
         cv.notify_one();
     });

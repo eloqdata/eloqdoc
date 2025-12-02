@@ -46,7 +46,7 @@ namespace Eloq {
 inline bool GetAllTables(std::vector<std::string>& tables,
                          const std::function<void()>* yieldFuncPtr,
                          const std::function<void()>* resumeFuncPtr) {
-    auto* storeHandler = DataSubstrate::GetGlobal()->GetStoreHandler();
+    auto* storeHandler = DataSubstrate::Instance().GetStoreHandler();
     bool success = storeHandler->DiscoverAllTableNames(tables, yieldFuncPtr, resumeFuncPtr);
     if (!success) {
         return false;

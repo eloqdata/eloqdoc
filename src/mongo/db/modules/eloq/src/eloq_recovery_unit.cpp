@@ -516,9 +516,7 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
 
     std::string schemaImage{EloqDS::SerializeSchemaImage(std::string{metadata}, "", "")};
     Eloq::MongoTableSchema tempSchema(tableName, schemaImage, 0);
-    auto* ds = DataSubstrate::GetGlobal();
-    invariant(ds != nullptr);
-    auto* storeHandler = ds->GetStoreHandler();
+    auto* storeHandler = DataSubstrate::Instance().GetStoreHandler();
     invariant(storeHandler != nullptr);
     std::string kvInfo = storeHandler->CreateKVCatalogInfo(&tempSchema);
     invariant(!kvInfo.empty());  // or uassert with InternalError if emptiness can signify failure
@@ -651,7 +649,7 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
 
     // 3. Generate new schema kv info and altered table info whose index
     // kv name is not empty.
-    auto* storeHandler = DataSubstrate::GetGlobal()->GetStoreHandler();
+    auto* storeHandler = DataSubstrate::Instance().GetStoreHandler();
     std::string new_kv_info =
         storeHandler->CreateNewKVCatalogInfo(tableName, currentTableSchema, alterTableInfo);
 
