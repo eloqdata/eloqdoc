@@ -19,20 +19,33 @@ sudo chown -R $current_user $PWD
 # Ensure workspace ownership
 sudo chown -R $current_user $HOME/workspace 2>/dev/null || true
 
-cd $HOME
+cd $HOME/workspace
 ln -s ${WORKSPACE}/eloqdoc_src eloqdoc
 cd eloqdoc
-ln -s $WORKSPACE/eloq_logservice_src src/mongo/db/modules/eloq/eloq_log_service
-pushd src/mongo/db/modules/eloq/tx_service
+git submodule sync
+git submodule update --init --recursive
+
+cd src/mongo/db/modules/eloq/data_substrate
+ln -s $WORKSPACE/eloq_logservice_src eloq_log_service
+pushd eloq_log_service
+git submodule sync
+git submodule update --init --recursive
+popd
+
+pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 
 if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
-  pushd src/mongo/db/modules/eloq/store_handler/eloq_data_store_service
+  pushd store_handler/eloq_data_store_service
   ln -s $WORKSPACE/eloqstore_src eloqstore
+  cd eloqstore
+  git submodule sync
+  git submodule update --init --recursive
   popd
 fi
 
+cd $HOME/workspace/eloqdoc
 ELOQDOC_SRC=${PWD}
 
 # Get OS information from /etc/os-release
@@ -168,16 +181,6 @@ echo "$LICENSE_CONTENT" >"${DEST_DIR}/LICENSE.txt"
 
 # build eloqdoc
 cd $ELOQDOC_SRC
-git submodule sync
-git submodule update --init --recursive
-
-# Ensure nested submodule sync for log service
-if [ -d src/mongo/db/modules/eloq/eloq_log_service ]; then
-  pushd src/mongo/db/modules/eloq/eloq_log_service
-  git submodule sync
-  git submodule update --init --recursive
-  popd
-fi
 
 copy_libraries() {
     local executable="$1"
@@ -201,14 +204,14 @@ export OPEN_LOG_SERVICE=0 FORK_HM_PROCESS=1
 # Configure and build engine via CMake
 export WITH_LOG_STATE=$WITH_LOG_STATE
 
-cmake -G "Unix Makefiles" \
+cmake -G "Ninja" \
       -S $ELOQDOC_SRC/src/mongo/db/modules/eloq \
       -B $ELOQDOC_SRC/src/mongo/db/modules/eloq/build \
+      -DBUILD_SHARED_LIBS=ON \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
       -DCMAKE_INSTALL_PREFIX=$DEST_DIR \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-      -DCOROUTINE_ENABLED=ON \
       -DEXT_TX_PROC_ENABLED=ON \
       -DSTATISTICS=ON \
       -DELOQ_MODULE_ENABLED=${ELOQ_MODULE_ENABLED} \
@@ -242,6 +245,7 @@ python2 scripts/buildscripts/scons.py \
     CFLAGS="-Wno-nonnull" \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     CPPDEFINES=$( [ ${ELOQ_MODULE_ENABLED} = "ON" ] && echo "ELOQ_MODULE_ENABLED" ) \
+    CPPDEFINES="EXT_TX_PROC_ENABLED" \
     CXX=${CXX} \
     CC=${CC} \
     $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \
@@ -277,10 +281,13 @@ else
 fi
 
 if [ -n "${DSS_TYPE}" ]; then
-  DSS_SRC_DIR="${ELOQDOC_SRC}/src/mongo/db/modules/eloq/store_handler/eloq_data_store_service"
+  DSS_SRC_DIR="${ELOQDOC_SRC}/src/mongo/db/modules/eloq/data_substrate/store_handler/eloq_data_store_service"
   cd "${DSS_SRC_DIR}"
+  if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
+    DSS_CMAKE_ARGS="${DSS_CMAKE_ARGS} -DELOQ_MODULE_ENABLED=ON"
+  fi
   mkdir -p build && cd build
-  cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE} -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=OFF
+  cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE} -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=OFF ${DSS_CMAKE_ARGS}
   cmake --build . --config ${BUILD_TYPE} -j${NCORE:-4}
   copy_libraries dss_server ${DEST_DIR}/lib
   mv dss_server ${DEST_DIR}/bin/
