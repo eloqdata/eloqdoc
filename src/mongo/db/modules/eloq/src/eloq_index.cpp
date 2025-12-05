@@ -285,7 +285,8 @@ private:
                                &_endKey,
                                endInclusive,
                                direction,
-                               isForWrite);
+                               isForWrite,
+                               _endPosition ? true : false);
 
         return true;
     }
@@ -493,8 +494,8 @@ class EloqIndex::StandardBulkBuilder : public EloqIndex::BulkBuilder {
 public:
     using EloqIndex::BulkBuilder::BulkBuilder;
     Status addKey(const BSONObj& key, const RecordId& id) override {
-        MONGO_LOG(1) << "EloqIndex::StandardBulkBuilder::addKey"
-                     << ". key: " << key << ". id: " << id;
+        MONGO_LOG(1) << "EloqIndex::StandardBulkBuilder::addKey" << ". key: " << key
+                     << ". id: " << id;
         // No action is required here, as the txservice has already built the index.
         return Status::OK();
         // return _idx->insert(_opCtx, key, id, false);
@@ -511,8 +512,7 @@ EloqIndex::EloqIndex(OperationContext* ctx,
       _ordering{Ordering::make(desc->keyPattern())},
       _desc{desc},
       _keyPattern{desc->keyPattern()} {
-    MONGO_LOG(1) << "EloqIndex::EloqIndex"
-                 << ". tableName: " << _tableName.StringView()
+    MONGO_LOG(1) << "EloqIndex::EloqIndex" << ". tableName: " << _tableName.StringView()
                  << ", indexName: " << _indexName.StringView();
 }
 
@@ -586,8 +586,7 @@ Status EloqIdIndex::insert(OperationContext* opCtx,
                            const BSONObj& key,
                            const RecordId& id,
                            bool dupsAllowed) {
-    MONGO_LOG(1) << "EloqIdIndex::insert"
-                 << ". key:" << key << ". id:" << id;
+    MONGO_LOG(1) << "EloqIdIndex::insert" << ". key:" << key << ". id:" << id;
     assert(!dupsAllowed);
     Status s = checkKeySize(key, _indexName.StringView());
     if (!s.isOK()) {
@@ -748,8 +747,7 @@ Status EloqStandardIndex::insert(OperationContext* opCtx,
                                  const BSONObj& key,
                                  const RecordId& id,
                                  bool dupsAllowed) {
-    MONGO_LOG(1) << "EloqStandardIndex::insert"
-                 << ". key: " << key << ". RecordId: " << id;
+    MONGO_LOG(1) << "EloqStandardIndex::insert" << ". key: " << key << ". RecordId: " << id;
     assert(dupsAllowed);
     Status s = checkKeySize(key, _indexName.StringView());
     if (!s.isOK()) {

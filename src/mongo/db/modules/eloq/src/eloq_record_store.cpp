@@ -180,8 +180,7 @@ bool EloqCatalogRecordStore::findRecord(OperationContext* opCtx,
                                         const RecordId& id,
                                         RecordData* out,
                                         bool isForWrite) const {
-    MONGO_LOG(1) << "EloqCatalogRecordStore::findRecord"
-                 << ". id: " << id.toString();
+    MONGO_LOG(1) << "EloqCatalogRecordStore::findRecord" << ". id: " << id.toString();
 
     txservice::TableName tableName{
         id.getStringView(), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
@@ -214,8 +213,7 @@ bool EloqCatalogRecordStore::findRecord(OperationContext* opCtx,
 }
 
 void EloqCatalogRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) {
-    MONGO_LOG(1) << "EloqCatalogRecordStore::deleteRecord"
-                 << ". id: " << id;
+    MONGO_LOG(1) << "EloqCatalogRecordStore::deleteRecord" << ". id: " << id;
 
     txservice::TableName tableName{
         id.getStringView(), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
@@ -440,8 +438,7 @@ public:
     }
 
     boost::optional<Record> next() override {
-        MONGO_LOG(1) << "EloqRecordStoreCursor::next"
-                     << ". forward: " << _forward;
+        MONGO_LOG(1) << "EloqRecordStoreCursor::next" << ". forward: " << _forward;
         if (_eof) {
             return {};
         }
@@ -581,7 +578,8 @@ private:
                                endInclusive,
                                _forward ? txservice::ScanDirection::Forward
                                         : txservice::ScanDirection::Backward,
-                               isForWrite);
+                               isForWrite,
+                               false);
     }
 
     OperationContext* _opCtx;                         // not owned
@@ -655,14 +653,12 @@ long long EloqRecordStore::numRecords(OperationContext* opCtx) const {
     auto ru = EloqRecoveryUnit::get(opCtx);
     const auto [table, err] = ru->discoverTable(_tableName);
     if (err != txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "EloqRecordStore::numRecords"
-                     << ". Fail to discover table";
+        MONGO_LOG(1) << "EloqRecordStore::numRecords" << ". Fail to discover table";
         return -1;
     }
 
     if (table == nullptr || table->_schema->StatisticsObject() == nullptr) {
-        MONGO_LOG(1) << "EloqRecordStore::numRecords"
-                     << ". table or table statistics not exists.";
+        MONGO_LOG(1) << "EloqRecordStore::numRecords" << ". table or table statistics not exists.";
         return -1;
     }
 
@@ -673,12 +669,10 @@ long long EloqRecordStore::numRecords(OperationContext* opCtx) const {
         // single-machine setups and for up to 1000 entries in multi-core single-machine setups.
         // You should not rely on it.
         auto size = distribution->Records();
-        MONGO_LOG(1) << "EloqRecordStore::numRecords"
-                     << ". size: " << size;
+        MONGO_LOG(1) << "EloqRecordStore::numRecords" << ". size: " << size;
         return static_cast<long long>(size);
     } else {
-        MONGO_LOG(1) << "EloqRecordStore::numRecords"
-                     << ". distribution == nullptr";
+        MONGO_LOG(1) << "EloqRecordStore::numRecords" << ". distribution == nullptr";
         return 0;
     }
 }
@@ -715,8 +709,7 @@ bool EloqRecordStore::findRecord(OperationContext* opCtx,
                                  RecordData* out) const {
     // butil::Timer timer;
     // timer.start();
-    MONGO_LOG(1) << "EloqRecordStore::findRecord"
-                 << ". id: " << id.toString();
+    MONGO_LOG(1) << "EloqRecordStore::findRecord" << ". id: " << id.toString();
 
     auto ru = EloqRecoveryUnit::get(opCtx);
 
@@ -744,8 +737,7 @@ bool EloqRecordStore::findRecord(OperationContext* opCtx,
 }
 
 void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) {
-    MONGO_LOG(1) << "EloqRecordStore::deleteRecord"
-                 << ". id: " << id;
+    MONGO_LOG(1) << "EloqRecordStore::deleteRecord" << ". id: " << id;
     auto ru = EloqRecoveryUnit::get(opCtx);
 
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
@@ -841,8 +833,7 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
     auto guard = MakeGuard(recordLatency);
 
     mongo::BSONObj recordObj(data);
-    MONGO_LOG(1) << "EloqRecordStore::updateRecord"
-                 << ". id: " << id;
+    MONGO_LOG(1) << "EloqRecordStore::updateRecord" << ". id: " << id;
 
     auto ru = EloqRecoveryUnit::get(opCtx);
 
@@ -1064,8 +1055,8 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
                                        Record* records,
                                        const Timestamp* timestamps,
                                        size_t nRecords) {
-    MONGO_LOG(1) << "EloqRecordStore::_insertRecords"
-                 << ". tableName: " << _tableName.StringView() << ". nRecords: " << nRecords;
+    MONGO_LOG(1) << "EloqRecordStore::_insertRecords" << ". tableName: " << _tableName.StringView()
+                 << ". nRecords: " << nRecords;
     // Only check if a write lock is held for regular (non-temporary) record stores.
     // dassert(opCtx->lockState()->isWriteLocked());
 

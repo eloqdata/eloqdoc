@@ -31,8 +31,7 @@ EloqCursor::EloqCursor(OperationContext* opCtx) : _opCtx(opCtx), _ru(EloqRecover
 }
 
 EloqCursor::~EloqCursor() {
-    MONGO_LOG(1) << "EloqCursor::~EloqCursor"
-                 << " .scanIsOpen: " << indexScanIsOpen();
+    MONGO_LOG(1) << "EloqCursor::~EloqCursor" << " .scanIsOpen: " << indexScanIsOpen();
 
     // automatically close index scan
     if (indexScanIsOpen()) {
@@ -53,7 +52,8 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
                                const txservice::TxKey* end_key,
                                bool end_inclusive,
                                txservice::ScanDirection direction,
-                               bool is_for_write) {
+                               bool is_for_write,
+                               bool end_specified) {
     MONGO_LOG(1) << "EloqCursor::indexScanOpen " << tableName->StringView();
     _txm = _ru->getTxm();
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -100,6 +100,7 @@ void EloqCursor::indexScanOpen(const txservice::TableName* tableName,
     _scanBatchIdx = UINT64_MAX;
     _scanBatchCnt = 0;
     _scanBatchVector.clear();
+    _endSpecified = end_specified;
 }
 
 void EloqCursor::indexScanClose() {
@@ -132,8 +133,7 @@ const txservice::ScanBatchTuple* EloqCursor::currentBatchTuple() const {
 }
 
 txservice::TxErrorCode EloqCursor::nextBatchTuple() {
-    MONGO_LOG(1) << "EloqCursor::nextBatchTuple"
-                 << ". _scanBatchIdx: " << _scanBatchIdx
+    MONGO_LOG(1) << "EloqCursor::nextBatchTuple" << ". _scanBatchIdx: " << _scanBatchIdx
                  << ". _isLastScanBatch: " << _isLastScanBatch
                  << ". _scanBatchVector.size(): " << _scanBatchVector.size();
     txservice::TxErrorCode txErr = txservice::TxErrorCode::NO_ERROR;

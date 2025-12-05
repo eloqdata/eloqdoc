@@ -41,7 +41,8 @@ public:
                        const txservice::TxKey* end_key,
                        bool end_inclusive,
                        txservice::ScanDirection direction,
-                       bool is_for_write);
+                       bool is_for_write,
+                       bool end_specified);
     void indexScanClose();
 
     txservice::TxErrorCode nextBatchTuple();
@@ -49,6 +50,11 @@ public:
 
 
     uint32_t PrefetchSize() {
+        if (_endSpecified) {
+            // Prefetch more aggressively for end-specified scan as
+            // prefetch will not go beyond the end key.
+            return 256;
+        }
         std::array<uint32_t, 5> boundaries = {1, 4, 16, 64, 256};
 
         size_t idx = 0;
@@ -76,6 +82,7 @@ private:
     std::vector<txservice::ScanBatchTuple> _scanBatchVector;
     size_t _scanBatchIdx{UINT64_MAX};
     size_t _scanBatchCnt{0};
+    bool _endSpecified{false};
 };
 
 }  // namespace mongo
