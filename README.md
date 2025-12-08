@@ -135,7 +135,7 @@ We will publish more detailed benchmarks in future.
 **Step-1**, download the official package for EloqDoc-RocksDB. Please select the package that matches your operating system.
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-0.2.6-ubuntu22-amd64.tar.gz
+wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-0.2.7-ubuntu24-amd64.tar.gz
 ```
 
 All released package can be found at [download](https://www.eloqdata.com/download) page.
@@ -143,7 +143,7 @@ All released package can be found at [download](https://www.eloqdata.com/downloa
 **Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
-mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-0.2.6-ubuntu22-amd64.tar.gz -C $HOME/eloqdoc-rocksdb
+mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-0.2.7-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdb
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
@@ -190,7 +190,7 @@ Implicit session: session { "id" : UUID("288393c1-aff6-4a84-ad46-dee6691b361d") 
 **Step-1**, download the official package for EloqDoc-RocksDBCloud. Please select the package that matches your operating system.
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-0.2.6-ubuntu22-amd64.tar.gz
+wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-0.2.7-ubuntu24-amd64.tar.gz
 ```
 
 All released package can be found at [download](https://www.eloqdata.com/download) page.
@@ -198,7 +198,7 @@ All released package can be found at [download](https://www.eloqdata.com/downloa
 **Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
-mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-0.2.6-ubuntu22-amd64.tar.gz -C $HOME/eloqdoc-rocksdbcloud
+mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-0.2.7-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdbcloud
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.

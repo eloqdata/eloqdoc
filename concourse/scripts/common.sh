@@ -195,17 +195,17 @@ launch_eloqdoc() {
       local bucket_prefix="$2"
       echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       mkdir -p "$PREFIX/log" "$PREFIX/data"
-      nohup env LD_LIBRARY_PATH=$PREFIX/lib/:${LD_LIBRARY_PATH} $PREFIX/bin/eloqdoc \
+      nohup $PREFIX/bin/eloqdoc \
             --config=./concourse/scripts/store_rocksdb_cloud.yaml \
-	    --data_substrate_config=./concourse/scripts/data_substrate.cnf \
+	      --data_substrate_config=./concourse/scripts/data_substrate.cnf \
             --rocksdb_cloud_bucket_name="$bucket_name" \
             --rocksdb_cloud_bucket_prefix="$bucket_prefix" \
-	    --rocksdb_cloud_object_path="dss" \
-	    --rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
+	      --rocksdb_cloud_object_path="dss" \
+	      --rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
             --txlog_rocksdb_cloud_bucket_name="$bucket_name" \
             --txlog_rocksdb_cloud_bucket_prefix="$bucket_prefix" \
-	    --txlog_rocksdb_cloud_object_path="txlog" \
-	    --txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
+	      --txlog_rocksdb_cloud_object_path="txlog" \
+	      --txlog_rocksdb_cloud_s3_endpoint_url=${ELOQ_AWS_S3_ENDPOINT_URL} \
             &>$PREFIX/log/eloqdoc.out &
 }
 
@@ -219,7 +219,7 @@ launch_eloqdoc_fast() {
       local bucket_prefix="$2"
       echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       mkdir -p "$PREFIX/log" "$PREFIX/data"
-      nohup env LD_LIBRARY_PATH=$PREFIX/lib/:${LD_LIBRARY_PATH} $PREFIX/bin/eloqdoc \
+      nohup $PREFIX/bin/eloqdoc \
             --config=./concourse/scripts/store_rocksdb_cloud.yaml \
             --data_substrate_config=./concourse/scripts/data_substrate.cnf \
             --rocksdb_cloud_bucket_name="$bucket_name" \

@@ -251,7 +251,7 @@ env.PrependUnique(
     ]
 )
 env.Append(LIBS=["absl_throw_delegate", "absl_log_severity", "absl_raw_logging_internal"])
-env.Append(LIBS=["absl_hash", "absl_raw_hash_set", "absl_city", "libabsl_low_level_hash"])
+env.Append(LIBS=["absl_hash", "absl_raw_hash_set", "absl_city", "absl_low_level_hash"])
 
 env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build/data_substrate"])
 
