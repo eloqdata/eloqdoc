@@ -2,11 +2,7 @@ If:
   PathMatch: src/.*
   PathExclude:
     [
-      src/mongo/db/modules/eloq/tx_service/.*,
-      src/mongo/db/modules/eloq/log_service/.*,
-      src/mongo/db/modules/eloq/eloq_log_service/.*,
-      src/mongo/db/modules/eloq/store_handler/.*,
-      src/mongo/db/modules/eloq/eloq_metrics/.*,
+      src/mongo/db/modules/eloq/data_substrate/.*,
     ]
 CompileFlags:
   CompilationDatabase: ./build
@@ -31,11 +27,7 @@ Diagnostics:
 If:
   PathMatch:
     [
-      src/mongo/db/modules/eloq/tx_service/.*,
-      src/mongo/db/modules/eloq/log_service/.*,
-      src/mongo/db/modules/eloq/eloq_log_service/.*,
-      src/mongo/db/modules/eloq/store_handler/.*,
-      src/mongo/db/modules/eloq/eloq_metrics/.*,
+      src/mongo/db/modules/eloq/data_substrate/.*,
     ]
 CompileFlags:
   CompilationDatabase: src/mongo/db/modules/eloq/build
