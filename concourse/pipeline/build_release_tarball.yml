@@ -73,7 +73,7 @@ jobs:
       - get: image_ubuntu2004
         resource: image_ubuntu2004_main
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_release_tarball.yml
     image: image_ubuntu2004
     params:
@@ -139,7 +139,7 @@ jobs:
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_release_tarball.yml
     image: image_ubuntu2204
     params:
@@ -206,7 +206,7 @@ jobs:
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_release_tarball.yml
     image: image_ubuntu2404
     params:
@@ -256,7 +256,7 @@ jobs:
       - get: image_centos7
         resource: image_centos7_main
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_release_tarball.yml
     image: image_centos7
     params:
@@ -304,7 +304,7 @@ jobs:
       - get: image_centos8
         resource: image_centos8_main
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_release_tarball.yml
     image: image_centos8
     params:
@@ -352,7 +352,7 @@ jobs:
       - get: image_rocky9
         resource: image_rocky9_main
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_release_tarball.yml
     image: image_rocky9
     params:

@@ -66,7 +66,7 @@ LOG_STATE_TYPE_RKDB_S3 = 3
 LOG_STATE_TYPE_RKDB_GCS = 4
 
 # Add ELOQDOC module for data_substrate
-env.Append(CPPDEFINES=["ELOQ_MODULE_ELOQDOC"])
+env.Append(CPPDEFINES=["ELOQ_MODULE_ELOQDOC","EXT_TX_PROC_ENABLED"])
 
 # Read from environment variable (default to ROCKSDB_CLOUD if not set)
 data_store_type_str = os.environ.get("WITH_DATA_STORE", "ELOQDSS_ROCKSDB_CLOUD_S3").upper()

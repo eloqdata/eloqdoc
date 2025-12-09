@@ -245,7 +245,6 @@ python2 scripts/buildscripts/scons.py \
     CFLAGS="-Wno-nonnull" \
     CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
     CPPDEFINES=$( [ ${ELOQ_MODULE_ENABLED} = "ON" ] && echo "ELOQ_MODULE_ENABLED" ) \
-    CPPDEFINES="EXT_TX_PROC_ENABLED" \
     CXX=${CXX} \
     CC=${CC} \
     $( [ "$ID" == "centos" ] && echo "--variables-files=env.vars" ) \

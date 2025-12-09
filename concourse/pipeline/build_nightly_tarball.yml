@@ -62,7 +62,7 @@ jobs:
             - get: eloq_logservice_src
             - get: image_ubuntu2004
 
-      - task: rocksdb-cloud-s3
+      - task: build-eloqdss-rocksdb-cloud-s3-type
         image: image_ubuntu2004
         params:
           DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_S3"
@@ -96,7 +96,7 @@ jobs:
         #     OUT_NAME: "nightly"
         #   file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
         
-      - task: eloqdss-rocksdb
+      - task: build-eloqdss-rocksdb-type
         image: image_ubuntu2004
         params:
           DATA_STORE_TYPE: "ELOQDSS_ROCKSDB"
@@ -146,7 +146,7 @@ jobs:
           WITH_LOG_STATE: ROCKSDB_CLOUD_S3
           CLOUDFRONT_DIST: ((cloudfront-dist))
         file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
-      - task: rocksdb-cloud-s3
+      - task: build-eloqdss-rocksdb-cloud-s3-type
         image: image_ubuntu2204
         params:
           DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_S3"
@@ -178,7 +178,7 @@ jobs:
         #     CLOUDFRONT_DIST: ((cloudfront-dist))
         #     OUT_NAME: "nightly"
         #   file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
-      - task: eloqdss-rocksdb
+      - task: build-eloqdss-rocksdb-type
         image: image_ubuntu2204
         params:
           DATA_STORE_TYPE: "ELOQDSS_ROCKSDB"
@@ -211,7 +211,7 @@ jobs:
             - get: eloq_logservice_src
             - get: eloqstore_src
             - get: image_ubuntu2404
-      - task: eloqdss-eloqstore
+      - task: build-eloqdss-eloqstore-type
         image: image_ubuntu2404
         params:
           DATA_STORE_TYPE: "ELOQDSS_ELOQSTORE"
@@ -228,7 +228,7 @@ jobs:
           OUT_NAME: "nightly"
           WITH_LOG_STATE: ROCKSDB_CLOUD_S3
         file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
-      - task: rocksdb-cloud-s3
+      - task: build-eloqdss-rocksdb-cloud-s3-type
         image: image_ubuntu2404
         params:
           DATA_STORE_TYPE: "ELOQDSS_ROCKSDB_CLOUD_S3"
@@ -260,7 +260,7 @@ jobs:
         #     CLOUDFRONT_DIST: ((cloudfront-dist))
         #     OUT_NAME: "nightly"
         #   file: eloqdoc_src/concourse/tasks/build_nightly_tarball.yml
-      - task: eloqdss-rocksdb
+      - task: build-eloqdss-rocksdb-type
         image: image_ubuntu2404
         params:
           DATA_STORE_TYPE: "ELOQDSS_ROCKSDB"

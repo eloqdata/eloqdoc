@@ -67,7 +67,7 @@ jobs:
       WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
-  - task: build-rocksdb-cloud-s3-type
+  - task: build-eloqdss-rocksdb-cloud-s3-type
     file: eloqdoc_src/concourse/tasks/build_debug_tarball.yml
     image: image_ubuntu2204
     params:
@@ -85,7 +85,7 @@ jobs:
       WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
-  - task: build-rocksdb-cloud-gcs-type
+  - task: build-eloqdss-rocksdb-cloud-gcs-type
     file: eloqdoc_src/concourse/tasks/build_debug_tarball.yml
     image: image_ubuntu2204
     params:
