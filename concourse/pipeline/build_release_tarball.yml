@@ -85,6 +85,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -100,6 +101,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      WITH_LOG_STATE: ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -133,6 +135,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+      WITH_LOG_STATE: ROCKSDB_CLOUD_GCS
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -148,6 +151,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -163,6 +167,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      WITH_LOG_STATE: ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -197,6 +202,7 @@ jobs:
       ELOQ_MODULE_ENABLED: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+      WITH_LOG_STATE: ROCKSDB_CLOUD_GCS
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -213,6 +219,7 @@ jobs:
       ELOQ_MODULE_ENABLED: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -229,6 +236,7 @@ jobs:
       ELOQ_MODULE_ENABLED: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      WITH_LOG_STATE: ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -260,6 +268,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -275,6 +284,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      WITH_LOG_STATE: ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -306,6 +316,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -321,6 +332,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      WITH_LOG_STATE: ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -352,6 +364,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      WITH_LOG_STATE: ROCKSDB_CLOUD_S3
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 
@@ -367,6 +380,7 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+      WITH_LOG_STATE: ROCKSDB
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
 

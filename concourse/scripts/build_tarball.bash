@@ -199,16 +199,7 @@ pyenv local 2.7.18
 export OPEN_LOG_SERVICE=0 FORK_HM_PROCESS=1
 
 # Configure and build engine via CMake
-# Align WITH_LOG_STATE env with DATA_STORE_TYPE
-if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-  export WITH_LOG_STATE=ROCKSDB_CLOUD_S3
-elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
-  export WITH_LOG_STATE=ROCKSDB_CLOUD_GCS
-elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
-  export WITH_LOG_STATE=ROCKSDB_CLOUD_GCS
-else
-  export WITH_LOG_STATE=ROCKSDB
-fi
+export WITH_LOG_STATE=$WITH_LOG_STATE
 
 cmake -G "Unix Makefiles" \
       -S $ELOQDOC_SRC/src/mongo/db/modules/eloq \
