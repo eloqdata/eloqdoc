@@ -129,14 +129,28 @@ private:
             !repl::ReplicationCoordinator::get(&opCtx)->getMemberState().readable())
             return;
 
-        TTLCollectionCache& ttlCollectionCache = TTLCollectionCache::get(getGlobalServiceContext());
-        std::vector<std::string> ttlCollections = ttlCollectionCache.getCollections();
+        // EloqDoc: TTLCollectionCache is unreliable.
+        //
+        // TTLCollectionCache& ttlCollectionCache =
+        // TTLCollectionCache::get(getGlobalServiceContext());
+        // std::vector<std::string> ttlCollections = ttlCollectionCache.getCollections();
+        std::vector<std::string> databases, collections;
+        getGlobalServiceContext()->getStorageEngine()->listDatabases(&databases);
+        for (const std::string& dbName : databases) {
+            std::vector<std::string> colls;
+            getGlobalServiceContext()->getStorageEngine()->listCollections(dbName, &colls);
+            collections.insert(collections.end(),
+                               std::make_move_iterator(colls.begin()),
+                               std::make_move_iterator(colls.end()));
+        }
+
         std::vector<BSONObj> ttlIndexes;
 
         ttlPasses.increment();
 
         // Get all TTL indexes from every collection.
-        for (const std::string& collectionNS : ttlCollections) {
+        for (const std::string& collectionNS : collections) {
+            WriteUnitOfWork wuow(&opCtx);
             UninterruptibleLockGuard noInterrupt(opCtx.lockState());
             NamespaceString collectionNSS(collectionNS);
             AutoGetCollection autoGetCollection(&opCtx, collectionNSS, MODE_IS);
@@ -153,13 +167,17 @@ private:
                 BSONObj spec = collEntry->getIndexSpec(&opCtx, name);
                 if (spec.hasField(secondsExpireField)) {
                     ttlIndexes.push_back(spec.getOwned());
+                    MONGO_LOG(0) << "Found TTL index: " << spec << " on collection "
+                                 << collectionNSS.ns() << ", index: " << name;
                 }
             }
         }
 
         for (const BSONObj& idx : ttlIndexes) {
             try {
+                WriteUnitOfWork wuow(&opCtx);
                 doTTLForIndex(&opCtx, idx);
+                wuow.commit();
             } catch (const DBException& dbex) {
                 error() << "Error processing ttl index: " << idx << " -- " << dbex.toString();
                 // Continue on to the next index.

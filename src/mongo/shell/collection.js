@@ -1476,7 +1476,9 @@ DBCollection.prototype.countDocuments = function(query, options) {
 
     // Format cursor into an array.
     const res = this.aggregate(pipeline, aggregateOptions).toArray();
-
+    if (res.length == 0) {
+        return 0;
+    }
     return res[0].n;
 };
 
