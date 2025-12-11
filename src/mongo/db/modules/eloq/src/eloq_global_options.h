@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <sys/types.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <sys/types.h>
 
@@ -69,6 +70,7 @@ public:
     bool raftlogAsyncFsync{false};
 
     // txlog
+    uint32_t txlogSnapshotIntervalSecs{600};
     std::string txlogRocksDBStoragePath;
     uint16_t txlogRocksDBScanThreads{1};
     std::vector<mongo::HostAndPort> txlogServiceAddrs;
@@ -81,6 +83,14 @@ public:
     int txlogRocksDBCloudSstFileCacheNumShardBits{5};
     uint32_t txlogRocksDBCloudReadyTimeout{0};
     uint32_t txlogRocksDBCloudFileDeletionDelay{0};
+    bool txlogEnableRequestCheckpoint{true};
+    uint32_t txlogCheckReplayLogSizeIntervalSec{10};
+    std::string txlogNotifyCheckpointerThresholdSize{"128MB"};
+    size_t txlogInMemDataLogQueueSizeHighWatermark{50 * 10000};
+    size_t txlogRocksDBMaxWriteBufferNumber{8};
+    size_t txlogRocksDBMaxBackgroundJobs{12};
+    std::string txlogRocksDBTargetFileSizeBase{"64MB"};
+    std::string txlogRocksDBSstFilesSizeLimit{"500MB"};
 
     // storage
     std::string keyspaceName;

@@ -176,6 +176,12 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
 
     // txlog
     eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogSnapshotIntervalSecs",
+                           "eloqTxlogSnapshotIntervalSecs",
+                           moe::Int,
+                           "Interval of tx log snapshot(s)")
+        .setDefault(moe::Value(600));
+    eloqOptions
         .addOptionChaining("storage.eloq.txService.txlogAsyncFsync",
                            "eloqTxlogAsyncFsync",
                            moe::Bool,
@@ -259,6 +265,54 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "RocksDB Cloud file deletion delay (seconds) for instance which stores "
                            "the tx log state.")
         .setDefault(moe::Value(0u));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogEnableRequestCheckpoint",
+                           "eloqTxlogEnableRequestCheckpoint",
+                           moe::Bool,
+                           "Enable txlog request checkpoint.")
+        .setDefault(moe::Value(true));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogCheckReplayLogSizeIntervalSec",
+                           "eloqTxlogCheckReplayLogSizeIntervalSec",
+                           moe::Unsigned,
+                           "Interval in seconds to check replay log size.")
+        .setDefault(moe::Value(10u));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogNotifyCheckpointerThresholdSize",
+                           "eloqTxlogNotifyCheckpointerThresholdSize",
+                           moe::String,
+                           "Threshold size to trigger checkpointer notification.")
+        .setDefault(moe::Value("128MB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogInMemDataLogQueueSizeHighWatermark",
+                           "eloqTxlogInMemDataLogQueueSizeHighWatermark",
+                           moe::Unsigned,
+                           "In-memory data log queue size high watermark.")
+        .setDefault(moe::Value(static_cast<uint32_t>(50 * 10000)));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBMaxWriteBufferNumber",
+                           "eloqTxlogRocksDBMaxWriteBufferNumber",
+                           moe::Unsigned,
+                           "RocksDB max write buffer number for txlog.")
+        .setDefault(moe::Value(8u));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBMaxBackgroundJobs",
+                           "eloqTxlogRocksDBMaxBackgroundJobs",
+                           moe::Unsigned,
+                           "RocksDB max background jobs for txlog.")
+        .setDefault(moe::Value(12u));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBTargetFileSizeBase",
+                           "eloqTxlogRocksDBTargetFileSizeBase",
+                           moe::String,
+                           "RocksDB target file size base for txlog.")
+        .setDefault(moe::Value("64MB"));
+    eloqOptions
+        .addOptionChaining("storage.eloq.txService.txlogRocksDBSstFilesSizeLimit",
+                           "eloqTxlogRocksDBSstFilesSizeLimit",
+                           moe::String,
+                           "RocksDB SST files size limit for txlog.")
+        .setDefault(moe::Value("500MB"));
 
     // Eloq Storage Options
     eloqOptions
@@ -820,6 +874,10 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
         eloqGlobalOptions.raftlogAsyncFsync =
             params["storage.eloq.txService.txlogAsyncFsync"].as<bool>();
     }
+    if (params.count("storage.eloq.txService.txlogSnapshotIntervalSecs")) {
+        eloqGlobalOptions.txlogSnapshotIntervalSecs =
+            params["storage.eloq.txService.txlogSnapshotIntervalSecs"].as<int>();
+    }
     if (params.count("storage.eloq.txService.txlogRocksDBStoragePath")) {
         eloqGlobalOptions.txlogRocksDBStoragePath =
             params["storage.eloq.txService.txlogRocksDBStoragePath"].as<std::string>();
@@ -863,6 +921,38 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.txlogRocksDBCloudFileDeletionDelay")) {
         eloqGlobalOptions.txlogRocksDBCloudFileDeletionDelay =
             params["storage.eloq.txService.txlogRocksDBCloudFileDeletionDelay"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogEnableRequestCheckpoint")) {
+        eloqGlobalOptions.txlogEnableRequestCheckpoint =
+            params["storage.eloq.txService.txlogEnableRequestCheckpoint"].as<bool>();
+    }
+    if (params.count("storage.eloq.txService.txlogCheckReplayLogSizeIntervalSec")) {
+        eloqGlobalOptions.txlogCheckReplayLogSizeIntervalSec =
+            params["storage.eloq.txService.txlogCheckReplayLogSizeIntervalSec"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogNotifyCheckpointerThresholdSize")) {
+        eloqGlobalOptions.txlogNotifyCheckpointerThresholdSize =
+            params["storage.eloq.txService.txlogNotifyCheckpointerThresholdSize"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogInMemDataLogQueueSizeHighWatermark")) {
+        eloqGlobalOptions.txlogInMemDataLogQueueSizeHighWatermark =
+            params["storage.eloq.txService.txlogInMemDataLogQueueSizeHighWatermark"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBMaxWriteBufferNumber")) {
+        eloqGlobalOptions.txlogRocksDBMaxWriteBufferNumber =
+            params["storage.eloq.txService.txlogRocksDBMaxWriteBufferNumber"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBMaxBackgroundJobs")) {
+        eloqGlobalOptions.txlogRocksDBMaxBackgroundJobs =
+            params["storage.eloq.txService.txlogRocksDBMaxBackgroundJobs"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBTargetFileSizeBase")) {
+        eloqGlobalOptions.txlogRocksDBTargetFileSizeBase =
+            params["storage.eloq.txService.txlogRocksDBTargetFileSizeBase"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBSstFilesSizeLimit")) {
+        eloqGlobalOptions.txlogRocksDBSstFilesSizeLimit =
+            params["storage.eloq.txService.txlogRocksDBSstFilesSizeLimit"].as<std::string>();
     }
 
     // Eloq Storage Options

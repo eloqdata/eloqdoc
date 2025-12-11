@@ -412,21 +412,22 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
         }
 
 
-        bool enable_txlog_request_checkpoint = true;
-        std::string eloq_notify_checkpointer_threshold_size = "1GB";
-        uint64_t notify_checkpointer_threshold_size =
-            txlog::parse_size(eloq_notify_checkpointer_threshold_size);
+        const bool enable_txlog_request_checkpoint = eloqGlobalOptions.txlogEnableRequestCheckpoint;
+        const uint64_t notify_checkpointer_threshold_size =
+            txlog::parse_size(eloqGlobalOptions.txlogNotifyCheckpointerThresholdSize);
         log() << "eloq_enable_txlog_request_checkpoint: "
               << (enable_txlog_request_checkpoint ? "ON" : "OFF");
         if (enable_txlog_request_checkpoint) {
             log() << "eloq_notify_checkpointer_threshold_size: "
-                  << eloq_notify_checkpointer_threshold_size;
+                  << eloqGlobalOptions.txlogNotifyCheckpointerThresholdSize;
         }
 
 #if defined(LOG_STATE_TYPE_RKDB_ALL)
-        std::string eloq_rocksdb_target_file_size_base = "10MB";
         size_t rocksdb_target_file_size_base_val =
-            txlog::parse_size(eloq_rocksdb_target_file_size_base);
+            txlog::parse_size(eloqGlobalOptions.txlogRocksDBTargetFileSizeBase);
+        const size_t rocksdb_max_write_buffer_number =
+            eloqGlobalOptions.txlogRocksDBMaxWriteBufferNumber;
+        const size_t rocksdb_max_background_jobs = eloqGlobalOptions.txlogRocksDBMaxBackgroundJobs;
 #if defined(LOG_STATE_TYPE_RKDB_CLOUD)
         txlog::RocksDBCloudConfig rocksdb_cloud_config;
 #if defined(LOG_STATE_TYPE_RKDB_S3)
@@ -461,40 +462,41 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
             eloqGlobalOptions.txlogGroupReplicaNum,
             txlogRocksDBPath,
             eloqGlobalOptions.txlogRocksDBScanThreads,
-            rocksdb_cloud_config
-            // eloq_rocksdb_cloud_in_mem_log_size_high_watermark,
-            // eloq_rocksdb_max_write_buffer_number,
-            // eloq_rocksdb_max_background_jobs, rocksdb_target_file_size_base_val,
-            // eloq_logserver_snapshot_interval, enable_txlog_request_checkpoint,
-            // eloq_check_replay_log_size_interval_sec,
-            // notify_checkpointer_threshold_size
-        );
+            rocksdb_cloud_config,
+            eloqGlobalOptions.txlogInMemDataLogQueueSizeHighWatermark,
+            rocksdb_max_write_buffer_number,
+            rocksdb_max_background_jobs,
+            rocksdb_target_file_size_base_val,
+            eloqGlobalOptions.txlogSnapshotIntervalSecs,
+            enable_txlog_request_checkpoint,
+            eloqGlobalOptions.txlogCheckReplayLogSizeIntervalSec,
+            notify_checkpointer_threshold_size);
 #endif
 
 #else  // rocksdb
 #if defined(OPEN_LOG_SERVICE)
         _logServer = std::make_unique<txlog::LogServer>(nodeId, logServerPort, txlogPath, 1);
 #else
-        // size_t rocksdb_sst_files_size_limit_val =
-        //     txlog::parse_size(eloq_rocksdb_sst_files_size_limit);
-        _logServer = std::make_unique<txlog::LogServer>(
-            nodeId,
-            logServerPort,
-            txlogIPs,
-            txlogPorts,
-            txlogPath,
-            0,
-            eloqGlobalOptions.txlogGroupReplicaNum,
-            txlogRocksDBPath,
-            eloqGlobalOptions.txlogRocksDBScanThreads
-            // rocksdb_sst_files_size_limit_val
-
-            // eloq_rocksdb_max_write_buffer_number,
-            // eloq_rocksdb_max_background_jobs, rocksdb_target_file_size_base_val,
-            // eloq_logserver_snapshot_interval, enable_txlog_request_checkpoint,
-            // eloq_check_replay_log_size_interval_sec,
-            // notify_checkpointer_threshold_size
-        );
+        size_t rocksdb_sst_files_size_limit_val =
+            txlog::parse_size(eloqGlobalOptions.txlogRocksDBSstFilesSizeLimit);
+        _logServer =
+            std::make_unique<txlog::LogServer>(nodeId,
+                                               logServerPort,
+                                               txlogIPs,
+                                               txlogPorts,
+                                               txlogPath,
+                                               0,
+                                               eloqGlobalOptions.txlogGroupReplicaNum,
+                                               txlogRocksDBPath,
+                                               eloqGlobalOptions.txlogRocksDBScanThreads,
+                                               rocksdb_sst_files_size_limit_val,
+                                               rocksdb_max_write_buffer_number,
+                                               rocksdb_max_background_jobs,
+                                               rocksdb_target_file_size_base_val,
+                                               eloqGlobalOptions.txlogSnapshotIntervalSecs,
+                                               enable_txlog_request_checkpoint,
+                                               eloqGlobalOptions.txlogCheckReplayLogSizeIntervalSec,
+                                               notify_checkpointer_threshold_size);
 #endif
 #endif
 #endif /* LOG_STATE_TYPE_RKDB_ALL */
