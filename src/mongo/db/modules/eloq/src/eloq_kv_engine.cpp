@@ -146,19 +146,6 @@ std::string_view extractDbName(std::string_view nss) {
     }
 }
 
-bool EloqKVEngine::InitMetricsRegistry() {
-
-    Eloq::MetricsRegistryImpl::MetricsRegistryResult metricsRegistryResult =
-        Eloq::MetricsRegistryImpl::GetRegistry();
-
-    if (metricsRegistryResult.not_ok_ != nullptr) {
-        return false;
-    }
-
-    _metricsRegistry = std::move(metricsRegistryResult.metrics_registry_);
-    return true;
-}
-
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     log() << "Starting Eloq storage engine. dbPath: " << path;
     log() << "Standalone mode: Initializing data substrate...";
@@ -170,7 +157,12 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
 
     ds.RegisterEngine(
         txservice::TableEngine::EloqDoc, &catalogFactory, &mongoSystemHandler, {}, {});
-    ds.Start();
+    bool succeed = ds.Start();
+    if (!succeed) {
+        const char* errmsg = "Failed to start data substrate.";
+        error() << errmsg;
+        uassert(ErrorCodes::InternalError, errmsg, succeed);
+    }
 
     _logServer = ds.GetLogServer();
     _txService = ds.GetTxService();

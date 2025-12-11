@@ -192,12 +192,8 @@ public:
     void haltOplogManager(EloqRecordStore* oplogRecordStore, bool shuttingDown);
 
 private:
-    bool InitMetricsRegistry();
-
-private:
     txservice::TxService* _txService{nullptr};
     txlog::LogServer* _logServer{nullptr};
     std::string _dbPath;
-    std::unique_ptr<metrics::MetricsRegistry> _metricsRegistry{nullptr};
 };
 }  // namespace mongo
