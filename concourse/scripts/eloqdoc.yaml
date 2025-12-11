@@ -20,4 +20,4 @@ storage:
 setParameter:
   diagnosticDataCollectionEnabled: false
   disableLogicalSessionCacheRefresh: true
-  ttlMonitorEnabled: false
+  ttlMonitorEnabled: true

@@ -293,10 +293,12 @@ bool EloqRecoveryUnit::inActiveTxn() const {
 }
 
 void EloqRecoveryUnit::registerCursor(EloqCursor* cursor) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::registerCursor";
     _cursors.emplace(cursor);
 }
 
 void EloqRecoveryUnit::unregisterCursor(EloqCursor* cursor) {
+    MONGO_LOG(1) << "EloqRecoveryUnit::unregisterCursor";
     _cursors.erase(cursor);
 }
 

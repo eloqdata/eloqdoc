@@ -167,17 +167,25 @@ private:
                 BSONObj spec = collEntry->getIndexSpec(&opCtx, name);
                 if (spec.hasField(secondsExpireField)) {
                     ttlIndexes.push_back(spec.getOwned());
-                    MONGO_LOG(0) << "Found TTL index: " << spec << " on collection "
-                                 << collectionNSS.ns() << ", index: " << name;
                 }
             }
         }
 
         for (const BSONObj& idx : ttlIndexes) {
             try {
-                WriteUnitOfWork wuow(&opCtx);
-                doTTLForIndex(&opCtx, idx);
-                wuow.commit();
+                long long before;
+                const int limits = 1000;
+                do {
+                    before = ttlDeletedDocuments;
+                    auto begin_time = Date_t::now();
+                    WriteUnitOfWork wuow(&opCtx);
+                    doTTLForIndex(&opCtx, idx, limits);
+                    wuow.commit();
+                    auto end_time = Date_t::now();
+                    LOG(1) << "TTL pass deleted " << (ttlDeletedDocuments - before)
+                           << " documents from index " << idx << " in "
+                           << (end_time - begin_time).count() << " ms";
+                } while (ttlDeletedDocuments - before >= limits);
             } catch (const DBException& dbex) {
                 error() << "Error processing ttl index: " << idx << " -- " << dbex.toString();
                 // Continue on to the next index.
@@ -190,7 +198,7 @@ private:
      * Remove documents from the collection using the specified TTL index after a sufficient amount
      * of time has passed according to its expiry specification.
      */
-    void doTTLForIndex(OperationContext* opCtx, BSONObj idx) {
+    void doTTLForIndex(OperationContext* opCtx, BSONObj idx, int limits) {
         const NamespaceString collectionNSS(idx["ns"].String());
         if (collectionNSS.isDropPendingNamespace()) {
             return;
@@ -292,7 +300,8 @@ private:
                                                  endKey,
                                                  BoundInclusion::kIncludeBothStartAndEndKeys,
                                                  PlanExecutor::INTERRUPT_ONLY,
-                                                 direction);
+                                                 direction,
+                                                 limits);
 
         Status result = exec->executePlan();
         if (!result.isOK()) {

@@ -21,7 +21,7 @@ const dbName = "ttl_test_db";
 const collName = "ttl_random_test_coll";
 
 // Number of documents
-const docCount = 1000;
+const docCount = 50000;
 
 // Random expiration range: [1, 10] seconds
 const minTTL = 1;

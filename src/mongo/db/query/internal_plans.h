@@ -112,7 +112,8 @@ public:
         const BSONObj& endKey,
         BoundInclusion boundInclusion,
         PlanExecutor::YieldPolicy yieldPolicy,
-        Direction direction = FORWARD);
+        Direction direction = FORWARD,
+        int limits = 0);
 
     /**
      * Returns an IDHACK => UPDATE plan.

@@ -196,7 +196,7 @@ launch_eloqdoc() {
       echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       mkdir -p "$PREFIX/log" "$PREFIX/data"
       nohup $PREFIX/bin/eloqdoc \
-            --config=./concourse/scripts/store_rocksdb_cloud.yaml \
+            --config=./concourse/scripts/eloqdoc.yaml \
 	      --data_substrate_config=./concourse/scripts/data_substrate.cnf \
             --rocksdb_cloud_bucket_name="$bucket_name" \
             --rocksdb_cloud_bucket_prefix="$bucket_prefix" \
@@ -220,7 +220,7 @@ launch_eloqdoc_fast() {
       echo "launch eloqdoc with bucket name: $bucket_name, bucket prefix: $bucket_prefix"
       mkdir -p "$PREFIX/log" "$PREFIX/data"
       nohup $PREFIX/bin/eloqdoc \
-            --config=./concourse/scripts/store_rocksdb_cloud.yaml \
+            --config=./concourse/scripts/eloqdoc.yaml \
             --data_substrate_config=./concourse/scripts/data_substrate.cnf \
             --rocksdb_cloud_bucket_name="$bucket_name" \
             --rocksdb_cloud_bucket_prefix="$bucket_prefix" \

@@ -187,7 +187,6 @@ public:
 
     void save() override {
         MONGO_LOG(1) << "EloqIndexCursor::save " << _indexName->StringView();
-        _cursor.reset();
     }
 
     void saveUnpositioned() override {
@@ -197,14 +196,16 @@ public:
     }
 
     void restore() override {
-        MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView();
+        MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView()
+                     << ", _eof: " << _eof;
         if (_eof) {
             return;
         }
 
-        assert(!_cursor);
-        // Place the cursor after the last returned key when restore
-        _seekCursor(_key, false);
+        if (!_cursor || !_cursor->indexScanIsOpen()) {
+            // Place the cursor after the last returned key when restore
+            _seekCursor(_key, false);
+        }
     }
 
     void detachFromOperationContext() override {

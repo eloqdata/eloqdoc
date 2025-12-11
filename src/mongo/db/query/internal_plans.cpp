@@ -38,6 +38,7 @@
 #include "mongo/db/exec/fetch.h"
 #include "mongo/db/exec/idhack.h"
 #include "mongo/db/exec/index_scan.h"
+#include "mongo/db/exec/limit.h"
 #include "mongo/db/exec/update.h"
 #include "mongo/db/query/get_executor.h"
 #include "mongo/stdx/memory.h"
@@ -130,7 +131,8 @@ std::unique_ptr<PlanExecutor, PlanExecutor::Deleter> InternalPlanner::deleteWith
     const BSONObj& endKey,
     BoundInclusion boundInclusion,
     PlanExecutor::YieldPolicy yieldPolicy,
-    Direction direction) {
+    Direction direction,
+    int limits) {
     auto ws = stdx::make_unique<WorkingSet>();
 
     std::unique_ptr<PlanStage> root = _indexScan(opCtx,
@@ -143,6 +145,9 @@ std::unique_ptr<PlanExecutor, PlanExecutor::Deleter> InternalPlanner::deleteWith
                                                  direction,
                                                  InternalPlanner::IXSCAN_FETCH);
 
+    if (limits > 0) {
+        root = stdx::make_unique<LimitStage>(opCtx, limits, ws.get(), root.release());
+    }
     root = stdx::make_unique<DeleteStage>(opCtx, params, ws.get(), collection, root.release());
 
     auto executor =
