@@ -7,9 +7,6 @@
 
 set -eo pipefail
 
-# Store original directory where script was executed from
-SCRIPT_START_DIR=$(pwd)
-
 # ------------- Logging functions -------------
 # Define color codes
 GREEN='\033[0;32m'
@@ -438,11 +435,10 @@ eval "$(pyenv virtualenv-init -)" || true
 pyenv install 2.7.18
 pyenv global 2.7.18
 
-# Return to the original directory to find the requirements.txt file
-cd "$SCRIPT_START_DIR"
-log_info "Installing Python dependencies from: $SCRIPT_START_DIR/scripts/buildscripts/requirements.txt"
+SCRIPTS_DIR="$(dirname "$(realpath "$0")")"
+log_info "Installing Python dependencies from: ${SCRIPTS_DIR}/buildscripts/requirements.txt"
 
 # Install Python dependencies
-pip2 install -r scripts/buildscripts/requirements.txt
+pip2 install -r ${SCRIPTS_DIR}/buildscripts/requirements.txt
 
 log_info "EloqDoc dependency installation completed successfully"
