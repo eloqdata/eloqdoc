@@ -192,6 +192,84 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     sudo cmake --build cmake-out --target install -- -j $COMPILE_JOBS && \
     sudo ldconfig
 
+    # ------------- RE2 installation -------------
+    log_info "Installing RE2"
+    cd "$TEMP_DIR"
+    if [ ! -d "re2" ]; then
+        mkdir -p re2
+    fi
+    cd re2 && \
+    curl -fsSL https://github.com/google/re2/archive/2023-08-01.tar.gz | \
+    tar -xzf - --strip-components=1 && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=ON \
+          -DRE2_BUILD_TESTING=OFF \
+          -S . -B cmake-out && \
+    cmake --build cmake-out -- -j "$COMPILE_JOBS" && \
+    sudo cmake --build cmake-out --target install -- -j "$COMPILE_JOBS" && \
+    sudo ldconfig
+
+    # ------------- crc32c installation -------------
+    log_info "Installing crc32c"
+    cd "$TEMP_DIR"
+    if [ ! -d "crc32c" ]; then
+        mkdir -p crc32c
+    fi
+    cd crc32c && \
+    curl -fsSL https://github.com/google/crc32c/archive/1.1.2.tar.gz | \
+    tar -xzf - --strip-components=1 && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=YES \
+          -DCRC32C_BUILD_TESTS=OFF \
+          -DCRC32C_BUILD_BENCHMARKS=OFF \
+          -DCRC32C_USE_GLOG=OFF \
+          -S . -B cmake-out && \
+    cmake --build cmake-out -- -j "$COMPILE_JOBS" && \
+    sudo cmake --build cmake-out --target install -- -j "$COMPILE_JOBS" && \
+    sudo ldconfig
+
+    # ------------- nlohmann_json installation -------------
+    log_info "Installing nlohmann_json"
+    cd "$TEMP_DIR"
+    if [ ! -d "nlohmann_json" ]; then
+        mkdir -p nlohmann_json
+    fi
+    cd nlohmann_json && \
+    curl -fsSL https://github.com/nlohmann/json/archive/v3.11.2.tar.gz | \
+    tar -xzf - --strip-components=1 && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=YES \
+          -DBUILD_TESTING=OFF \
+          -DJSON_BuildTests=OFF \
+          -S . -B cmake-out && \
+    sudo cmake --build cmake-out --target install -- -j "$COMPILE_JOBS" && \
+    sudo ldconfig
+
+    # ------------- grpc installation -------------
+    log_info "Installing grpc"
+    cd $TEMP_DIR
+    if [ ! -d "grpc" ]; then
+        mkdir -p grpc
+    fi
+    cd grpc
+    curl -fsSL https://codeload.github.com/grpc/grpc/tar.gz/refs/tags/v1.51.1 | \
+    tar -xzf - --strip-components=1 && \
+    cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=yes \
+        -DgRPC_INSTALL=ON \
+        -DgRPC_BUILD_TESTS=OFF \
+        -DgRPC_ABSL_PROVIDER=package \
+        -DgRPC_CARES_PROVIDER=package \
+        -DgRPC_PROTOBUF_PROVIDER=package \
+        -DgRPC_RE2_PROVIDER=package \
+        -DgRPC_SSL_PROVIDER=package \
+        -DgRPC_ZLIB_PROVIDER=package \
+        -S . -B cmake-out && \
+    cmake --build cmake-out -- -j $COMPILE_JOBS && \
+    sudo cmake --build cmake-out --target install -- -j $COMPILE_JOBS && \
+    sudo ldconfig
+
     # ------------- Glog installation -------------
     log_info "Installing glog"
     cd $TEMP_DIR
@@ -254,6 +332,24 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     cd cuckoofilter && \
     sudo make install
 
+    # ------------- Google Cloud CPP installation -------------
+    cd $TEMP_DIR
+    if [ ! -d "google-cloud-cpp" ]; then
+        mkdir google-cloud-cpp && cd google-cloud-cpp && \
+        curl -fsSL https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.24.0 | tar -xzf - --strip-components=1
+        cd ../
+    fi
+    cd google-cloud-cpp && cmake -S . -B cmake-out \
+        -DCMAKE_INSTALL_PREFIX="/usr/local" \
+        -DBUILD_SHARED_LIBS=ON \
+        -DBUILD_TESTING=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DGOOGLE_CLOUD_CPP_ENABLE_EXAMPLES=OFF \
+        -DGOOGLE_CLOUD_CPP_ENABLE=bigtable,storage
+    cmake --build cmake-out -- -j $(nproc)
+    sudo cmake --build cmake-out --target install
+    cd ../ && rm -rf google-cloud-cpp
+
     # ------------- AWS SDK installation -------------
     log_info "Installing AWS SDK"
     cd $TEMP_DIR
@@ -300,6 +396,11 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     sudo mkdir -p /usr/local/include/rocksdb_cloud_header && \
     sudo cp -r ./output/include/* /usr/local/include/rocksdb_cloud_header && \
     sudo cp -r ./output/lib/* /usr/local/lib && \
+    make clean && rm -rf `pwd`/output && \
+    LIBNAME=librocksdb-cloud-gcp USE_RTTI=1 USE_GCP=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j8 && \
+    LIBNAME=librocksdb-cloud-gcp PREFIX=`pwd`/output make install-shared && \
+    sudo cp -r ./output/lib/* /usr/local/lib && \
+    cd ../ && \
     sudo ldconfig
 
     # ------------- Prometheus CPP installation -------------
