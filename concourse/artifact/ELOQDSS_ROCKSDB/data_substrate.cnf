@@ -15,7 +15,7 @@ txlog_rocksdb_cloud_object_path=txlog
 txlog_rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9900
 
 [cluster]
-ip_port_list=127.0.0.1:16379
+tx_ip_port_list=127.0.0.1:16379
 #txlog_service_list=127.0.0.1:9000
 #txlog_group_replica_num=1
 
