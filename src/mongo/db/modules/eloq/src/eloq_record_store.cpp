@@ -1099,6 +1099,9 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     txservice::TxErrorCode err =
         ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
     if (err != txservice::TxErrorCode::NO_ERROR) {
+        MONGO_LOG(1) << "EloqRecordStore::_insertRecords batchGetKV failed, table: "
+                     << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber()
+                     << txservice::TxErrorMessage(err);
         return TxErrorCodeToMongoStatus(err);
     }
 

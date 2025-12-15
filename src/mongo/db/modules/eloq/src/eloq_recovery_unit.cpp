@@ -485,11 +485,11 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
     } else if (err == txservice::TxErrorCode::DEAD_LOCK_ABORT ||
                err == txservice::TxErrorCode::READ_WRITE_CONFLICT ||
                err == txservice::TxErrorCode::WRITE_WRITE_CONFLICT) {
-        MONGO_LOG(0) << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
-                     << batchReadTxReq.ErrorMsg();
+        MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
+                     << ", txn: " << _txm->TxNumber() << ", TxError: " << batchReadTxReq.ErrorMsg();
     } else {
         error() << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
-                << batchReadTxReq.ErrorMsg();
+                << ", txn: " << _txm->TxNumber() << batchReadTxReq.ErrorMsg();
     }
     return err;
 }
@@ -943,6 +943,7 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
 
     bool succeed = true;
     txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;
+    TxnNumber txn = _txm->TxNumber();
     if (commit) {
         MONGO_LOG(1) << "EloqRecoveryUnit::_txnClose. "
                      << "txm commit " << _txm->TxNumber();
@@ -950,7 +951,7 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
         std::tie(succeed, err) = txservice::CommitTx(_txm, coro.yieldFuncPtr, coro.resumeFuncPtr);
         if (!succeed) {
             MONGO_LOG(1) << "txm commit fail. "
-                         << "errorCode:" << err;
+                         << ", txn: " << txn << ", errorCode:" << err;
         }
     } else {
         MONGO_LOG(1) << "EloqRecoveryUnit::_txnClose. "

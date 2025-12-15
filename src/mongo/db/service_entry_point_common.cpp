@@ -43,6 +43,7 @@
 #include "mongo/db/commands.h"
 #include "mongo/db/commands/test_commands_enabled.h"
 #include "mongo/db/concurrency/global_lock_acquisition_tracker.h"
+#include "mongo/db/concurrency/write_conflict_exception.h"
 #include "mongo/db/curop.h"
 #include "mongo/db/curop_metrics.h"
 #include "mongo/db/cursor_manager.h"
@@ -102,6 +103,8 @@ MONGO_FAIL_POINT_DEFINE(skipCheckingForNotMasterInCommandDispatch);
 
 namespace {
 using logger::LogComponent;
+
+static constexpr int RETRY_NUM = 5;
 
 // The command names for which to check out a session. These are commands that support retryable
 // writes, readConcern snapshot, or multi-statement transactions. We additionally check out the
@@ -516,10 +519,27 @@ bool runCommandImpl(OperationContext* opCtx,
         } else {
             if (atomicCmd) {
                 // EloqDoc enables command level transaction.
-                WriteUnitOfWork wuow(opCtx);
-                invocation->run(opCtx, &crb);
-                if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
-                    wuow.commit();
+                int retry = 0;
+                while (true) {
+                    try {
+                        WriteUnitOfWork wuow(opCtx);
+                        invocation->run(opCtx, &crb);
+                        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+                            wuow.commit();
+                        }
+                        break;
+                    } catch (const DBException& ex) {
+                        if ((ex.code() == ErrorCodes::WriteConflict ||
+                             ex.code() == ErrorCodes::ExceededMemoryLimit) &&
+                            opCtx->getRemainingMaxTimeMillis().count() > 0 && retry++ < RETRY_NUM) {
+                            LOG(1) << "runCommandImpl throw DBException " << ex.what()
+                                   << " retrying " << retry << "/" << RETRY_NUM;
+                            opCtx->sleepFor(Milliseconds(1));
+                            continue;
+                        } else {
+                            throw;
+                        }
+                    }
                 }
             } else {
                 invocation->run(opCtx, &crb);
@@ -559,10 +579,29 @@ bool runCommandImpl(OperationContext* opCtx,
             } else {
                 if (atomicCmd) {
                     // EloqDoc enables command level transaction.
-                    WriteUnitOfWork wuow(opCtx);
-                    invocation->run(opCtx, &crb);
-                    if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
-                        wuow.commit();
+                    int retry = 0;
+                    while (true) {
+                        try {
+                            WriteUnitOfWork wuow(opCtx);
+                            invocation->run(opCtx, &crb);
+                            if (opCtx->getRecoveryUnitState() ==
+                                WriteUnitOfWork::kActiveUnitOfWork) {
+                                wuow.commit();
+                            }
+                            break;
+                        } catch (const DBException& ex) {
+                            if ((ex.code() == ErrorCodes::WriteConflict ||
+                                 ex.code() == ErrorCodes::ExceededMemoryLimit) &&
+                                opCtx->getRemainingMaxTimeMillis().count() > 0 &&
+                                retry++ < RETRY_NUM) {
+                                LOG(1) << "runCommandImpl throw DBException " << ex.what()
+                                       << " retrying " << retry << "/" << RETRY_NUM;
+                                opCtx->sleepFor(Milliseconds(1));
+                                continue;
+                            } else {
+                                throw;
+                            }
+                        }
                     }
                 } else {
                     invocation->run(opCtx, &crb);
@@ -1175,15 +1214,29 @@ void receivedInsert(OperationContext* opCtx, const NamespaceString& nsString, co
     }
 
     // EloqDoc enables command level transaction.
-    try {
+    int retry = 0;
+    while (true) {
+        try {
 
-        WriteUnitOfWork wuow(opCtx);
-        performInserts(opCtx, insertOp);
-        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
-            wuow.commit();
+            WriteUnitOfWork wuow(opCtx);
+            performInserts(opCtx, insertOp);
+            if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+                wuow.commit();
+            }
+            break;
+        } catch (const DBException& ex) {
+            if ((ex.code() == ErrorCodes::WriteConflict ||
+                 ex.code() == ErrorCodes::ExceededMemoryLimit) &&
+                opCtx->getRemainingMaxTimeMillis().count() > 0 && retry++ < RETRY_NUM) {
+                LOG(1) << "performInserts throw DBException " << ex.what() << " retrying " << retry
+                       << "/" << RETRY_NUM;
+                opCtx->sleepFor(Milliseconds(1));
+                continue;
+            } else {
+                LOG(1) << "performInserts throw DBException " << ex.what();
+                break;
+            }
         }
-    } catch (const DBException& ex) {
-        LOG(1) << "performInserts throw DBException " << ex.what();
     }
 }
 
@@ -1208,14 +1261,28 @@ void receivedUpdate(OperationContext* opCtx, const NamespaceString& nsString, co
     uassertStatusOK(status);
 
     // EloqDoc enables command level transaction.
-    try {
-        WriteUnitOfWork wuow(opCtx);
-        performUpdates(opCtx, updateOp);
-        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
-            wuow.commit();
+    int retry = 0;
+    while (true) {
+        try {
+            WriteUnitOfWork wuow(opCtx);
+            performUpdates(opCtx, updateOp);
+            if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+                wuow.commit();
+            }
+            break;
+        } catch (const DBException& ex) {
+            if ((ex.code() == ErrorCodes::WriteConflict ||
+                 ex.code() == ErrorCodes::ExceededMemoryLimit) &&
+                opCtx->getRemainingMaxTimeMillis().count() > 0 && retry++ < RETRY_NUM) {
+                LOG(1) << "performUpdates throw DBException " << ex.what() << " retrying " << retry
+                       << "/" << RETRY_NUM;
+                opCtx->sleepFor(Milliseconds(1));
+                continue;
+            } else {
+                LOG(1) << "performUpdates throw DBException " << ex.what();
+                break;
+            }
         }
-    } catch (const DBException& ex) {
-        LOG(1) << "performUpdates throw DBException " << ex.what();
     }
 }
 
@@ -1230,14 +1297,28 @@ void receivedDelete(OperationContext* opCtx, const NamespaceString& nsString, co
     uassertStatusOK(status);
 
     // EloqDoc enables command level transaction.
-    try {
-        WriteUnitOfWork wuow(opCtx);
-        performDeletes(opCtx, deleteOp);
-        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
-            wuow.commit();
+    int retry = 0;
+    while (true) {
+        try {
+            WriteUnitOfWork wuow(opCtx);
+            performDeletes(opCtx, deleteOp);
+            if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
+                wuow.commit();
+            }
+            break;
+        } catch (const DBException& ex) {
+            if ((ex.code() == ErrorCodes::WriteConflict ||
+                 ex.code() == ErrorCodes::ExceededMemoryLimit) &&
+                opCtx->getRemainingMaxTimeMillis().count() > 0 && retry++ < RETRY_NUM) {
+                LOG(1) << "performDeletes throw DBException " << ex.what() << " retrying " << retry
+                       << "/" << RETRY_NUM;
+                opCtx->sleepFor(Milliseconds(1));
+                continue;
+            } else {
+                LOG(1) << "performDeletes throw DBException " << ex.what();
+                break;
+            }
         }
-    } catch (const DBException& ex) {
-        LOG(1) << "performDeletes throw DBException " << ex.what();
     }
 }
 
