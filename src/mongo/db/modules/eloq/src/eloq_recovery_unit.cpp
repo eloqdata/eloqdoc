@@ -385,6 +385,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
 
     bool exists = false;
+    bool point_read_on_miss = true;
     txservice::TxErrorCode err = txservice::TxErrorCode::NO_ERROR;
     for (int i = 0; i < 10; ++i) {
         txservice::ReadTxRequest readTxReq(&tableName,
@@ -397,7 +398,7 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
                                            0,
                                            false,
                                            false,
-                                           false,
+                                           point_read_on_miss,
                                            coro.yieldFuncPtr,
                                            coro.resumeFuncPtr,
                                            _txm);
@@ -464,7 +465,7 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
 
     bool isForShare = false;
     bool readLocal = false;
-    bool point_read_on_miss = false;
+    bool point_read_on_miss = true;
     txservice::BatchReadTxRequest batchReadTxReq(&tableName,
                                                  keySchemaVersion,
                                                  batch,
