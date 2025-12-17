@@ -127,11 +127,10 @@ void ServiceEntryPointImpl::startSession(transport::SessionHandle session) {
     // while holding it.
     if (connectionCount > _maxNumConnections) {
         if (!quiet) {
-            // log() << "connection refused because too many open connections: " << connectionCount;
-            log() << "too many open connections: " << connectionCount;
+            log() << "connection refused because too many open connections: " << connectionCount;
         }
 
-        // return;
+        return;
     }
 
 
