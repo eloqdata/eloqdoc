@@ -35,6 +35,7 @@
 #include "mongo/util/log.h"
 
 #include "log_utils.h"
+#include "mongo/db/modules/eloq/data_substrate/core/include/glog_error_logging.h"
 #include "mongo/db/modules/eloq/data_substrate/eloq_metrics/include/metrics.h"
 #include "mongo/db/modules/eloq/data_substrate/store_handler/kv_store.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
@@ -149,6 +150,17 @@ std::string_view extractDbName(std::string_view nss) {
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     log() << "Starting Eloq storage engine. dbPath: " << path;
     log() << "Standalone mode: Initializing data substrate...";
+
+    std::filesystem::path systemLogPath(serverGlobalParams.logpath);
+    if (systemLogPath.has_parent_path()) {
+        static std::filesystem::path logdir = systemLogPath.parent_path();
+        GFLAGS_NAMESPACE::SetCommandLineOption("log_dir", logdir.c_str());
+    }
+    const char* tmp[] = {"eloqdb", nullptr};
+    char** dummy_argv = const_cast<char**>(tmp);
+    InitGoogleLogging(dummy_argv);
+
+
     DataSubstrate::Instance().Init(FLAGS_data_substrate_config);
 
     auto& ds = DataSubstrate::Instance();
