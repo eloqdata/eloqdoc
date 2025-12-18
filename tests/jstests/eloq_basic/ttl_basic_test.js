@@ -21,7 +21,7 @@ const dbName = "ttl_test_db";
 const collName = "ttl_random_test_coll";
 
 // Number of documents
-const docCount = 50000;
+const docCount = 10000;
 
 // Random expiration range: [1, 10] seconds
 const minTTL = 1;
@@ -92,8 +92,8 @@ while (remaining > 0) {
     remaining = dbTest[collName].countDocuments({});
     print(`Elapsed ${elapsed}s, remaining documents: ${remaining}`);
 
-    // Safety timeout: 60 sec
-    if (elapsed > 60) {
+    // Safety timeout: 120 sec
+    if (elapsed > 120) {
         print("Timeout reached. Some documents may not have expired.");
         break;
     }

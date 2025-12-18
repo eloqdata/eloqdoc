@@ -486,12 +486,13 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                      << " NO_ERROR";
     } else if (err == txservice::TxErrorCode::DEAD_LOCK_ABORT ||
                err == txservice::TxErrorCode::READ_WRITE_CONFLICT ||
-               err == txservice::TxErrorCode::WRITE_WRITE_CONFLICT) {
+               err == txservice::TxErrorCode::WRITE_WRITE_CONFLICT ||
+               err == txservice::TxErrorCode::OUT_OF_MEMORY) {
         MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
                      << ", txn: " << _txm->TxNumber() << ", TxError: " << batchReadTxReq.ErrorMsg();
     } else {
         error() << "EloqRecoveryUnit::batchGetKV tableName: " << tableName.StringView() << ", "
-                << ", txn: " << _txm->TxNumber() << batchReadTxReq.ErrorMsg();
+                << ", txn: " << _txm->TxNumber() << ", TxError: " << batchReadTxReq.ErrorMsg();
     }
     return err;
 }

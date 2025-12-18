@@ -229,6 +229,15 @@ public:
                                     bool noWarn,
                                     StoreDeletedDoc storeDeletedDoc) = 0;
 
+        virtual void deleteDocument(OperationContext* opCtx,
+                                    StmtId stmtId,
+                                    const RecordId& loc,
+                                    const Snapshotted<BSONObj>& doc,
+                                    OpDebug* opDebug,
+                                    bool fromMigrate,
+                                    bool noWarn,
+                                    StoreDeletedDoc storeDeletedDoc) = 0;
+
         virtual Status insertDocuments(OperationContext* opCtx,
                                        std::vector<InsertStatement>::const_iterator begin,
                                        std::vector<InsertStatement>::const_iterator end,
@@ -473,6 +482,18 @@ public:
                                StoreDeletedDoc storeDeletedDoc = StoreDeletedDoc::Off) {
         return this->_impl().deleteDocument(
             opCtx, stmtId, loc, opDebug, fromMigrate, noWarn, storeDeletedDoc);
+    }
+
+    inline void deleteDocument(OperationContext* const opCtx,
+                               StmtId stmtId,
+                               const RecordId& loc,
+                               const Snapshotted<BSONObj>& doc,
+                               OpDebug* const opDebug,
+                               const bool fromMigrate = false,
+                               const bool noWarn = false,
+                               StoreDeletedDoc storeDeletedDoc = StoreDeletedDoc::Off) {
+        return this->_impl().deleteDocument(
+            opCtx, stmtId, loc, doc, opDebug, fromMigrate, noWarn, storeDeletedDoc);
     }
 
     /*

@@ -578,13 +578,24 @@ void CollectionImpl::deleteDocument(OperationContext* opCtx,
                                     bool fromMigrate,
                                     bool noWarn,
                                     Collection::StoreDeletedDoc storeDeletedDoc) {
+    Snapshotted<BSONObj> doc = docFor(opCtx, loc);
+    deleteDocument(opCtx, stmtId, loc, doc, opDebug, fromMigrate, noWarn, storeDeletedDoc);
+}
+
+void CollectionImpl::deleteDocument(OperationContext* opCtx,
+                                    StmtId stmtId,
+                                    const RecordId& loc,
+                                    const Snapshotted<BSONObj>& doc,
+                                    OpDebug* opDebug,
+                                    bool fromMigrate,
+                                    bool noWarn,
+                                    Collection::StoreDeletedDoc storeDeletedDoc) {
     if (isCapped()) {
         log() << "failing remove on a capped ns " << _ns;
         uasserted(10089, "cannot remove from a capped collection");
         return;
     }
 
-    Snapshotted<BSONObj> doc = docFor(opCtx, loc);
     getGlobalServiceContext()->getOpObserver()->aboutToDelete(opCtx, ns(), doc.value());
 
     boost::optional<BSONObj> deletedDoc;

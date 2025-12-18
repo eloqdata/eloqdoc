@@ -210,9 +210,11 @@ PlanStage::StageState DeleteStage::doWork(WorkingSetID* out) {
     if (!_params.isExplain) {
         try {
             WriteUnitOfWork wunit(getOpCtx());
+            // EloqDoc: Pass the document to avoid another fetch during delete.
             _collection->deleteDocument(getOpCtx(),
                                         _params.stmtId,
                                         recordId,
+                                        member->obj,
                                         _params.opDebug,
                                         _params.fromMigrate,
                                         false,

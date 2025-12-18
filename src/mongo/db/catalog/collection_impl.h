@@ -158,6 +158,16 @@ public:
         bool noWarn = false,
         Collection::StoreDeletedDoc storeDeletedDoc = Collection::StoreDeletedDoc::Off) final;
 
+    void deleteDocument(
+        OperationContext* opCtx,
+        StmtId stmtId,
+        const RecordId& loc,
+        const Snapshotted<BSONObj>& doc,
+        OpDebug* opDebug,
+        bool fromMigrate = false,
+        bool noWarn = false,
+        Collection::StoreDeletedDoc storeDeletedDoc = Collection::StoreDeletedDoc::Off) final;
+
     /*
      * Inserts all documents inside one WUOW.
      * Caller should ensure vector is appropriately sized for this.

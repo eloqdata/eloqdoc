@@ -443,10 +443,9 @@ public:
             return {};
         }
 
-        if (!_cursor) {
+        if (!_cursor || !_cursor->indexScanIsOpen()) {
             _seekCursor();
         }
-        assert(_cursor);
 
         txservice::TxErrorCode txErr = _cursor->nextBatchTuple();
         uassertStatusOK(TxErrorCodeToMongoStatus(txErr));
@@ -475,9 +474,11 @@ public:
 
     boost::optional<Record> seekExact(const RecordId& id) override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::seekExact. table: " << _tableName->StringView()
-                     << ", id: " << id;
+                     << ", txn: " << _ru->getTxm()->TxNumber() << ", id: " << id;
 
         if (_cursor) {
+            MONGO_LOG(1) << "EloqRecordStoreCursor::seekExact reset existing cursor. table: "
+                         << _tableName->StringView() << ", txn: " << _ru->getTxm()->TxNumber();
             _cursor.reset();
         }
 
@@ -512,22 +513,23 @@ public:
     }
 
     void saveUnpositioned() override {
-        MONGO_LOG(1) << "EloqRecordStoreCursor::saveUnpositioned";
-        _lastMongoKey.reset();
-        _cursor.reset();
-    }
-
-    void save() override {
-        MONGO_LOG(1) << "EloqRecordStoreCursor::save";
+        MONGO_LOG(1) << "EloqRecordStoreCursor::saveUnpositioned " << _tableName->StringView();
+        // _lastMongoKey.reset();
         if (!_eof && _cursor && _cursor->currentBatchTuple() != nullptr) {
             _lastMongoKey.emplace(*_cursor->currentBatchTuple()->key_.GetKey<Eloq::MongoKey>());
         }
         _cursor.reset();
     }
 
+    void save() override {
+        MONGO_LOG(1) << "EloqRecordStoreCursor::save " << _tableName->StringView();
+        if (!_eof && _cursor && _cursor->currentBatchTuple() != nullptr) {
+            _lastMongoKey.emplace(*_cursor->currentBatchTuple()->key_.GetKey<Eloq::MongoKey>());
+        }
+    }
+
     bool restore() override {
-        MONGO_LOG(1) << "EloqRecordStoreCursor::restore";
-        assert(!_cursor);
+        MONGO_LOG(1) << "EloqRecordStoreCursor::restore " << _tableName->StringView();
         // Don't open scan here.
         // Mongo may call seekExact which don't need a scan in TxService
         return true;
