@@ -282,7 +282,9 @@ private:
 
     void _migrateThreadGroup(uint16_t threadGroupId);
 
-    static constexpr size_t kCoroStackSize = 3200 * 1024;
+    // Coroutine stack size: Increased from 3.2MB to 8MB to prevent stack overflow
+    // in complex database operations (deep recursion, large BSON processing, etc.)
+    static constexpr size_t kCoroStackSize = 8192 * 1024;  // 8MB
     const size_t _osPageSize;
     char* _coroStack;
     boost::context::continuation _source;

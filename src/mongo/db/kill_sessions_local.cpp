@@ -74,7 +74,9 @@ SessionKiller::Result killSessionsLocal(OperationContext* opCtx,
 }
 
 struct CoroCtx {
-    static constexpr size_t kCoroStackSize = 3200 * 1024;
+    // Coroutine stack size: Increased from 3.2MB to 8MB to prevent stack overflow
+    // in complex database operations (deep recursion, large BSON processing, etc.)
+    static constexpr size_t kCoroStackSize = 8192 * 1024;  // 8MB
     boost::context::protected_fixedsize_stack salloc{kCoroStackSize};
     boost::context::continuation source;
     std::function<void()> resumeTask;
