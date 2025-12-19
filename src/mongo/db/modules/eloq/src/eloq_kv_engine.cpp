@@ -652,19 +652,30 @@ void MongoSystemHandler::ReloadCache(std::function<void(bool)> done) {
             return true;
         }
 
-        auto client = mongo::getGlobalServiceContext()->makeClient("eloq_table_schema");
-        auto opCtx = serviceContext->makeOperationContext(client.get());
-        auto const globalAuthzManager = mongo::AuthorizationManager::get(serviceContext);
+        ServiceContext::UniqueClient client =
+            mongo::getGlobalServiceContext()->makeClient("eloq_table_schema");
+        Client::setCurrent(std::move(client));
+        const auto finall = MakeGuard([] { Client::releaseCurrent(); });
 
-        for (int i = 0; i < 5; i++) {
-            status = globalAuthzManager->initialize(opCtx.get());
-            if (status.isOK()) {
-                break;
+        ServiceContext::UniqueOperationContext opCtx =
+            serviceContext->makeOperationContext(Client::getCurrent());
+        AuthorizationManager* globalAuthzManager = AuthorizationManager::get(serviceContext);
+
+        try {
+            for (int i = 0; i < 5; i++) {
+                status = globalAuthzManager->initialize(opCtx.get());
+                if (status.isOK()) {
+                    break;
+                }
             }
+        } catch (const std::exception& ex) {
+            status = mongo::Status(
+                mongo::ErrorCodes::InternalError,
+                mongo::str::stream() << "Exception caught in reload_acl_and_cache: " << ex.what());
         }
 
         if (!status.isOK()) {
-            mongo::error() << "reload_acl_and_cache failed";
+            mongo::error() << "reload_acl_and_cache failed, error: " << status.toString();
         }
         done(status.isOK());
         return status.isOK();

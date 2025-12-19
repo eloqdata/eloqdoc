@@ -95,6 +95,9 @@ void generateSystemIndexForExistingCollection(OperationContext* opCtx,
                                               Collection* collection,
                                               const NamespaceString& ns,
                                               const IndexSpec& spec) {
+    // TOOD: Fix EloqDoc create index crash.
+    return;
+
     // Do not try and generate any system indexes in read only mode.
     if (storageGlobalParams.readOnly) {
         warning() << "Running in queryable backup mode. Unable to create authorization index on "
