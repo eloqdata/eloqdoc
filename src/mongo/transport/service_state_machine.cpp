@@ -734,12 +734,26 @@ void ServiceStateMachine::setThreadGroupId(size_t id) {
 
 boost::context::stack_context ServiceStateMachine::_coroStackContext() {
     boost::context::stack_context sc;
-    sc.size = kCoroStackSize - _osPageSize;
-    // Stack grows downwards from high address. Align stack pointer to 16-byte boundary
-    // (required for x86-64 ABI and SIMD instructions)
+    // Stack grows downwards from high address.
+    //
+    // We reserve the first OS page as a guard page (PROT_NONE), so the usable region is:
+    //   [bottom, top)
+    // where:
+    //   bottom = _coroStack + _osPageSize
+    //   top    = _coroStack + kCoroStackSize
+    //
+    // Boost.Context models the usable range as [sp - size, sp), so if we align sp down we must
+    // also recompute size from the aligned sp to keep the bottom boundary correct.
+    char* bottom = _coroStack + _osPageSize;
     char* top = _coroStack + kCoroStackSize;
-    // Align down to 16-byte boundary
-    sc.sp = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(top) & ~static_cast<uintptr_t>(15));
+
+    // Align down to 16-byte boundary (common ABI requirement on x86-64 and for SIMD).
+    char* sp =
+        reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(top) & ~static_cast<uintptr_t>(15));
+
+    invariant(sp > bottom);
+    sc.sp = sp;
+    sc.size = static_cast<size_t>(sp - bottom);
     return sc;
 }
 
