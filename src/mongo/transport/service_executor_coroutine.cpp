@@ -316,13 +316,22 @@ Status ServiceExecutorCoroutine::schedule(Task task,
 std::function<void()> ServiceExecutorCoroutine::coroutineResumeFunctor(uint16_t threadGroupId,
                                                                        const Task& task) {
     invariant(threadGroupId < _threadGroups.size());
-    return [thd_group = &_threadGroups[threadGroupId], &task]() { thd_group->resumeTask(task); };
+    // IMPORTANT: capture task by value. Capturing by reference here would dangle because `task`
+    // is a reference to this function's parameter, which goes out of scope when we return.
+    Task taskCopy = task;
+    return [thd_group = &_threadGroups[threadGroupId], task = std::move(taskCopy)]() mutable {
+        thd_group->resumeTask(task);
+    };
 }
 
 std::function<void()> ServiceExecutorCoroutine::coroutineLongResumeFunctor(uint16_t threadGroupId,
                                                                            const Task& task) {
     invariant(threadGroupId < _threadGroups.size());
-    return [thd_group = &_threadGroups[threadGroupId], &task]() { thd_group->enqueueTask(task); };
+    // Same lifetime rule as coroutineResumeFunctor(): capture by value to avoid dangling refs.
+    Task taskCopy = task;
+    return [thd_group = &_threadGroups[threadGroupId], task = std::move(taskCopy)]() mutable {
+        thd_group->enqueueTask(task);
+    };
 }
 
 void ServiceExecutorCoroutine::ongoingCoroutineCountUpdate(uint16_t threadGroupId, int delta) {
