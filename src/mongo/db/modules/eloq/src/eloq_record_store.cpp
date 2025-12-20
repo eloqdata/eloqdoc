@@ -20,8 +20,6 @@
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
 
 #include <cassert>
-#include <chrono>
-#include <thread>
 #include <utility>
 
 #include "boost/optional/optional.hpp"
@@ -482,34 +480,28 @@ public:
             _cursor.reset();
         }
 
-        EloqKVPair& kvPair = _ru->getKVPair();
-        Eloq::MongoKey& store_pkey = kvPair.keyRef();
-        const Eloq::MongoRecord* store_record = kvPair.getValuePtr();
-
-        // _id don't need getKV if it has been stored in KVPair
-        if (store_record == nullptr || store_pkey.PackedKeyStringView() != id.getStringView()) {
-            store_pkey.SetPackedKey(id);
-            bool isForWrite = _opCtx->isUpsert();
-            auto [exists, err] =
-                _ru->getKVInternal(_opCtx, *_tableName, _keySchema->SchemaTs(), isForWrite);
-            uassertStatusOK(TxErrorCodeToMongoStatus(err));
-            if (!exists) {
-                MONGO_LOG(1) << "no found. id: " << id << ". Txservice error code: " << err;
-                return {};
-            }
-            store_record = kvPair.getValuePtr();
-            MONGO_LOG(1) << "keyStore:" << store_pkey.ToString();
+        Eloq::MongoKey pkey(id);
+        bool isForWrite = _opCtx->isUpsert();
+        auto [exists, err] = _ru->getKV(
+            _opCtx, *_tableName, _keySchema->SchemaTs(), &pkey, &_idReadRecord, isForWrite);
+        uassertStatusOK(TxErrorCodeToMongoStatus(err));
+        if (!exists) {
+            MONGO_LOG(1) << "no found. id: " << id << ". Txservice error code: " << err;
+            return {};
         }
 
         if (_lastMongoKey) {
-            _lastMongoKey->Copy(store_pkey);
+            _lastMongoKey->Copy(pkey);
         } else {
-            _lastMongoKey.emplace(store_pkey);
+            _lastMongoKey.emplace(pkey);
         }
+
+        MONGO_LOG(1) << "found. id: " << id
+                     << ". record:" << BSONObj{_idReadRecord.EncodedBlobData()}.jsonString();
 
         return {
             {id,
-             {store_record->EncodedBlobData(), static_cast<int>(store_record->EncodedBlobSize())}}};
+             {_idReadRecord.EncodedBlobData(), static_cast<int>(_idReadRecord.EncodedBlobSize())}}};
     }
 
     void saveUnpositioned() override {
@@ -598,6 +590,8 @@ private:
 
     txservice::TxKey _startKey;
     txservice::TxKey _endKey;
+
+    Eloq::MongoRecord _idReadRecord;
 
     // Mongo use EloqRecordStoreCursor even for exact match operation
     // which actually does not need construct a Cursor in Eloq's design.

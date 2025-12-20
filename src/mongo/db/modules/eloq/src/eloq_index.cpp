@@ -62,8 +62,7 @@ public:
           _forward{forward},
           _key{_idx->keyStringVersion()},
           _typeBits{_idx->keyStringVersion()},
-          _query{_idx->keyStringVersion()},
-          _kvPair{&_ru->getKVPair()} {
+          _query{_idx->keyStringVersion()} {
         // _timer.start();
         MONGO_LOG(1) << "EloqIndexCursor::EloqIndexCursor " << _indexName->StringView();
     }
@@ -104,7 +103,7 @@ public:
         _startKey = Eloq::MongoKey::GetNegInfTxKey();
         _endKey = Eloq::MongoKey::GetNegInfTxKey();
 
-        _kvPair = &_ru->getKVPair();
+        _recordPtr = nullptr;
     }
 
     void setEndPosition(const BSONObj& key, bool inclusive) override {
@@ -234,19 +233,22 @@ private:
         MONGO_LOG(1) << "finalKey" << finalKey;
 
         _key.resetToKey(finalKey, _idx->ordering());
-        _kvPair->keyRef().SetPackedKey(_key.getBuffer(), _key.getSize());
-        std::string_view sv{_key.getBuffer(), _key.getSize()};
-        bool isForWrite = _opCtx->isUpsert();
-        auto [exists, err] =
-            _ru->getKVInternal(_opCtx, *_indexName, _indexSchema->SchemaTs(), isForWrite);
+        Eloq::MongoKey mongoKey(_key);
+        auto [exists, err] = _ru->getKV(_opCtx,
+                                        *_indexName,
+                                        _indexSchema->SchemaTs(),
+                                        &mongoKey,
+                                        &_idReadRecord,
+                                        _opCtx->isUpsert());
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
         if (exists) {
             // valid
             _id = RecordId{_key.getBuffer(), _key.getSize()};
             _typeBits.reset();
+            _recordPtr = &_idReadRecord;
         } else {
             _eof = true;
-            _kvPair->setValuePtr(nullptr);
+            _recordPtr = nullptr;
         }
 
         return _curr(parts);
@@ -335,24 +337,25 @@ private:
                 BufReader br{_scanTupleRecord->UnpackInfoData(),
                              static_cast<unsigned int>(_scanTupleRecord->UnpackInfoSize())};
                 _typeBits.resetFromBuffer(&br);
-                _kvPair->setValuePtr(_scanTupleRecord);
+                _recordPtr = _scanTupleRecord;
             } break;
-
             case IndexCursorType::UNIQUE: {
                 _id = _scanTupleRecord->ToRecordId(false);
                 BufReader br{_scanTupleRecord->UnpackInfoData(),
                              static_cast<unsigned int>(_scanTupleRecord->UnpackInfoSize())};
                 _typeBits.resetFromBuffer(&br);
-                _kvPair->setValuePtr(nullptr);
+                _recordPtr = nullptr;
             } break;
-
             case IndexCursorType::STANDARD: {
                 _id = KeyString::decodeRecordIdStrAtEnd(_key.getBuffer(), _key.getSize());
                 BufReader br{_scanTupleRecord->UnpackInfoData(),
                              static_cast<unsigned int>(_scanTupleRecord->UnpackInfoSize())};
                 _typeBits.resetFromBuffer(&br);
-                _kvPair->setValuePtr(nullptr);
-            } break;
+                _recordPtr = nullptr;
+                break;
+            }
+            default:
+                MONGO_UNREACHABLE;
         };
 
         MONGO_LOG(1) << "EloqIndexCursor::_updateIdAndTypeBits " << _indexName->StringView()
@@ -372,7 +375,15 @@ private:
             bson = KeyString::toBson(_key.getBuffer(), _key.getSize(), _idx->ordering(), _typeBits);
             MONGO_LOG(1) << "bson: " << bson << ". _id: " << _id;
         }
-        return {{std::move(bson), _id}};
+
+        if (_recordPtr) {
+            return {
+                {std::move(bson),
+                 _id,
+                 {_recordPtr->EncodedBlobData(), static_cast<int>(_recordPtr->EncodedBlobSize())}}};
+        } else {
+            return {{std::move(bson), _id}};
+        }
     }
 
     bool _atOrPastEndPointAfterSeeking() const {
@@ -424,10 +435,12 @@ private:
 
     txservice::TxKey _startKey;
     txservice::TxKey _endKey;
-    EloqKVPair* _kvPair;
 
-    Eloq::MongoKey _currentKey;
-    Eloq::MongoRecord _currentRecord;
+    // EloqDoc is index-organized table, we can bookeeping the record data here to avoid re-fetching
+    // it.
+    const Eloq::MongoRecord* _recordPtr;
+
+    Eloq::MongoRecord _idReadRecord;
 
     boost::optional<EloqCursor> _cursor;
 };

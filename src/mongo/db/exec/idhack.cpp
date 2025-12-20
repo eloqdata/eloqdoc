@@ -120,7 +120,8 @@ PlanStage::StageState IDHackStage::doWork(WorkingSetID* out) {
     WorkingSetID id = WorkingSet::INVALID_ID;
     try {
         // Look up the key by going directly to the index.
-        RecordId recordId = _accessMethod->findSingle(getOpCtx(), _key);
+        RecordData recordData;
+        RecordId recordId = _accessMethod->findSingle(getOpCtx(), _key, &recordData);
 
         // Key not found.
         if (recordId.isNull()) {
@@ -135,7 +136,10 @@ PlanStage::StageState IDHackStage::doWork(WorkingSetID* out) {
         id = _workingSet->allocate();
         WorkingSetMember* member = _workingSet->get(id);
         member->recordId = recordId;
-        _workingSet->transitionToRecordIdAndIdx(id);
+        member->obj = {getOpCtx()->recoveryUnit()->getSnapshotId(), recordData.releaseToBson()};
+        // _workingSet->transitionToRecordIdAndIdx(id);
+        _workingSet->transitionToRecordIdAndObj(id);
+        return advance(id, member, out);
 
         if (!_recordCursor)
             _recordCursor = _collection->getCursor(getOpCtx());

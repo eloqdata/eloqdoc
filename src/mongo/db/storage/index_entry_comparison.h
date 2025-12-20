@@ -35,6 +35,7 @@
 #include "mongo/bson/simple_bsonobj_comparator.h"
 #include "mongo/db/jsobj.h"
 #include "mongo/db/record_id.h"
+#include "mongo/db/storage/record_data.h"
 
 namespace mongo {
 
@@ -45,8 +46,16 @@ namespace mongo {
 struct IndexKeyEntry {
     IndexKeyEntry(BSONObj key, RecordId loc) : key(std::move(key)), loc(std::move(loc)) {}
 
+    IndexKeyEntry(BSONObj key, RecordId loc, RecordData record)
+        : key(std::move(key)), loc(std::move(loc)), record(std::move(record)) {}
+
     BSONObj key;
     RecordId loc;
+
+    /**
+     * EloqDoc: Store record data along with index entry to avoid fetching from the main table.
+     */
+    boost::optional<RecordData> record;
 };
 
 std::ostream& operator<<(std::ostream& stream, const IndexKeyEntry& entry);

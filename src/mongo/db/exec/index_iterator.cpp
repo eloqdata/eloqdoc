@@ -66,7 +66,13 @@ PlanStage::StageState IndexIteratorStage::doWork(WorkingSetID* out) {
         WorkingSetMember* member = _ws->get(id);
         member->recordId = entry->loc;
         member->keyData.push_back(IndexKeyDatum(_keyPattern, entry->key, _iam));
-        _ws->transitionToRecordIdAndIdx(id);
+        if (entry->record) {
+            member->obj = {getOpCtx()->recoveryUnit()->getSnapshotId(),
+                           entry->record->releaseToBson()};
+            _ws->transitionToRecordIdAndObj(id);
+        } else {
+            _ws->transitionToRecordIdAndIdx(id);
+        }
 
         *out = id;
         return PlanStage::ADVANCED;

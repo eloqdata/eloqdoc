@@ -257,7 +257,9 @@ Status IndexAccessMethod::touch(OperationContext* opCtx) const {
     return _newInterface->touch(opCtx);
 }
 
-RecordId IndexAccessMethod::findSingle(OperationContext* opCtx, const BSONObj& requestedKey) const {
+RecordId IndexAccessMethod::findSingle(OperationContext* opCtx,
+                                       const BSONObj& requestedKey,
+                                       RecordData* record) const {
     // Generate the key for this index.
     BSONObj actualKey;
     if (_btreeState->getCollator()) {
@@ -281,7 +283,9 @@ RecordId IndexAccessMethod::findSingle(OperationContext* opCtx, const BSONObj& r
         dassert(!kv->loc.isNull());
         dassert(kv->key.woCompare(actualKey, /*order*/ BSONObj(), /*considerFieldNames*/ false) ==
                 0);
-
+        if (record && kv->record) {
+            *record = std::move(kv->record.value());
+        }
         return kv->loc;
     }
 

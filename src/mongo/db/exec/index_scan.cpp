@@ -224,7 +224,12 @@ PlanStage::StageState IndexScan::doWork(WorkingSetID* out) {
     WorkingSetMember* member = _workingSet->get(id);
     member->recordId = kv->loc;
     member->keyData.push_back(IndexKeyDatum(_keyPattern, kv->key, _iam));
-    _workingSet->transitionToRecordIdAndIdx(id);
+    if (kv->record) {
+        member->obj = {getOpCtx()->recoveryUnit()->getSnapshotId(), kv->record->releaseToBson()};
+        _workingSet->transitionToRecordIdAndObj(id);
+    } else {
+        _workingSet->transitionToRecordIdAndIdx(id);
+    }
 
     if (_params.addKeyMetadata) {
         BSONObjBuilder bob;

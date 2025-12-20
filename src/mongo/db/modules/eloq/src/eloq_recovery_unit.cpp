@@ -145,7 +145,6 @@ void EloqRecoveryUnit::reset() {
     _active = false;
     _isTimestamped = false;
     _inMultiDocumentTransation = false;
-    _kvPair.reset();
     _commitTimestamp.reset();
     _prepareTimestamp.reset();
     _lastTimestampSet.reset();
@@ -442,18 +441,6 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     }
 
     return {exists, err};
-}
-
-std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKVInternal(
-    OperationContext* opCtx,
-    const txservice::TableName& tableName,
-    uint64_t keySchemaVersion,
-    bool isForWrite,
-    bool readLocal) {
-    MONGO_LOG(1) << "EloqRecoveryUnit::getKVInternal";
-    _kvPair.setInternalValuePtr();
-    return getKV(
-        opCtx, tableName, keySchemaVersion, &_kvPair.keyRef(), _kvPair.getValuePtr(), isForWrite);
 }
 
 txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
@@ -971,7 +958,6 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
     _active = false;
     _inMultiDocumentTransation = false;
     _mySnapshotId = nextSnapshotId.fetch_add(1);
-    _kvPair.reset();
     _discoveredTableMap.clear();
     // _unreadyTableMap.clear();
 

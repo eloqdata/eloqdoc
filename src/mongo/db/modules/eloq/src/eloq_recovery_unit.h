@@ -42,42 +42,6 @@
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 namespace mongo {
-class EloqKVPair {
-public:
-    EloqKVPair() = default;
-
-    void reset() {
-        _key.Reset();
-        _valuePtr = nullptr;
-        _internalStore.Reset();
-    }
-
-    Eloq::MongoKey& keyRef() {
-        return _key;
-    }
-
-    void setInternalValuePtr() {
-        _valuePtr = &_internalStore;
-    }
-
-    void setValuePtr(const Eloq::MongoRecord* ptr) {
-        _valuePtr = ptr;
-    }
-
-    const Eloq::MongoRecord* getValuePtr() const {
-        return _valuePtr;
-    }
-
-    Eloq::MongoRecord* getValuePtr() {
-        return const_cast<Eloq::MongoRecord*>(_valuePtr);
-    }
-
-private:
-    Eloq::MongoKey _key;
-    const Eloq::MongoRecord* _valuePtr{nullptr};
-    Eloq::MongoRecord _internalStore;
-};
-
 // The RecoveryUnit controls what snapshot a storage engine transaction uses for its reads.
 class EloqRecoveryUnit final : public RecoveryUnit {
 public:
@@ -154,12 +118,6 @@ public:
         Eloq::MongoRecord* record,
         bool isForWrite);
     // store in the internal kvpair
-    [[nodiscard]] std::pair<bool, txservice::TxErrorCode> getKVInternal(
-        OperationContext* opCtx,
-        const txservice::TableName& tableName,
-        uint64_t keySchemaVersion,
-        bool isForWrite = false,
-        bool readLocal = false);
 
     [[nodiscard]] txservice::TxErrorCode batchGetKV(OperationContext* opCtx,
                                                     const txservice::TableName& tableName,
@@ -178,10 +136,6 @@ public:
                        std::string_view newMetadata,
                        std::string* newSchemaImage,
                        bool* insideDmlTxn);
-
-    EloqKVPair& getKVPair() {
-        return _kvPair;
-    }
 
     bool unreadyIsEmpty() {
         return _unreadyTableMap.empty();
@@ -226,8 +180,6 @@ private:
     bool _inMultiDocumentTransation{false};
 
     absl::flat_hash_set<EloqCursor*> _cursors;
-
-    EloqKVPair _kvPair;
 
     Timestamp _commitTimestamp;
     Timestamp _prepareTimestamp;
