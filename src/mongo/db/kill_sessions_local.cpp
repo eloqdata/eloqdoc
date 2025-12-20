@@ -113,7 +113,7 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
                 getGlobalServiceContext()->getServiceEntryPoint()->getServiceExecutor();
 
             coroCtx->resumeTask = [&source = coroCtx->source, &client] {
-                log() << "abortArbitraryTransactionIfExpired call resume.";
+                error() << "abortArbitraryTransactionIfExpired call resume.";
                 Client::setCurrent(std::move(client));
                 source = source.resume();
             };
@@ -131,7 +131,7 @@ void killAllExpiredTransactions(OperationContext* opCtx) {
                     [&finished, &mux, &cv, coroCtx, opCtx, session, &client, serviceExecutor](
                         boost::context::continuation&& sink) {
                         coroCtx->yieldFunc = [&sink, &client]() {
-                            log() << "abortArbitraryTransactionIfExpired call yield.";
+                            error() << "abortArbitraryTransactionIfExpired call yield.";
                             client = Client::releaseCurrent();
                             sink = sink.resume();
                         };
