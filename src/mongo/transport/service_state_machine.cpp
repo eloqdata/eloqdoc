@@ -55,6 +55,7 @@
 
 #include <boost/context/preallocated.hpp>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -734,8 +735,11 @@ void ServiceStateMachine::setThreadGroupId(size_t id) {
 boost::context::stack_context ServiceStateMachine::_coroStackContext() {
     boost::context::stack_context sc;
     sc.size = kCoroStackSize - _osPageSize;
-    // Because stack grows downwards from high address?
-    sc.sp = _coroStack + kCoroStackSize;
+    // Stack grows downwards from high address. Align stack pointer to 16-byte boundary
+    // (required for x86-64 ABI and SIMD instructions)
+    char* top = _coroStack + kCoroStackSize;
+    // Align down to 16-byte boundary
+    sc.sp = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(top) & ~static_cast<uintptr_t>(15));
     return sc;
 }
 
