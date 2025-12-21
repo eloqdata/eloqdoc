@@ -475,6 +475,12 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         _serviceExecutor->ongoingCoroutineCountUpdate(
             _threadGroupId.load(std::memory_order_relaxed), -1);
 
+        // The coroutine "yield" contract is only valid while actively running inside the
+        // callcc() coroutine context. Once request processing completes, disable yielding so
+        // Client::coroutineFunctors() becomes Unavailable (it checks yieldFuncPtr).
+        _coroSink = {};
+        _coroYield = {};
+
         // opCtx must be destroyed here so that the operation cannot show
         // up in currentOp results after the response reaches the client
         // opCtx.reset();
@@ -557,8 +563,12 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
 
                             Client::setCurrent(std::move(ssm->_dbClient));
                             if (ssm->_migrating.load(std::memory_order_relaxed)) {
-                                ssm->_coroResume();
-                                ssm->_coroYield();
+                                if (ssm->_coroResume) {
+                                    ssm->_coroResume();
+                                }
+                                if (ssm->_coroYield) {
+                                    ssm->_coroYield();
+                                }
                             } else {
                                 ssm->_runResumeProcess();
                                 bool migrating = true;
@@ -605,6 +615,10 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                                         return;
                                     }
                                     MONGO_LOG(3) << "call yield";
+                                    // If these invariants fail, it strongly suggests someone is
+                                    // calling yield outside the active coroutine window.
+                                    invariant(haveClient());
+                                    invariant(static_cast<bool>(ssmLocked->_coroSink));
                                     ssmLocked->_dbClient = Client::releaseCurrent();
                                     ssmLocked->_coroSink = ssmLocked->_coroSink.resume();
                                 };
@@ -786,8 +800,12 @@ void ServiceStateMachine::_migrateThreadGroup(uint16_t threadGroupId) {
     _coroResume = _serviceExecutor->coroutineResumeFunctor(threadGroupId, _resumeTask);
     _coroLongResume = _serviceExecutor->coroutineLongResumeFunctor(threadGroupId, _resumeTask);
     _migrating.store(true, std::memory_order_relaxed);
-    _coroResume();
-    _coroYield();
+    if (_coroResume) {
+        _coroResume();
+    }
+    if (_coroYield) {
+        _coroYield();
+    }
 #ifdef MONGO_CONFIG_DEBUG_BUILD
     _owningThread.store(stdx::this_thread::get_id());
 #endif
