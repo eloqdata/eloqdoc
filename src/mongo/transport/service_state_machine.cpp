@@ -53,6 +53,7 @@
 #include "mongo/util/net/socket_exception.h"
 #include "mongo/util/quick_exit.h"
 
+#include <boost/context/detail/exception.hpp>
 #include <boost/context/preallocated.hpp>
 #include <cerrno>
 #include <cstdint>
@@ -475,12 +476,6 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         _serviceExecutor->ongoingCoroutineCountUpdate(
             _threadGroupId.load(std::memory_order_relaxed), -1);
 
-        // The coroutine "yield" contract is only valid while actively running inside the
-        // callcc() coroutine context. Once request processing completes, disable yielding so
-        // Client::coroutineFunctors() becomes Unavailable (it checks yieldFuncPtr).
-        _coroSink = {};
-        _coroYield = {};
-
         // opCtx must be destroyed here so that the operation cannot show
         // up in currentOp results after the response reaches the client
         // opCtx.reset();
@@ -660,6 +655,9 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
         }
 
         return;
+    } catch (const boost::context::detail::forced_unwind&) {
+        // Boost.Context uses forced_unwind to unwind stacks safely. It must never be swallowed.
+        throw;
     } catch (const DBException& e) {
         // must be right above std::exception to avoid catching subclasses
         log() << "DBException handling request, closing client connection: " << redact(e);
