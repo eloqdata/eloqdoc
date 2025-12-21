@@ -288,6 +288,10 @@ private:
     const size_t _osPageSize;
     char* _coroStack;
     boost::context::continuation _source;
+    // Continuation representing the caller ("sink") while executing inside the coroutine created
+    // by callcc(). We store this as a member so yield/resume functors never capture references to
+    // stack-local continuation variables.
+    boost::context::continuation _coroSink;
 
     enum class CoroStatus { Empty = 0, OnGoing, Finished };
     CoroStatus _coroStatus{CoroStatus::Empty};

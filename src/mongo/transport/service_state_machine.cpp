@@ -278,6 +278,7 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
 ServiceStateMachine::~ServiceStateMachine() {
     MONGO_LOG(1) << "ServiceStateMachine::~ServiceStateMachine";
     _source = {};
+    _coroSink = {};
     ::munmap(_coroStack, kCoroStackSize);
 }
 
@@ -302,6 +303,7 @@ void ServiceStateMachine::reset(ServiceContext* svcContext,
     _coroLongResume = {};
     _coroMigrateThreadGroup = {};
     _resumeTask = {};
+    _coroSink = {};
     _migrating.store(false, std::memory_order_relaxed);
     _threadGroupId.store(groupId, std::memory_order_relaxed);
     _owned.store(Ownership::kUnowned);
@@ -591,22 +593,24 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                                 if (!ssm) {
                                     return std::move(sink);
                                 }
-                                // IMPORTANT: Store a yield functor that won't UAF if invoked
-                                // during teardown. If SSM is gone, we still resume `sink` to
-                                // avoid deadlocks/spins in coro::Mutex/ConditionVariable.
-                                ssm->_coroYield = [wssm, &sink]() {
-                                    MONGO_LOG(3) << "call yield";
-                                    if (auto ssmLocked = wssm.lock()) {
-                                        ssmLocked->_dbClient = Client::releaseCurrent();
-                                    } else if (haveClient()) {
-                                        // Release/destroy the client to avoid leaking it.
-                                        (void)Client::releaseCurrent();
+                                // Store sink as a member so yield never captures references to
+                                // stack-local continuation variables.
+                                ssm->_coroSink = std::move(sink);
+
+                                // Yield functor: only valid to call while executing on the
+                                // coroutine stack. It resumes the caller continuation.
+                                ssm->_coroYield = [wssm]() {
+                                    auto ssmLocked = wssm.lock();
+                                    if (!ssmLocked) {
+                                        return;
                                     }
-                                    sink = sink.resume();
+                                    MONGO_LOG(3) << "call yield";
+                                    ssmLocked->_dbClient = Client::releaseCurrent();
+                                    ssmLocked->_coroSink = ssmLocked->_coroSink.resume();
                                 };
                                 ssm->_processMessage(std::move(guard));
 
-                                return std::move(sink);
+                                return std::move(ssm->_coroSink);
                             });
 
                         bool migrating = true;
@@ -816,6 +820,7 @@ void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
     _coroLongResume = {};
     _coroMigrateThreadGroup = {};
     _resumeTask = {};
+    _coroSink = {};
 
     // By ignoring the return value of Client::releaseCurrent() we destroy the session.
     // _dbClient is now nullptr and _dbClientPtr is invalid and should never be accessed.
