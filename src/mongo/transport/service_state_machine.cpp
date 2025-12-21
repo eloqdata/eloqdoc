@@ -544,7 +544,15 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         _coroStatus = CoroStatus::OnGoing;
                         _serviceExecutor->ongoingCoroutineCountUpdate(
                             _threadGroupId.load(std::memory_order_relaxed), 1);
-                        _resumeTask = [ssm = this] {
+                        // IMPORTANT: resume tasks can be queued and executed asynchronously.
+                        // Avoid capturing a raw `this` pointer to prevent UAF during shutdown.
+                        auto wssm = weak_from_this();
+                        _resumeTask = [wssm] {
+                            auto ssm = wssm.lock();
+                            if (!ssm) {
+                                return;
+                            }
+
                             Client::setCurrent(std::move(ssm->_dbClient));
                             if (ssm->_migrating.load(std::memory_order_relaxed)) {
                                 ssm->_coroResume();
@@ -566,8 +574,11 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                             _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
                         _coroLongResume = _serviceExecutor->coroutineLongResumeFunctor(
                             _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
-                        _coroMigrateThreadGroup = std::bind(
-                            &ServiceStateMachine::_migrateThreadGroup, this, std::placeholders::_1);
+                        _coroMigrateThreadGroup = [wssm](uint16_t threadGroupId) {
+                            if (auto ssm = wssm.lock()) {
+                                ssm->_migrateThreadGroup(threadGroupId);
+                            }
+                        };
 
                         boost::context::stack_context sc = _coroStackContext();
                         boost::context::preallocated prealloc(sc.sp, sc.size, sc);
@@ -580,9 +591,17 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                                 if (!ssm) {
                                     return std::move(sink);
                                 }
-                                ssm->_coroYield = [ssm = ssm.get(), &sink]() {
+                                // IMPORTANT: Store a yield functor that won't UAF if invoked
+                                // during teardown. If SSM is gone, we still resume `sink` to
+                                // avoid deadlocks/spins in coro::Mutex/ConditionVariable.
+                                ssm->_coroYield = [wssm, &sink]() {
                                     MONGO_LOG(3) << "call yield";
-                                    ssm->_dbClient = Client::releaseCurrent();
+                                    if (auto ssmLocked = wssm.lock()) {
+                                        ssmLocked->_dbClient = Client::releaseCurrent();
+                                    } else if (haveClient()) {
+                                        // Release/destroy the client to avoid leaking it.
+                                        (void)Client::releaseCurrent();
+                                    }
                                     sink = sink.resume();
                                 };
                                 ssm->_processMessage(std::move(guard));
@@ -786,6 +805,17 @@ void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
     _state.store(State::Ended);
 
     _inMessage.reset();
+
+    // Disable coroutine functors early during teardown to prevent any further coroutine
+    // yield/resume calls racing with destruction of this SSM and its coroutine stack.
+    if (haveClient()) {
+        Client::getCurrent()->setCoroutineFunctors(CoroutineFunctors::Unavailable);
+    }
+    _coroYield = {};
+    _coroResume = {};
+    _coroLongResume = {};
+    _coroMigrateThreadGroup = {};
+    _resumeTask = {};
 
     // By ignoring the return value of Client::releaseCurrent() we destroy the session.
     // _dbClient is now nullptr and _dbClientPtr is invalid and should never be accessed.
