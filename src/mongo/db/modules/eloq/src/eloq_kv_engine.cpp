@@ -280,6 +280,16 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
                                            eloqGlobalOptions.enableIOuring ? "true" : "false");
     GFLAGS_NAMESPACE::SetCommandLineOption("raft_use_bthread_fsync",
                                            eloqGlobalOptions.raftlogAsyncFsync ? "true" : "false");
+    {
+        const std::string level0StopWritesTrigger =
+            std::to_string(eloqGlobalOptions.rocksdbLevel0StopWritesTrigger);
+        const std::string level0SlowdownWritesTrigger =
+            std::to_string(eloqGlobalOptions.rocksdbLevel0SlowdownWritesTrigger);
+        GFLAGS_NAMESPACE::SetCommandLineOption("rocksdb_level0_stop_writes_trigger",
+                                               level0StopWritesTrigger.c_str());
+        GFLAGS_NAMESPACE::SetCommandLineOption("rocksdb_level0_slowdown_writes_trigger",
+                                               level0SlowdownWritesTrigger.c_str());
+    }
 
 #if (defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3) || \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3))
@@ -647,6 +657,9 @@ void EloqKVEngine::initDataStoreService(
     rocksdb_config.query_worker_num_ = 10 * serverGlobalParams.reservedThreadNum;
     rocksdb_config.max_background_jobs_ = eloqGlobalOptions.rocksdbMaxBackgroundJobs;
     rocksdb_config.max_subcompactions_ = eloqGlobalOptions.rocksdbMaxSubCompactions;
+    rocksdb_config.level0_stop_writes_trigger_ = eloqGlobalOptions.rocksdbLevel0StopWritesTrigger;
+    rocksdb_config.level0_slowdown_writes_trigger_ =
+        eloqGlobalOptions.rocksdbLevel0SlowdownWritesTrigger;
     rocksdb_config.soft_pending_compaction_bytes_limit_bytes_ =
         txlog::parse_size(eloqGlobalOptions.rocksdbSoftPendingCompactionBytesLimit);
     rocksdb_config.hard_pending_compaction_bytes_limit_bytes_ =
@@ -690,6 +703,9 @@ void EloqKVEngine::initDataStoreService(
     // setup rocksdb data store
     INIReader fake_config_reader(nullptr, 0);
     EloqDS::RocksDBConfig rocksdb_config(fake_config_reader, _dbPath);
+    rocksdb_config.level0_stop_writes_trigger_ = eloqGlobalOptions.rocksdbLevel0StopWritesTrigger;
+    rocksdb_config.level0_slowdown_writes_trigger_ =
+        eloqGlobalOptions.rocksdbLevel0SlowdownWritesTrigger;
     bool enable_cache_replacement_ =
         fake_config_reader.GetBoolean("local", "enable_cache_replacement", false);
     auto ds_factory = std::make_unique<EloqDS::RocksDBDataStoreFactory>(rocksdb_config,

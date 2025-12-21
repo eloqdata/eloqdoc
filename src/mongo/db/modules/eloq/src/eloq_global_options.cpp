@@ -415,6 +415,20 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "RocksDB sst files size limit")
         .setDefault(moe::Value("500MB"));
     eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbLevel0StopWritesTrigger",
+                           "eloqRocksdbLevel0StopWritesTrigger",
+                           moe::Int,
+                           "RocksDB level0 stop writes trigger")
+        .validRange(1, std::numeric_limits<int32_t>::max())
+        .setDefault(moe::Value(36));
+    eloqOptions
+        .addOptionChaining("storage.eloq.storage.rocksdbLevel0SlowdownWritesTrigger",
+                           "eloqRocksdbLevel0SlowdownWritesTrigger",
+                           moe::Int,
+                           "RocksDB level0 slowdown writes trigger")
+        .validRange(1, std::numeric_limits<int32_t>::max())
+        .setDefault(moe::Value(20));
+    eloqOptions
         .addOptionChaining("storage.eloq.storage.rocksdbSoftPendingCompactionBytesLimit",
                            "eloqRocksdbSoftPendingCompactionBytesLimit",
                            moe::String,
@@ -1054,6 +1068,14 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.storage.rocksdbSstFilesSizeLimit")) {
         eloqGlobalOptions.rocksdbSstFilesSizeLimit =
             params["storage.eloq.storage.rocksdbSstFilesSizeLimit"].as<std::string>();
+    }
+    if (params.count("storage.eloq.storage.rocksdbLevel0StopWritesTrigger")) {
+        eloqGlobalOptions.rocksdbLevel0StopWritesTrigger = static_cast<uint32_t>(
+            params["storage.eloq.storage.rocksdbLevel0StopWritesTrigger"].as<int>());
+    }
+    if (params.count("storage.eloq.storage.rocksdbLevel0SlowdownWritesTrigger")) {
+        eloqGlobalOptions.rocksdbLevel0SlowdownWritesTrigger = static_cast<uint32_t>(
+            params["storage.eloq.storage.rocksdbLevel0SlowdownWritesTrigger"].as<int>());
     }
     if (params.count("storage.eloq.storage.rocksdbSoftPendingCompactionBytesLimit")) {
         eloqGlobalOptions.rocksdbSoftPendingCompactionBytesLimit =

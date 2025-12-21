@@ -122,6 +122,8 @@ public:
     int rocksdbCloudSstFileCacheNumShardBits{5};  // default 1 shard
     std::string rocksdbTargetFileSizeBase;
     std::string rocksdbSstFilesSizeLimit;
+    uint32_t rocksdbLevel0StopWritesTrigger{36};
+    uint32_t rocksdbLevel0SlowdownWritesTrigger{20};
     std::string rocksdbSoftPendingCompactionBytesLimit;
     std::string rocksdbHardPendingCompactionBytesLimit;
     size_t rocksdbMaxSubcompactions;
