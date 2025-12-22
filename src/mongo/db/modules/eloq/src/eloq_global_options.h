@@ -80,6 +80,8 @@ public:
     std::string txlogRocksDBCloudObjectPath;
     std::string txlogRocksDBCloudEndpointUrl;
     std::string txlogRocksDBCloudSstFileCacheSize;
+    uint32_t txlogRocksDBCloudRetentionDays{90};
+    uint32_t txlogRocksDBCloudRetentionSeconds{0};
     int txlogRocksDBCloudSstFileCacheNumShardBits{5};
     uint32_t txlogRocksDBCloudReadyTimeout{0};
     uint32_t txlogRocksDBCloudFileDeletionDelay{0};

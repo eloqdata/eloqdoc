@@ -457,6 +457,9 @@ EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
             eloqGlobalOptions.txlogRocksDBCloudReadyTimeout * 1000 * 1000;
         rocksdb_cloud_config.db_file_deletion_delay_ =
             eloqGlobalOptions.txlogRocksDBCloudFileDeletionDelay;
+        rocksdb_cloud_config.log_retention_days_ = eloqGlobalOptions.txlogRocksDBCloudRetentionDays;
+        rocksdb_cloud_config.log_retention_seconds_ =
+            eloqGlobalOptions.txlogRocksDBCloudRetentionSeconds;
 
 #if defined(OPEN_LOG_SERVICE)
         _logServer = std::make_unique<txlog::LogServer>(

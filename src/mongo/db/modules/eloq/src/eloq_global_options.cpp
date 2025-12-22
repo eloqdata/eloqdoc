@@ -244,6 +244,23 @@ Status EloqGlobalOptions::add(moe::OptionSection* options) {
                            "RocksDB Cloud SST file cache size for instance which "
                            "stores the tx log state.")
         .setDefault(moe::Value("10GB"));
+
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudRetentionDays",
+            "eloqTxlogRocksDBCloudRetentionDays",
+            moe::Unsigned,
+            "RocksDB Cloud log retention days for instance which stores the tx log state.")
+        .setDefault(moe::Value(90u));
+
+    eloqOptions
+        .addOptionChaining(
+            "storage.eloq.txService.txlogRocksDBCloudRetentionSeconds",
+            "eloqTxlogRocksDBCloudRetentionSeconds",
+            moe::Unsigned,
+            "RocksDB Cloud log retention seconds for instance which stores the tx log state.")
+        .setDefault(moe::Value(0u));
+
     eloqOptions
         .addOptionChaining("storage.eloq.txService.txlogRocksDBCloudSstFileCacheNumShardBits",
                            "eloqTxlogRocksDBCloudSstFileCacheNumShardBits",
@@ -923,6 +940,14 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     if (params.count("storage.eloq.txService.txlogRocksDBCloudSstFileCacheSize")) {
         eloqGlobalOptions.txlogRocksDBCloudSstFileCacheSize =
             params["storage.eloq.txService.txlogRocksDBCloudSstFileCacheSize"].as<std::string>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudRetentionDays")) {
+	eloqGlobalOptions.txlogRocksDBCloudRetentionDays =
+	    params["storage.eloq.txService.txlogRocksDBCloudRetentionDays"].as<uint32_t>();
+    }
+    if (params.count("storage.eloq.txService.txlogRocksDBCloudRetentionSeconds")) {
+	eloqGlobalOptions.txlogRocksDBCloudRetentionSeconds =
+	    params["storage.eloq.txService.txlogRocksDBCloudRetentionSeconds"].as<uint32_t>();
     }
     if (params.count("storage.eloq.txService.txlogRocksDBCloudSstFileCacheNumShardBits")) {
         eloqGlobalOptions.txlogRocksDBCloudSstFileCacheNumShardBits =
