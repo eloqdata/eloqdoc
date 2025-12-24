@@ -1,8 +1,8 @@
+import sys
+import os
 Import("env")
 Import("get_option")
 
-import os
-import sys
 link_model = get_option('link-model')
 SYSTEM_INCLUDE_PATH = [
     '/usr/include',
@@ -10,6 +10,8 @@ SYSTEM_INCLUDE_PATH = [
     '/opt/include',
     '/usr/include/x86_64-linux-gnu',
 ]
+
+
 def FindIncludePath(file_name):
     """Search for a file in a list of directories."""
     for path in SYSTEM_INCLUDE_PATH:
@@ -21,6 +23,7 @@ def FindIncludePath(file_name):
                 return os.path.dirname(candidate)
     return None
 
+
 def FindLibPath(lib_name):
     """Search for a static or dynamic library in a list of directories."""
     prefixes = ['lib']
@@ -28,7 +31,7 @@ def FindLibPath(lib_name):
 
     if sys.platform == "darwin":
         dynamic_ext = '.dylib'
-    else: # Assuming Linux or other Unix-like
+    else:  # Assuming Linux or other Unix-like
         dynamic_ext = '.so'
 
     # Prefer dynamic link
@@ -38,7 +41,7 @@ def FindLibPath(lib_name):
             for prefix in prefixes:
                 base_name = prefix + lib_name + ext
                 candidate = os.path.join(path, base_name)
-                print("candidate:",candidate)
+                print("candidate:", candidate)
                 if os.path.exists(candidate):
                     return candidate
     return None
@@ -47,17 +50,17 @@ def FindLibPath(lib_name):
 env = env.Clone()
 env.InjectMongoIncludePaths()
 
-env["ELOQ_ENGINE_ROOT"]="#src/mongo/db/modules/eloq"
+env["ELOQ_ENGINE_ROOT"] = "#src/mongo/db/modules/eloq"
 
 
-DATA_STORE_TYPE_DYNAMODB          = 1
-DATA_STORE_TYPE_BIGTABLE          = 2
-DATA_STORE_TYPE_ROCKSDB_CLOUD_S3  = 3
+DATA_STORE_TYPE_DYNAMODB = 1
+DATA_STORE_TYPE_BIGTABLE = 2
+DATA_STORE_TYPE_ROCKSDB_CLOUD_S3 = 3
 DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS = 4
-DATA_STORE_TYPE_ROCKSDB           = 5
-DATA_STORE_TYPE_ELOQSTORE         = 6
+DATA_STORE_TYPE_ROCKSDB = 5
+DATA_STORE_TYPE_ELOQSTORE = 6
 
-ROCKSDB_CLOUD_FS_TYPE_S3  = 1
+ROCKSDB_CLOUD_FS_TYPE_S3 = 1
 ROCKSDB_CLOUD_FS_TYPE_GCS = 2
 
 LOG_STATE_TYPE_MEM = 1
@@ -66,10 +69,11 @@ LOG_STATE_TYPE_RKDB_S3 = 3
 LOG_STATE_TYPE_RKDB_GCS = 4
 
 # Add ELOQDOC module for data_substrate
-env.Append(CPPDEFINES=["ELOQ_MODULE_ELOQDOC","EXT_TX_PROC_ENABLED"])
+env.Append(CPPDEFINES=["ELOQ_MODULE_ELOQDOC", "EXT_TX_PROC_ENABLED"])
 
 # Read from environment variable (default to ROCKSDB_CLOUD if not set)
-data_store_type_str = os.environ.get("WITH_DATA_STORE", "ELOQDSS_ROCKSDB_CLOUD_S3").upper()
+data_store_type_str = os.environ.get(
+    "WITH_DATA_STORE", "ELOQDSS_ROCKSDB_CLOUD_S3").upper()
 
 # Map the environment variable value to the corresponding constant
 if data_store_type_str == "DYNAMODB":
@@ -86,7 +90,8 @@ elif data_store_type_str == "ELOQDSS_ELOQSTORE":
     data_store_type = DATA_STORE_TYPE_ELOQSTORE
 else:
     # Default fallback (or raise an error if invalid)
-    print("Warning: Unknown DATA_STORE_TYPE '{}'. Defaulting to ROCKSDB_CLOUD.".format(data_store_type_str))
+    print("Warning: Unknown DATA_STORE_TYPE '{}'. Defaulting to ROCKSDB_CLOUD.".format(
+        data_store_type_str))
     data_store_type = DATA_STORE_TYPE_ROCKSDB_CLOUD_S3
 
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS:
@@ -108,9 +113,11 @@ elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
 
 if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["OPEN_LOG_SERVICE"])
-    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/data_substrate/log_service/include"])
+    env["CPPPATH"].extend(
+        ["$ELOQ_ENGINE_ROOT/data_substrate/log_service/include"])
 else:
-    env["CPPPATH"].extend(["$ELOQ_ENGINE_ROOT/data_substrate/eloq_log_service/include"])
+    env["CPPPATH"].extend(
+        ["$ELOQ_ENGINE_ROOT/data_substrate/eloq_log_service/include"])
 
 with_log_state_str = os.environ.get("WITH_LOG_STATE", "ROCKSDB").upper()
 if with_log_state_str == "MEMORY":
@@ -133,6 +140,15 @@ else:
 if os.environ.get("FORK_HM_PROCESS", "0") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["FORK_HM_PROCESS"])
 
+jemalloc_deps = []
+if os.environ.get("WITH_JEMALLOC", "0") in ("1", "ON", "on", "true", "True"):
+    env.Append(CPPDEFINES=["WITH_JEMALLOC"])
+    jemalloc_lib = FindLibPath("jemalloc")
+    if jemalloc_lib is None:
+        print("ERROR: WITH_JEMALLOC=ON but libjemalloc not found")
+        Exit(1)
+    jemalloc_deps.append(jemalloc_lib)
+
 env["CPPPATH"].extend(SYSTEM_INCLUDE_PATH)
 env["CPPPATH"].extend(
     [
@@ -140,7 +156,7 @@ env["CPPPATH"].extend(
         "$ELOQ_ENGINE_ROOT/src",
         "$ELOQ_ENGINE_ROOT/src/base",
         "$ELOQ_ENGINE_ROOT/data_substrate",
-	"$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include",
+        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include",
         "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/cc",
         "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/fault",
         "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/proto",
@@ -164,22 +180,22 @@ env["CPPPATH"].extend(
 )
 
 if data_store_type in [DATA_STORE_TYPE_ROCKSDB_CLOUD_S3, DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS]:
-   _rkdb_cloud_includes = [
-       FindIncludePath("rocksdb_cloud_header/"),
-       FindIncludePath("rocksdb_cloud_header/rocksdb"),
-       FindIncludePath("rocksdb_cloud_header/rocksdb/cloud"),
-   ]
-   env["CPPPATH"].extend([p for p in _rkdb_cloud_includes if p])
-   if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_S3:
-      _aws_includes = [
-          FindIncludePath("aws/core"),
-          FindIncludePath("aws/kinesis"),
-          FindIncludePath("aws/s3"),
-      ]
-      env["CPPPATH"].extend([p for p in _aws_includes if p])
-   elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS:
-      _gcs_includes = [FindIncludePath("google/cloud/storage")]
-      env["CPPPATH"].extend([p for p in _gcs_includes if p])
+    _rkdb_cloud_includes = [
+        FindIncludePath("rocksdb_cloud_header/"),
+        FindIncludePath("rocksdb_cloud_header/rocksdb"),
+        FindIncludePath("rocksdb_cloud_header/rocksdb/cloud"),
+    ]
+    env["CPPPATH"].extend([p for p in _rkdb_cloud_includes if p])
+    if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_S3:
+        _aws_includes = [
+            FindIncludePath("aws/core"),
+            FindIncludePath("aws/kinesis"),
+            FindIncludePath("aws/s3"),
+        ]
+        env["CPPPATH"].extend([p for p in _aws_includes if p])
+    elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS:
+        _gcs_includes = [FindIncludePath("google/cloud/storage")]
+        env["CPPPATH"].extend([p for p in _gcs_includes if p])
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     env["CPPPATH"].extend([FindIncludePath("rocksdb")])
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
@@ -236,11 +252,12 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_S3:
         FindLibPath("rocksdb-cloud-aws"),
     ]
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
-   store_deps = [FindLibPath("rocksdb")]
+    store_deps = [FindLibPath("rocksdb")]
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
-   store_deps = []
+    store_deps = []
 
-eloq_dependencies = [lib for lib in (base_deps + store_deps + log_deps) if lib]
+eloq_dependencies = [lib for lib in (
+    base_deps + store_deps + log_deps + jemalloc_deps) if lib]
 
 absl_lib_root = "$ELOQ_ENGINE_ROOT/build/data_substrate/tx_service/abseil-cpp"
 env.PrependUnique(
@@ -250,8 +267,10 @@ env.PrependUnique(
         os.path.join(absl_lib_root, "absl", "container"),
     ]
 )
-env.Append(LIBS=["absl_throw_delegate", "absl_log_severity", "absl_raw_logging_internal"])
-env.Append(LIBS=["absl_hash", "absl_raw_hash_set", "absl_city", "absl_low_level_hash"])
+env.Append(LIBS=["absl_throw_delegate", "absl_log_severity",
+           "absl_raw_logging_internal"])
+env.Append(LIBS=["absl_hash", "absl_raw_hash_set",
+           "absl_city", "absl_low_level_hash"])
 
 env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build/data_substrate"])
 
@@ -264,21 +283,24 @@ if dest_lib_dir and os.path.isdir(dest_lib_dir):
     env.Append(LIBPATH=[dest_lib_dir])
 
 # Always link against the CMake-built module libraries to resolve txlog and service symbols.
-cmake_module_libs = ["data_substrate", "logservice", "txservice", "eloq-metrics"]
+cmake_module_libs = ["data_substrate",
+                     "logservice", "txservice", "eloq-metrics"]
 env.Append(LIBS=cmake_module_libs)
 
 # For RocksDB Cloud backends, ensure AWS/GCS SDKs are linked when needed because
 # this module directly references AWS Init/Shutdown APIs under S3 builds.
 if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_S3:
     env.Append(LIBS=["aws-cpp-sdk-core"])  # Aws::InitAPI/Aws::ShutdownAPI
-    env.Append(LIBS=["aws-cpp-sdk-kinesis", "aws-cpp-sdk-s3", "rocksdb-cloud-aws"])
+    env.Append(LIBS=["aws-cpp-sdk-kinesis",
+               "aws-cpp-sdk-s3", "rocksdb-cloud-aws"])
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS:
     env.Append(LIBS=["google_cloud_cpp_common"])
     env.Append(LIBS=["google_cloud_cpp_storage", "rocksdb-cloud-gcp"])
 
 if with_log_state == LOG_STATE_TYPE_RKDB_S3:
     env.Append(LIBS=["aws-cpp-sdk-core"])  # Aws::InitAPI/Aws::ShutdownAPI
-    env.Append(LIBS=["aws-cpp-sdk-kinesis", "aws-cpp-sdk-s3", "rocksdb-cloud-aws"])
+    env.Append(LIBS=["aws-cpp-sdk-kinesis",
+               "aws-cpp-sdk-s3", "rocksdb-cloud-aws"])
 elif with_log_state == LOG_STATE_TYPE_RKDB_GCS:
     env.Append(LIBS=["google_cloud_cpp_common"])
     env.Append(LIBS=["google_cloud_cpp_storage", "rocksdb-cloud-gcp"])
@@ -301,7 +323,7 @@ elif with_log_state == LOG_STATE_TYPE_RKDB_GCS:
         "absl_log_severity",
         "crypto",
         "ssl",
-        ])
+    ])
 
 print("CPPDEFINES: ", env["CPPDEFINES"])
 print("CPPPATH: ", env["CPPPATH"])
