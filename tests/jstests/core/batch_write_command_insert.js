@@ -112,11 +112,12 @@ request = {
     ordered: false
 };
 result = coll.runCommand(request);
-assert(!result.ok, tojson(result));
-// assert(result.writeErrors != null);
-// assert.eq(1, result.writeErrors.length);
-// assert.eq(0, result.n);
-// assert.eq(coll.count(), 0);
+// assert(!result.ok, tojson(result));
+assert(result.ok, tojson(result));
+assert(result.writeErrors != null);
+assert.eq(1, result.writeErrors.length);
+assert.eq(0, result.n);
+assert.eq(coll.count(), 0);
 
 //
 // Document with valid nested key should insert (op log format)
@@ -195,10 +196,9 @@ request = {
     documents: [{a: 1}]
 };
 result = coll.runCommand(request);
-// assert(result.ok, tojson(result));
-assert(!result.ok, tojson(result));
-// assert.eq(1, result.writeErrors.length);
-// assert.eq(0, result.n);
+assert(result.ok, tojson(result));
+assert.eq(1, result.writeErrors.length);
+assert.eq(0, result.n);
 assert.eq(coll.count(), 1);
 
 //
@@ -211,22 +211,20 @@ request = {
     ordered: false
 };
 result = coll.runCommand(request);
-// assert(result.ok, tojson(result));
-assert(!result.ok, tojson(result));
-// assert.eq(1, result.n);
-// assert.eq(2, result.writeErrors.length);
-// assert.eq(coll.count(), 1);
+assert(result.ok, tojson(result));
+assert.eq(1, result.n);
+assert.eq(2, result.writeErrors.length);
+assert.eq(coll.count(), 1);
 
-// assert.eq(1, result.writeErrors[0].index);
-// assert.eq('number', typeof result.writeErrors[0].code);
-// assert.eq('string', typeof result.writeErrors[0].errmsg);
-// 
-// assert.eq(2, result.writeErrors[1].index);
-// assert.eq('number', typeof result.writeErrors[1].code);
-// assert.eq('string', typeof result.writeErrors[1].errmsg);
+assert.eq(1, result.writeErrors[0].index);
+assert.eq('number', typeof result.writeErrors[0].code);
+assert.eq('string', typeof result.writeErrors[0].errmsg);
+ 
+assert.eq(2, result.writeErrors[1].index);
+assert.eq('number', typeof result.writeErrors[1].code);
+assert.eq('string', typeof result.writeErrors[1].errmsg);
 
-// assert.eq(coll.count(), 1);
-assert.eq(coll.count(), 0);
+assert.eq(coll.count(), 1);
 
 //
 // Fail with duplicate key error on multiple document inserts, ordered true
@@ -238,17 +236,15 @@ request = {
     ordered: true
 };
 result = coll.runCommand(request);
-// assert(result.ok, tojson(result));
-assert(!result.ok, tojson(result));
-// assert.eq(1, result.n);
-// assert.eq(1, result.writeErrors.length);
+assert(result.ok, tojson(result));
+assert.eq(1, result.n);
+assert.eq(1, result.writeErrors.length);
 
-// assert.eq(1, result.writeErrors[0].index);
-// assert.eq('number', typeof result.writeErrors[0].code);
-// assert.eq('string', typeof result.writeErrors[0].errmsg);
+assert.eq(1, result.writeErrors[0].index);
+assert.eq('number', typeof result.writeErrors[0].code);
+assert.eq('string', typeof result.writeErrors[0].errmsg);
 
-// assert.eq(coll.count(), 1);
-assert.eq(coll.count(), 0);
+assert.eq(coll.count(), 1);
 
 //
 // Ensure _id is the first field in all documents
@@ -428,3 +424,50 @@ allIndexes = coll.getIndexes();
 spec = GetIndexHelpers.findByName(allIndexes, "x_1");
 assert.neq(null, spec, "Index with name 'x_1' not found: " + tojson(allIndexes));
 assert.lte(2, spec.v, tojson(spec));
+
+//
+// Additional tests for bulk write error format (ok: 1 with writeErrors)
+// These tests verify that DuplicateKey errors return ok: 1 with writeErrors array,
+// matching MongoDB's BulkWriteException format for dsync compatibility.
+//
+
+//
+// Test ordered batch with DuplicateKey error - stops at first error
+coll.drop();
+coll.ensureIndex({a: 1}, {unique: true});
+coll.insert({a: 1});  // Insert initial document
+request = {
+    insert: coll.getName(),
+    documents: [{a: 1}, {a: 2}, {a: 3}],
+    writeConcern: {w: 1},
+    ordered: true
+};
+result = coll.runCommand(request);
+assert(result.ok, tojson(result));
+assert.eq(0, result.n, "Expected n: 0 (ordered stops at first error)");
+assert.eq(1, result.writeErrors.length, "Expected one write error");
+assert.eq(result.writeErrors[0].code, ErrorCodes.DuplicateKey, "Expected DuplicateKey error");
+assert.eq(result.writeErrors[0].index, 0, "Expected error at index 0");
+assert.eq(coll.count(), 1, "Expected only initial document");
+
+//
+// Test unordered batch with multiple DuplicateKey errors - continues after errors
+coll.remove({});
+coll.insert({a: 1});  // Insert initial document
+request = {
+    insert: coll.getName(),
+    documents: [{a: 1}, {a: 2}, {a: 1}, {a: 3}],
+    writeConcern: {w: 1},
+    ordered: false
+};
+result = coll.runCommand(request);
+assert(result.ok, tojson(result));
+assert.eq(2, result.n, "Expected 2 successful inserts ({a: 2} and {a: 3})");
+assert.gte(result.writeErrors.length, 1, "Expected at least one write error");
+// Verify all writeErrors are DuplicateKey
+result.writeErrors.forEach(function(err) {
+    assert.eq(err.code, ErrorCodes.DuplicateKey, "Expected DuplicateKey error: " + tojson(err));
+    assert.eq('number', typeof err.code);
+    assert.eq('string', typeof err.errmsg);
+});
+assert.eq(coll.count(), 3, "Expected 3 documents (initial + 2 successful inserts)");
