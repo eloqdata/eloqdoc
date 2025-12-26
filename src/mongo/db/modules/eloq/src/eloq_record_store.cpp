@@ -1128,6 +1128,7 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
             mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
         }
         bool checkUnique = true;
+        MONGO_LOG(1) << "EloqRecordStore::_insertRecords setKV, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique;
         err = ru->setKV(_tableName,
                         pkeySchemaVersion,
                         std::move(mongoKey),

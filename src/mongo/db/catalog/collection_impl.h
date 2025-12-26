@@ -416,6 +416,16 @@ private:
                             bool enforceQuota,
                             OpDebug* opDebug);
 
+    /**
+     * Validates all unique index constraints before inserting into recordStore.
+     * This prevents data inconsistency where recordStore has data but uniqueIndex doesn't.
+     * Returns an error if any duplicate key is found in any unique index.
+     */
+    Status _validateUniqueIndexConstraints(
+        OperationContext* opCtx,
+        std::vector<InsertStatement>::const_iterator begin,
+        std::vector<InsertStatement>::const_iterator end);
+
 
     /**
      * Perform update when document move will be required.
