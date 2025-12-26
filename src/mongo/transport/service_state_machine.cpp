@@ -411,7 +411,7 @@ void ServiceStateMachine::_sinkCallback(Status status) {
         if (logFile.is_open()) {
             auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::stringstream ss;
-            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"service_state_machine.cpp:403\",\"message\":\"_sinkCallback entry\",\"data\":{\"statusOK\":" << (status.isOK() ? "true" : "false") << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"service_state_machine.cpp:407\",\"message\":\"_sinkCallback entry\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << ",\"statusOK\":" << (status.isOK() ? "true" : "false") << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
             logFile << ss.str();
         }
     }
@@ -434,7 +434,7 @@ void ServiceStateMachine::_sinkCallback(Status status) {
             if (logFile.is_open()) {
                 auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::stringstream ss;
-                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C\",\"location\":\"service_state_machine.cpp:416\",\"message\":\"_sinkCallback error path\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C\",\"location\":\"service_state_machine.cpp:430\",\"message\":\"_sinkCallback error path\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
                 logFile << ss.str();
             }
         }
@@ -575,7 +575,7 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                                 if (logFile.is_open()) {
                                     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                                     std::stringstream ss;
-                                    ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C,D\",\"location\":\"service_state_machine.cpp:546\",\"message\":\"_resumeTask entry\",\"data\":{\"coroStatus\":" << static_cast<int>(ssm->_coroStatus) << ",\"state\":" << static_cast<int>(ssm->state()) << "},\"timestamp\":" << now << "}\n";
+                                    ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C,D\",\"location\":\"service_state_machine.cpp:571\",\"message\":\"_resumeTask entry\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(ssm) << std::dec << "\",\"connId\":" << ssm->_session()->id() << ",\"coroStatus\":" << static_cast<int>(ssm->_coroStatus) << ",\"state\":" << static_cast<int>(ssm->state()) << "},\"timestamp\":" << now << "}\n";
                                     logFile << ss.str();
                                 }
                             }
@@ -681,7 +681,7 @@ void ServiceStateMachine::_runResumeProcess() {
         if (logFile.is_open()) {
             auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::stringstream ss;
-            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:640\",\"message\":\"_runResumeProcess entry\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:676\",\"message\":\"_runResumeProcess entry\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
             logFile << ss.str();
         }
     }
@@ -693,7 +693,7 @@ void ServiceStateMachine::_runResumeProcess() {
             if (logFile.is_open()) {
                 auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::stringstream ss;
-                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:642\",\"message\":\"_runResumeProcess before resume\",\"data\":{\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:689\",\"message\":\"_runResumeProcess before resume\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
                 logFile << ss.str();
             }
         }
@@ -706,7 +706,7 @@ void ServiceStateMachine::_runResumeProcess() {
             if (logFile.is_open()) {
                 auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::stringstream ss;
-                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:644\",\"message\":\"_runResumeProcess after resume\",\"data\":{},\"timestamp\":" << now << "}\n";
+                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:702\",\"message\":\"_runResumeProcess after resume\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << "},\"timestamp\":" << now << "}\n";
                 logFile << ss.str();
             }
         }
@@ -840,7 +840,7 @@ void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
         if (logFile.is_open()) {
             auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::stringstream ss;
-            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"service_state_machine.cpp:766\",\"message\":\"_cleanupSession entry\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"stateBefore\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"service_state_machine.cpp:835\",\"message\":\"_cleanupSession entry\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"stateBefore\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
             logFile << ss.str();
         }
     }
@@ -852,7 +852,7 @@ void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
         if (logFile.is_open()) {
             auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::stringstream ss;
-            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"service_state_machine.cpp:768\",\"message\":\"_cleanupSession after state=Ended\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << "},\"timestamp\":" << now << "}\n";
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"service_state_machine.cpp:848\",\"message\":\"_cleanupSession after state=Ended\",\"data\":{\"ssmPtr\":\"" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "\",\"connId\":" << _session()->id() << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << "},\"timestamp\":" << now << "}\n";
             logFile << ss.str();
         }
     }
