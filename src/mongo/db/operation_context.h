@@ -117,6 +117,13 @@ public:
 
     WriteUnitOfWork::RecoveryUnitState getRecoveryUnitState() const;
 
+    /**
+     * Sets the RecoveryUnitState without aborting the transaction.
+     * This is used when we need to reset state after a nested WriteUnitOfWork failure
+     * but want to keep the outer transaction active (e.g., command-level transactions).
+     */
+    void setRecoveryUnitState(WriteUnitOfWork::RecoveryUnitState state);
+
     // WriteUnitOfWork::RecoveryUnitState setRecoveryUnit(RecoveryUnit::UPtr unit,
     //                                                    WriteUnitOfWork::RecoveryUnitState state);
     /**

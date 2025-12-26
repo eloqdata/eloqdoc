@@ -1092,6 +1092,10 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     MONGO_LOG(1) << "Insert into a Data Table.";
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
+    
+    // First, check all keys for duplicates before inserting any records.
+    // This prevents partial inserts that would cause false duplicate key errors
+    // when falling back to one-at-a-time insertion.
     txservice::TxErrorCode err =
         ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
     if (err != txservice::TxErrorCode::NO_ERROR) {
@@ -1101,14 +1105,19 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         return TxErrorCodeToMongoStatus(err);
     }
 
+    // Check all keys for duplicates first, before inserting anything.
     for (size_t i = 0; i < nRecords; i++) {
         const txservice::ScanBatchTuple& tuple = batchTuples[i];
         if (tuple.status_ == txservice::RecordStatus::Normal) {
+            MONGO_LOG(0) <<  "yf: insertRecords, duplicate key = " << batchEntries[i].keyString.toString() << ", txn: " << ru->getTxm()->TxNumber() << "i = " << i << ", n record = " << nRecords;
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         } else {
             invariant(tuple.status_ == txservice::RecordStatus::Deleted);
         }
+    }
 
+    // All keys are valid (no duplicates found). Now insert all records.
+    for (size_t i = 0; i < nRecords; i++) {
         std::unique_ptr<Eloq::MongoKey>& mongoKey = batchEntries[i].mongoKey;
         std::unique_ptr<Eloq::MongoRecord> mongoRecord = std::make_unique<Eloq::MongoRecord>();
         const RecordData& data = records[i].data;

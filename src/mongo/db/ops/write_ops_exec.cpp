@@ -226,7 +226,8 @@ bool handleError(OperationContext* opCtx,
                  const DBException& ex,
                  const NamespaceString& nss,
                  const write_ops::WriteCommandBase& wholeOp,
-                 WriteResult* out) {
+                 WriteResult* out,
+                 bool allowCommandLevelTransaction = false) {
     LastError::get(opCtx->getClient()).setLastError(ex.code(), ex.reason());
     auto& curOp = *CurOp::get(opCtx);
     curOp.debug().errInfo = ex.toStatus();
@@ -242,7 +243,9 @@ bool handleError(OperationContext* opCtx,
     }
 
     // EloqDoc enables command level transaction.
-    if (opCtx->lockState()->inAWriteUnitOfWork()) {
+    // For insert operations, allow error handling in command-level transactions.
+    // For update/delete operations, keep the original behavior (throw).
+    if (!allowCommandLevelTransaction && opCtx->lockState()->inAWriteUnitOfWork()) {
         throw;
     }
 
@@ -365,6 +368,7 @@ void insertDocuments(OperationContext* opCtx,
 
     uassertStatusOK(collection->insertDocuments(
         opCtx, begin, end, &CurOp::get(opCtx)->debug(), /*enforceQuota*/ true, fromMigrate));
+    MONGO_LOG(0) <<  "yf: insertDocuments, commit";
     wuow.commit();
 }
 
@@ -456,17 +460,29 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
             curOp.debug().additiveMetrics.incrementNinserted(batch.size());
             return true;
         }
-    } catch (const DBException&) {
+    } catch (const DBException&e) {
 
         // If we cannot abandon the current snapshot, we give up and rethrow the exception.
-        // No WCE retrying is attempted.  This code path is intended for snapshot read concern.
-        if (opCtx->lockState()->inAWriteUnitOfWork()) {
+        // No WCE retrying is attempted.  This code path is intended for snapshot read concern,
+        // which is only used in multi-document transactions.
+        auto session = OperationContextSession::get(opCtx);
+        if (session && session->inMultiDocumentTransaction()) {
             throw;
         }
-
+        MONGO_LOG(0) <<  "yf: catach, exception = " << e.toString() << ", code = " << e.code();
         // Otherwise, ignore this failure and behave as-if we never tried to do the combined batch
         // insert.  The loop below will handle reporting any non-transient errors.
         collection.reset();
+        
+        // Reset RecoveryUnit state if it was set to kFailedUnitOfWork by the nested WriteUnitOfWork
+        // in insertDocuments. This is necessary because the nested WriteUnitOfWork's destructor
+        // sets the state to kFailedUnitOfWork when it aborts, but we need kActiveUnitOfWork for
+        // the fallback single-insert operations. Since we're in a command-level transaction (outer
+        // WriteUnitOfWork still exists), we only reset the state without aborting the transaction.
+        if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::RecoveryUnitState::kFailedUnitOfWork) {
+            //opCtx->recoveryUnit()->abandonSnapshot(); // Clear any failed snapshot state
+            opCtx->setRecoveryUnitState(WriteUnitOfWork::RecoveryUnitState::kActiveUnitOfWork);
+        }
     }
 
     // Try to insert the batch one-at-a-time. This path is executed both for singular batches, and
@@ -479,6 +495,7 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
                     if (!collection)
                         acquireCollection();
                     lastOpFixer->startingOp();
+                    MONGO_LOG(0) <<  "yf: insertDocuments, key = " << it->doc.firstElement().fieldNameStringData() << ", value = " << it->doc.firstElement().toString();
                     insertDocuments(opCtx, collection->getCollection(), it, it + 1, fromMigrate);
                     lastOpFixer->finishedOpSuccessfully();
                     SingleWriteResult result;
@@ -496,8 +513,20 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
                 }
             });
         } catch (const DBException& ex) {
-            bool canContinue =
-                handleError(opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), out);
+            bool canContinue = handleError(
+                opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), out, true);
+
+            MONGO_LOG(0) <<  "yf: handleError, exception = " << ex.toString() << ", code = " << ex.code() << ", key = " << it->doc.firstElement().fieldNameStringData() << ", value = " << it->doc.firstElement().toString()    ;
+            
+            // Reset RecoveryUnit state if it was set to kFailedUnitOfWork by the nested WriteUnitOfWork
+            // in insertDocuments. This is necessary when continuing to the next iteration after an error.
+            // We only reset the state without aborting the transaction, since the entire insertMany operation
+            // should be within a single command-level transaction.
+            if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::RecoveryUnitState::kFailedUnitOfWork) {
+                // opCtx->recoveryUnit()->abandonSnapshot();
+                opCtx->setRecoveryUnitState(WriteUnitOfWork::RecoveryUnitState::kActiveUnitOfWork);
+            }
+            
             if (!canContinue)
                 return false;
         }
@@ -616,7 +645,7 @@ WriteResult performInserts(OperationContext* opCtx,
                 MONGO_UNREACHABLE;
             } catch (const DBException& ex) {
                 canContinue = handleError(
-                    opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), &out);
+                    opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), &out, true);
             }
         }
 

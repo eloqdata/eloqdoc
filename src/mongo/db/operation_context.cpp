@@ -482,6 +482,10 @@ WriteUnitOfWork::RecoveryUnitState OperationContext::getRecoveryUnitState() cons
     return _ruState;
 }
 
+void OperationContext::setRecoveryUnitState(WriteUnitOfWork::RecoveryUnitState state) {
+    _ruState = state;
+}
+
 void OperationContext::resetLockState() {
     _locker->reset();
 }
