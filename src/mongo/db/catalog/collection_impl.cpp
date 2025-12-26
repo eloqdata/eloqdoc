@@ -74,6 +74,7 @@
 #include "mongo/util/fail_point_service.h"
 #include "mongo/util/log.h"
 
+#include "mongo/db/modules/eloq/src/base/eloq_util.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
 #include "mongo/db/storage/key_string.h"
 
