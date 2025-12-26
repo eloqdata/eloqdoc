@@ -58,6 +58,9 @@
 #include <cstring>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <fstream>
+#include <sstream>
+#include <chrono>
 
 namespace mongo {
 namespace {
@@ -402,6 +405,17 @@ void ServiceStateMachine::_sourceCallback(Status status) {
 
 void ServiceStateMachine::_sinkCallback(Status status) {
     MONGO_LOG(1) << "ServiceStateMachine::_sinkCallback";
+    // #region agent log
+    {
+        std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+        if (logFile.is_open()) {
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            std::stringstream ss;
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"service_state_machine.cpp:403\",\"message\":\"_sinkCallback entry\",\"data\":{\"statusOK\":" << (status.isOK() ? "true" : "false") << ",\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+            logFile << ss.str();
+        }
+    }
+    // #endregion
     // The first thing to do is create a ThreadGuard which will take ownership of the SSM in this
     // thread.
     ThreadGuard guard(this);
@@ -414,6 +428,17 @@ void ServiceStateMachine::_sinkCallback(Status status) {
     // Otherwise, update the current state depending on whether we're in exhaust or not, and call
     // scheduleNext() to unwind the stack and do the next step.
     if (!status.isOK()) {
+        // #region agent log
+        {
+            std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+            if (logFile.is_open()) {
+                auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                std::stringstream ss;
+                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C\",\"location\":\"service_state_machine.cpp:416\",\"message\":\"_sinkCallback error path\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+                logFile << ss.str();
+            }
+        }
+        // #endregion
         log() << "Error sending response to client: " << status << ". Ending connection from "
               << _session()->remote() << " (connection id: " << _session()->id() << ")";
         _state.store(State::EndSession);
@@ -544,6 +569,17 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                         _serviceExecutor->ongoingCoroutineCountUpdate(
                             _threadGroupId.load(std::memory_order_relaxed), 1);
                         _resumeTask = [ssm = this] {
+                            // #region agent log
+                            {
+                                std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+                                if (logFile.is_open()) {
+                                    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                                    std::stringstream ss;
+                                    ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C,D\",\"location\":\"service_state_machine.cpp:546\",\"message\":\"_resumeTask entry\",\"data\":{\"coroStatus\":" << static_cast<int>(ssm->_coroStatus) << ",\"state\":" << static_cast<int>(ssm->state()) << "},\"timestamp\":" << now << "}\n";
+                                    logFile << ss.str();
+                                }
+                            }
+                            // #endregion
                             Client::setCurrent(std::move(ssm->_dbClient));
                             if (ssm->_migrating.load(std::memory_order_relaxed)) {
                                 ssm->_coroResume();
@@ -639,9 +675,42 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
 
 void ServiceStateMachine::_runResumeProcess() {
     MONGO_LOG(3) << "ServiceStateMachine::_resumeRun";
+    // #region agent log
+    {
+        std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+        if (logFile.is_open()) {
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            std::stringstream ss;
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:640\",\"message\":\"_runResumeProcess entry\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+            logFile << ss.str();
+        }
+    }
+    // #endregion
     if (_coroStatus == CoroStatus::OnGoing) {
+        // #region agent log
+        {
+            std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+            if (logFile.is_open()) {
+                auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                std::stringstream ss;
+                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:642\",\"message\":\"_runResumeProcess before resume\",\"data\":{\"state\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+                logFile << ss.str();
+            }
+        }
+        // #endregion
         MONGO_LOG(3) << "coroutine ongoing";
         _source = _source.resume();
+        // #region agent log
+        {
+            std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+            if (logFile.is_open()) {
+                auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                std::stringstream ss;
+                ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A,B,C,D,E\",\"location\":\"service_state_machine.cpp:644\",\"message\":\"_runResumeProcess after resume\",\"data\":{},\"timestamp\":" << now << "}\n";
+                logFile << ss.str();
+            }
+        }
+        // #endregion
     }
 }
 
@@ -765,7 +834,29 @@ void ServiceStateMachine::_terminateAndLogIfError(Status status) {
 
 void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
     MONGO_LOG(1) << "ServiceStateMachine::_cleanupSession";
+    // #region agent log
+    {
+        std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+        if (logFile.is_open()) {
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            std::stringstream ss;
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"service_state_machine.cpp:766\",\"message\":\"_cleanupSession entry\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << ",\"stateBefore\":" << static_cast<int>(state()) << "},\"timestamp\":" << now << "}\n";
+            logFile << ss.str();
+        }
+    }
+    // #endregion
     _state.store(State::Ended);
+    // #region agent log
+    {
+        std::ofstream logFile("/jepsen-test/eloqdoc-cloud/logs/debug.log", std::ios::app);
+        if (logFile.is_open()) {
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            std::stringstream ss;
+            ss << "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"service_state_machine.cpp:768\",\"message\":\"_cleanupSession after state=Ended\",\"data\":{\"coroStatus\":" << static_cast<int>(_coroStatus) << "},\"timestamp\":" << now << "}\n";
+            logFile << ss.str();
+        }
+    }
+    // #endregion
 
     _inMessage.reset();
 
