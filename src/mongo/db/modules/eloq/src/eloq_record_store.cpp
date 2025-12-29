@@ -821,6 +821,9 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     std::vector<txservice::ScanBatchTuple> batchTuples;
     batchTuples.reserve(nRecords);
     
+    // Use a set to track keys within this batch to detect duplicates within the batch
+    BSONObjSet batchKeys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+    
     for (size_t i = 0; i < nRecords; i++) {
         Record& record = (*records)[i];
         BSONObj obj{record.data.data()};
@@ -829,6 +832,14 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
         if (!s.isOK()) {
             return s;
         }
+
+        // Check if this key already exists in the batch
+        if (batchKeys.find(idObj) != batchKeys.end()) {
+            MONGO_LOG(1) << "yf: EloqRecordStore::batchCheckDuplicateKey duplicate key found within batch, key: "
+                         << idObj.toString();
+            return {ErrorCodes::DuplicateKey, "DuplicateKey"};
+        }
+        batchKeys.insert(idObj.getOwned());
 
         BatchReadEntry& entry = batchEntries[i];
         entry.resetToKey(idObj);
@@ -853,7 +864,7 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     for (size_t i = 0; i < nRecords; i++) {
         const txservice::ScanBatchTuple& tuple = batchTuples[i];
         if (tuple.status_ == txservice::RecordStatus::Normal) {
-            MONGO_LOG(0) << "EloqRecordStore::batchCheckDuplicateKey duplicate key found, key: "
+            MONGO_LOG(1) << "yf: EloqRecordStore::batchCheckDuplicateKey duplicate key found, key: "
                          << batchEntries[i].keyString.toString();
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         } else {
@@ -1151,7 +1162,7 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
             mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
         }
         bool checkUnique = true;
-        MONGO_LOG(1) << "EloqRecordStore::_insertRecords setKV, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique;
+        MONGO_LOG(1) << "yf: EloqRecordStore::_insertRecords setKV, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique;
         txservice::TxErrorCode err = ru->setKV(_tableName,
                         pkeySchemaVersion,
                         std::move(mongoKey),

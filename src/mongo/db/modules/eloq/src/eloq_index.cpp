@@ -613,7 +613,7 @@ Status EloqIndex::batchCheckDuplicateKey(OperationContext* opCtx,
         for (const BSONObj& key : keys) {
             // Check if this key already exists in the batch
             if (batchKeys.find(key) != batchKeys.end()) {
-                MONGO_LOG(0) << "EloqIndex::batchCheckDuplicateKey duplicate key found within batch, index: "
+                MONGO_LOG(1) << "yf: batchCheckDuplicateKey duplicate key found within batch, index: "
                              << _indexName.StringView() << ", key: " << key.toString();
                 return {ErrorCodes::DuplicateKey, "DuplicateKey"};
             }
@@ -655,9 +655,9 @@ Status EloqIndex::batchCheckDuplicateKey(OperationContext* opCtx,
             const txservice::ScanBatchTuple& tuple = indexBatchTuples[batchIdx];
             if (tuple.status_ == txservice::RecordStatus::Normal) {
                 // Duplicate key found in database or writeset
-                MONGO_LOG(0) << "EloqIndex::batchCheckDuplicateKey duplicate key found, index: "
-                             << _indexName.StringView() << ", key buffer size: " << keyStringBuffers[batchIdx].size();
-                return {ErrorCodes::DuplicateKey, "DuplicateKey"};
+                MONGO_LOG(1) << "yf: batchCheckDuplicateKey duplicate key found, index: "
+                             << _indexName.StringView() << ", key = " <<  keyStringBuffers[batchIdx];
+                return {ErrorCodes::Error::DuplicateKey, "DuplicateKey"};
             } else {
                 invariant(tuple.status_ == txservice::RecordStatus::Deleted);
             }
@@ -769,7 +769,6 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
     }
 
     if (exists) {
-        MONGO_LOG(0) << "yf: duplicate key found, index: " << _indexName.StringView() << ", key: " << key.toString() << ", mongo key = " << mongoKey->ToString();
         return {ErrorCodes::Error::DuplicateKey, "Duplicate Key: " + _indexName.String()};
     }
     */
@@ -785,7 +784,7 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
                     txservice::OperationType::Insert,
                     true);
     if (err != txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "yf: insert setKV failed, index: " << _indexName.StringView() << ", key: " << key.toString() << ", error: " << txservice::TxErrorMessage(err);
+        MONGO_LOG(1) << "yf: EloqUniqueIndex::insert setKV failed, index: " << _indexName.StringView() << ", key: " << key.toString() << ", error: " << txservice::TxErrorMessage(err);
     }
     
     return TxErrorCodeToMongoStatus(err);
