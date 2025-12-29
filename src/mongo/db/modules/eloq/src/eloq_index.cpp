@@ -674,6 +674,7 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
     }
 
     if (exists) {
+        MONGO_LOG(0) << "yf: duplicate key found, index: " << _indexName.StringView() << ", key: " << key.toString() << ", mongo key = " << mongoKey->ToString();
         return {ErrorCodes::Error::DuplicateKey, "Duplicate Key: " + _indexName.String()};
     }
 

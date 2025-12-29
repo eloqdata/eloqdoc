@@ -74,8 +74,6 @@
 #include "mongo/util/fail_point_service.h"
 #include "mongo/util/log.h"
 
-#include "mongo/db/modules/eloq/src/base/eloq_util.h"
-#include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
 #include "mongo/db/storage/key_string.h"
 
 namespace mongo {
@@ -506,12 +504,6 @@ Status CollectionImpl::_insertDocuments(OperationContext* opCtx,
             opCtx->lockState(), ResourceId(RESOURCE_METADATA, _ns.ns()), MODE_X};
     }
 
-    // Pre-validate all unique index constraints before inserting into recordStore.
-    // This prevents data inconsistency where recordStore has data but uniqueIndex doesn't.
-    Status status = _validateUniqueIndexConstraints(opCtx, begin, end);
-    if (!status.isOK())
-        return status;
-
     std::vector<Record> records;
     records.reserve(count);
     std::vector<Timestamp> timestamps;
@@ -523,7 +515,7 @@ Status CollectionImpl::_insertDocuments(OperationContext* opCtx,
         Timestamp timestamp = Timestamp(it->oplogSlot.opTime.getTimestamp());
         timestamps.push_back(timestamp);
     }
-    status = _recordStore->insertRecords(opCtx, &records, &timestamps, _enforceQuota(enforceQuota));
+    Status status = _recordStore->insertRecords(opCtx, &records, &timestamps, _enforceQuota(enforceQuota));
     if (!status.isOK())
         return status;
 
@@ -546,101 +538,6 @@ Status CollectionImpl::_insertDocuments(OperationContext* opCtx,
     }
 
     return status;
-}
-
-Status CollectionImpl::_validateUniqueIndexConstraints(
-    OperationContext* opCtx,
-    std::vector<InsertStatement>::const_iterator begin,
-    std::vector<InsertStatement>::const_iterator end) {
-    // Only validate for Eloq storage engine
-    auto* eloqRU = dynamic_cast<EloqRecoveryUnit*>(opCtx->recoveryUnit());
-    if (!eloqRU) {
-        // Not Eloq storage engine, skip validation
-        return Status::OK();
-    }
-
-    // Get all unique indexes
-    IndexCatalog::IndexIterator indexIter = _indexCatalog.getIndexIterator(opCtx, false);
-    std::vector<IndexCatalogEntry*> uniqueIndexes;
-    while (indexIter.more()) {
-        IndexCatalogEntry* entry = indexIter.next();
-        const IndexDescriptor* desc = entry->descriptor();
-        if (desc->unique() && entry->isReady(opCtx)) {
-            uniqueIndexes.push_back(entry);
-        }
-    }
-
-    // If no unique indexes, nothing to validate
-    if (uniqueIndexes.empty()) {
-        return Status::OK();
-    }
-
-    // Construct table name for the collection
-    txservice::TableName tableName{Eloq::MongoTableToTxServiceTableName(_ns.ns(), true)};
-
-    // For each unique index, track keys seen in the current batch to detect duplicates within batch
-    std::map<const IndexDescriptor*, BSONObjSet> batchKeys;
-
-    // For each document to be inserted
-    for (auto docIt = begin; docIt != end; ++docIt) {
-        const BSONObj& doc = docIt->doc;
-
-        // For each unique index
-        for (IndexCatalogEntry* entry : uniqueIndexes) {
-            const IndexDescriptor* desc = entry->descriptor();
-            const IndexAccessMethod* accessMethod = entry->accessMethod();
-
-            // Extract keys for this index
-            BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
-            MultikeyPaths multikeyPaths;
-            accessMethod->getKeys(doc, IndexAccessMethod::GetKeysMode::kEnforceConstraints, &keys, &multikeyPaths);
-
-            // Construct index table name
-            txservice::TableName indexName{desc->isIdIndex()
-                                               ? tableName
-                                               : Eloq::MongoIndexToTxServiceTableName(
-                                                     desc->parentNS(), desc->indexName(), true)};
-
-            // Get index schema version
-            uint64_t keySchemaVersion = eloqRU->getIndexSchema(tableName, indexName)->SchemaTs();
-
-            // Check each key for duplicates
-            for (const BSONObj& key : keys) {
-                // First, check if this key was already seen in the current batch
-                auto& seenKeys = batchKeys[desc];
-                if (seenKeys.count(key) > 0) {
-                    // Duplicate key within the batch
-                    return {ErrorCodes::DuplicateKey,
-                            "Duplicate Key: " + indexName.String() + " key: " + key.toString()};
-                }
-
-                // Convert BSON key to MongoKey
-                KeyString keyString{KeyString::kLatestVersion, key, desc->ordering()};
-                auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(),
-                                                                  keyString.getSize());
-
-                // Check if key exists in database or writeset (getKV checks both)
-                Eloq::MongoRecord mongoRecord;
-                auto [exists, err] = eloqRU->getKV(
-                    opCtx, indexName, keySchemaVersion, mongoKey.get(), &mongoRecord, true);
-
-                if (err != txservice::TxErrorCode::NO_ERROR) {
-                    return TxErrorCodeToMongoStatus(err);
-                }
-
-                if (exists) {
-                    // Duplicate key found in database or writeset
-                    return {ErrorCodes::DuplicateKey,
-                            "Duplicate Key: " + indexName.String() + " key: " + key.toString()};
-                }
-
-                // Add key to batch keys set for duplicate detection within batch
-                seenKeys.insert(key.getOwned());
-            }
-        }
-    }
-
-    return Status::OK();
 }
 
 bool CollectionImpl::haveCappedWaiters() {
