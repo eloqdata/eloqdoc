@@ -163,12 +163,12 @@ coll.remove({});
 var id = new ObjectId();
 // Second insert fails with duplicate _id
 printjson(result = coll.insert([{_id: id, foo: "bar"}, {_id: id, foo: "baz"}]));
-// assert.eq(result.nInserted, 1);
-// assert(result.hasWriteErrors());
-// assert(!result.hasWriteConcernError());
-// assert.eq(coll.count(), 1);
-assert.commandFailedWithCode(result, ErrorCodes.DuplicateKey, result.errmsg)
-assert.eq(coll.count(), 0);
+assert.eq(result.nInserted, 1);
+assert(result.hasWriteErrors());
+assert(!result.hasWriteConcernError());
+assert.eq(coll.count(), 1);
+// assert.commandFailedWithCode(result, ErrorCodes.DuplicateKey, result.errmsg)
+// assert.eq(coll.count(), 0);
 
 //
 // Custom write concern

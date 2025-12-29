@@ -843,7 +843,7 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
 
         BatchReadEntry& entry = batchEntries[i];
         entry.resetToKey(idObj);
-        record.id = RecordId{entry.keyString.getBuffer(), entry.keyString.getSize()};
+        // record.id = RecordId{entry.keyString.getBuffer(), entry.keyString.getSize()};
         batchTuples.emplace_back(txservice::TxKey(entry.mongoKey.get()), &entry.mongoRecord);
     }
 
@@ -1128,8 +1128,7 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     int64_t totalLength = 0;
     for (size_t i = 0; i < nRecords; i++) {
         const auto& record = records[i];
-        // we have already update record id on function `batchCheckDuplicateKey`
-        assert(!record.id.isNull());
+        assert(record.id.isNull());
         totalLength += record.data.size();
     }
 
@@ -1150,6 +1149,7 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         const BSONObj idObj = getIdBSONObjWithoutFieldName(obj);
         BatchReadEntry& entry = batchEntries[i];
         entry.resetToKey(idObj);
+        record.id = RecordId{entry.keyString.getBuffer(), entry.keyString.getSize()};
     }
 
     for (size_t i = 0; i < nRecords; i++) {
