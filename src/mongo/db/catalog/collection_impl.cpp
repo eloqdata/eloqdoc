@@ -515,20 +515,45 @@ Status CollectionImpl::_insertDocuments(OperationContext* opCtx,
         Timestamp timestamp = Timestamp(it->oplogSlot.opTime.getTimestamp());
         timestamps.push_back(timestamp);
     }
-    Status status = _recordStore->insertRecords(opCtx, &records, &timestamps, _enforceQuota(enforceQuota));
+
+    // Batch check for duplicate keys before inserting
+    Status status = _recordStore->batchCheckDuplicateKey(opCtx, &records);
     if (!status.isOK())
         return status;
 
+    // Prepare BsonRecords for index duplicate check and later indexRecords call
     std::vector<BsonRecord> bsonRecords;
     bsonRecords.reserve(count);
     int recordIndex = 0;
     for (auto it = begin; it != end; it++) {
-        RecordId loc = records[recordIndex++].id;
-        // invariant(RecordId::min() < loc);
-        // invariant(loc < RecordId::max());
-
+        RecordId loc = records[recordIndex].id;
         BsonRecord bsonRecord = {loc, Timestamp(it->oplogSlot.opTime.getTimestamp()), &(it->doc)};
         bsonRecords.push_back(bsonRecord);
+        recordIndex++;
+    }
+
+    // Extract BSONObj pointers from BsonRecords for batchCheckDuplicateKey
+    std::vector<const BSONObj*> bsonObjPtrs;
+    bsonObjPtrs.reserve(count);
+    for (const auto& bsonRecord : bsonRecords) {
+        bsonObjPtrs.push_back(bsonRecord.docPtr);
+    }
+
+    // Batch check for duplicate keys in unique indexes
+    status = _indexCatalog.batchCheckDuplicateKey(opCtx, bsonObjPtrs);
+    if (!status.isOK()) {
+        return status;
+}
+
+    // Now insert records (primary keys already checked)
+    status = _recordStore->insertRecords(opCtx, &records, &timestamps, _enforceQuota(enforceQuota));
+    if (!status.isOK()) {
+        return status;
+}
+
+    // Update RecordIds in bsonRecords after insertRecords sets them
+    for (size_t i = 0; i < bsonRecords.size(); i++) {
+        bsonRecords[i].id = records[i].id;
     }
 
     int64_t keysInserted;

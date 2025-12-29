@@ -1446,9 +1446,40 @@ Status IndexCatalogImpl::_unindexRecord(OperationContext* opCtx,
 }
 
 
+Status IndexCatalogImpl::batchCheckDuplicateKey(OperationContext* opCtx,
+                                                 const std::vector<const BSONObj*>& bsonObjPtrs) {
+    // Only check unique indexes for duplicates
+    for (IndexCatalogEntryContainer::const_iterator i = _entries.begin(); i != _entries.end();
+         ++i) {
+        IndexCatalogEntry* entry = i->get();
+        if (!entry->isReady(opCtx)) {
+            continue;  // Skip unfinished indexes
+        }
+
+        IndexDescriptor* desc = entry->descriptor();
+        if (!desc->unique()) {
+            continue;  // Only check unique indexes
+        }
+
+        IndexAccessMethod* accessMethod = entry->accessMethod();
+        if (!accessMethod) {
+            continue;
+        }
+
+        // Call batchCheckDuplicateKey on the IndexAccessMethod
+        // This will delegate to EloqIndex for Eloq storage engine
+        Status s = accessMethod->batchCheckDuplicateKey(opCtx, bsonObjPtrs);
+        if (!s.isOK()) {
+            return s;
+        }
+    }
+
+    return Status::OK();
+}
+
 Status IndexCatalogImpl::indexRecords(OperationContext* opCtx,
-                                      const std::vector<BsonRecord>& bsonRecords,
-                                      int64_t* keysInsertedOut) {
+                                     const std::vector<BsonRecord>& bsonRecords,
+                                     int64_t* keysInsertedOut) {
     if (keysInsertedOut) {
         *keysInsertedOut = 0;
     }

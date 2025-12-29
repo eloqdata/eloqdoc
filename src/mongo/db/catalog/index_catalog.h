@@ -231,6 +231,9 @@ public:
                                     const std::vector<BsonRecord>& bsonRecords,
                                     int64_t* keysInsertedOut) = 0;
 
+        virtual Status batchCheckDuplicateKey(OperationContext* opCtx,
+                                              const std::vector<const BSONObj*>& bsonObjPtrs) = 0;
+
         virtual void unindexRecord(OperationContext* opCtx,
                                    const BSONObj& obj,
                                    const RecordId& loc,
@@ -525,6 +528,18 @@ public:
                               const bool noWarn,
                               int64_t* const keysDeletedOut) {
         return this->_impl().unindexRecord(opCtx, obj, loc, noWarn, keysDeletedOut);
+    }
+
+    /**
+     * Batch check for duplicate keys in unique indexes before inserting records.
+     * 
+     * @param opCtx - Operation context
+     * @param bsonObjPtrs - Vector of pointers to BSON objects to check
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    inline Status batchCheckDuplicateKey(OperationContext* const opCtx,
+                                          const std::vector<const BSONObj*>& bsonObjPtrs) {
+        return this->_impl().batchCheckDuplicateKey(opCtx, bsonObjPtrs);
     }
 
     // ------- temp internal -------

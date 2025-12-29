@@ -618,6 +618,17 @@ bool IndexAccessMethod::BulkBuilder::isMultikey() const {
     return _everGeneratedMultipleKeys || isMultikeyFromPaths(_indexMultikeyPaths);
 }
 
+Status IndexAccessMethod::batchCheckDuplicateKey(OperationContext* opCtx,
+                                                  const std::vector<const BSONObj*>& bsonObjPtrs) {
+    // Delegate to the underlying SortedDataInterface
+    SortedDataInterface* sdi = getSortedDataInterface();
+    if (sdi) {
+        return sdi->batchCheckDuplicateKey(opCtx, bsonObjPtrs);
+    }
+    // If SortedDataInterface is not available, return OK
+    return Status::OK();
+}
+
 }  // namespace mongo
 
 #include "mongo/db/sorter/sorter.cpp"

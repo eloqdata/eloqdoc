@@ -57,6 +57,18 @@ bvar::LatencyRecorder bVarUpdateRecord("update_record");
 
 namespace mongo {
 
+struct BatchReadEntry {
+    BatchReadEntry() : keyString(KeyString::kLatestVersion) {}
+    void resetToKey(const BSONObj& idObj) {
+        keyString.resetToKey(idObj, kIdOrdering);
+        mongoKey = std::make_unique<Eloq::MongoKey>(keyString);
+    }
+
+    KeyString keyString;
+    std::unique_ptr<Eloq::MongoKey> mongoKey;
+    Eloq::MongoRecord mongoRecord;
+};
+
 class EloqCatalogRecordStoreCursor : public SeekableRecordCursor {
 public:
     explicit EloqCatalogRecordStoreCursor(OperationContext* opCtx)
@@ -796,10 +808,66 @@ StatusWith<RecordId> EloqRecordStore::insertRecord(
     return {record.id};
 }
 
+Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
+                                                 std::vector<Record>* records) {
+    MONGO_LOG(1) << "EloqRecordStore::batchCheckDuplicateKey, nRecords: " << records->size();
+    
+    if (records->empty()) {
+        return Status::OK();
+    }
+
+    size_t nRecords = records->size();
+    auto batchEntries = std::make_unique<BatchReadEntry[]>(nRecords);
+    std::vector<txservice::ScanBatchTuple> batchTuples;
+    batchTuples.reserve(nRecords);
+    
+    for (size_t i = 0; i < nRecords; i++) {
+        Record& record = (*records)[i];
+        BSONObj obj{record.data.data()};
+        const BSONObj idObj = getIdBSONObjWithoutFieldName(obj);
+        Status s = checkKeySize(idObj, "RecordStore");
+        if (!s.isOK()) {
+            return s;
+        }
+
+        BatchReadEntry& entry = batchEntries[i];
+        entry.resetToKey(idObj);
+        record.id = RecordId{entry.keyString.getBuffer(), entry.keyString.getSize()};
+        batchTuples.emplace_back(txservice::TxKey(entry.mongoKey.get()), &entry.mongoRecord);
+    }
+
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
+    uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
+    
+    // Check all keys for duplicates
+    txservice::TxErrorCode err =
+        ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
+    if (err != txservice::TxErrorCode::NO_ERROR) {
+        MONGO_LOG(1) << "EloqRecordStore::batchCheckDuplicateKey batchGetKV failed, table: "
+                     << _tableName.StringView() << ", error: " << txservice::TxErrorMessage(err);
+        return TxErrorCodeToMongoStatus(err);
+    }
+
+    // Check results for duplicates
+    for (size_t i = 0; i < nRecords; i++) {
+        const txservice::ScanBatchTuple& tuple = batchTuples[i];
+        if (tuple.status_ == txservice::RecordStatus::Normal) {
+            MONGO_LOG(0) << "EloqRecordStore::batchCheckDuplicateKey duplicate key found, key: "
+                         << batchEntries[i].keyString.toString();
+            return {ErrorCodes::DuplicateKey, "DuplicateKey"};
+        } else {
+            invariant(tuple.status_ == txservice::RecordStatus::Deleted);
+        }
+    }
+
+    return Status::OK();
+}
+
 Status EloqRecordStore::insertRecords(OperationContext* opCtx,
-                                      std::vector<Record>* records,
-                                      std::vector<Timestamp>* timestamps,
-                                      bool enforceQuota) {
+                                     std::vector<Record>* records,
+                                     std::vector<Timestamp>* timestamps,
+                                     bool enforceQuota) {
     MONGO_LOG(1) << "EloqRecordStore::insertRecords";
     return _insertRecords(opCtx, records->data(), timestamps->data(), records->size());
 }
@@ -1035,18 +1103,6 @@ void EloqRecordStore::waitForAllEarlierOplogWritesToBeVisible(OperationContext* 
     //
 }
 
-struct BatchReadEntry {
-    BatchReadEntry() : keyString(KeyString::kLatestVersion) {}
-    void resetToKey(const BSONObj& idObj) {
-        keyString.resetToKey(idObj, kIdOrdering);
-        mongoKey = std::make_unique<Eloq::MongoKey>(keyString);
-    }
-
-    KeyString keyString;
-    std::unique_ptr<Eloq::MongoKey> mongoKey;
-    Eloq::MongoRecord mongoRecord;
-};
-
 Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
                                        Record* records,
                                        const Timestamp* timestamps,
@@ -1069,57 +1125,33 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         return {ErrorCodes::BadValue, "object to insert exceeds cappedMaxSize"};
     }
 
-    auto batchEntries = std::make_unique<BatchReadEntry[]>(nRecords);
-    std::vector<txservice::ScanBatchTuple> batchTuples;
-    batchTuples.reserve(nRecords);
+    // Convert Record* to std::vector<Record> for batchCheckDuplicateKey
+    std::vector<Record> recordsVec(records, records + nRecords);
+    
+    // Check for duplicate keys first (this also sets record.id)
+    /*
+    Status dupCheckStatus = batchCheckDuplicateKey(opCtx, &recordsVec);
+    if (!dupCheckStatus.isOK()) {
+        return dupCheckStatus;
+    }
+    */
+    
+    // Copy back the RecordIds that were set by batchCheckDuplicateKey
     for (size_t i = 0; i < nRecords; i++) {
-        Record& record = records[i];
-        BSONObj obj{record.data.data()};
-        const BSONObj idObj = getIdBSONObjWithoutFieldName(obj);
-        MONGO_LOG(1) << idObj.jsonString();
-        Status s = checkKeySize(idObj, "RecordStore");
-        if (!s.isOK()) {
-            return s;
-        }
-
-        BatchReadEntry& entry = batchEntries[i];
-        entry.resetToKey(idObj);
-        record.id = RecordId{entry.keyString.getBuffer(), entry.keyString.getSize()};
-        batchTuples.emplace_back(txservice::TxKey(entry.mongoKey.get()), &entry.mongoRecord);
+        records[i].id = recordsVec[i].id;
     }
 
     auto ru = EloqRecoveryUnit::get(opCtx);
     MONGO_LOG(1) << "Insert into a Data Table.";
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
-    
-    // First, check all keys for duplicates before inserting any records.
-    // This prevents partial inserts that would cause false duplicate key errors
-    // when falling back to one-at-a-time insertion.
-    txservice::TxErrorCode err =
-        ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
-    if (err != txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "EloqRecordStore::_insertRecords batchGetKV failed, table: "
-                     << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber()
-                     << txservice::TxErrorMessage(err);
-        return TxErrorCodeToMongoStatus(err);
-    }
-
-    // Check all keys for duplicates first, before inserting anything.
-    for (size_t i = 0; i < nRecords; i++) {
-        const txservice::ScanBatchTuple& tuple = batchTuples[i];
-        if (tuple.status_ == txservice::RecordStatus::Normal) {
-            MONGO_LOG(0) <<  "yf: insertRecords, duplicate key = " << batchEntries[i].keyString.toString() << ", txn: " << ru->getTxm()->TxNumber() << "i = " << i << ", n record = " << nRecords;
-            return {ErrorCodes::DuplicateKey, "DuplicateKey"};
-        } else {
-            invariant(tuple.status_ == txservice::RecordStatus::Deleted);
-        }
-    }
 
     // Check unique index constraints for all records before inserting.
     // Use dirtySchema if it exists (reflects ongoing index create/drop operations),
     // otherwise use schema (committed state).
     // This ensures we check the same indexes that indexRecords will insert into.
+
+    /*
     const Eloq::MongoTableSchema* tableSchemaToUse = table._dirtySchema
         ? static_cast<const Eloq::MongoTableSchema*>(table._dirtySchema.get())
         : static_cast<const Eloq::MongoTableSchema*>(table._schema.get());
@@ -1211,8 +1243,19 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
             }
         }
     }
+    */
 
     // All keys are valid (no duplicates found). Now insert all records.
+    // Rebuild batchEntries for insertion
+    auto batchEntries = std::make_unique<BatchReadEntry[]>(nRecords);
+    for (size_t i = 0; i < nRecords; i++) {
+        Record& record = records[i];
+        BSONObj obj{record.data.data()};
+        const BSONObj idObj = getIdBSONObjWithoutFieldName(obj);
+        BatchReadEntry& entry = batchEntries[i];
+        entry.resetToKey(idObj);
+    }
+
     for (size_t i = 0; i < nRecords; i++) {
         std::unique_ptr<Eloq::MongoKey>& mongoKey = batchEntries[i].mongoKey;
         std::unique_ptr<Eloq::MongoRecord> mongoRecord = std::make_unique<Eloq::MongoRecord>();
@@ -1225,13 +1268,14 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         }
         bool checkUnique = true;
         MONGO_LOG(1) << "EloqRecordStore::_insertRecords setKV, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique;
-        err = ru->setKV(_tableName,
+        txservice::TxErrorCode err = ru->setKV(_tableName,
                         pkeySchemaVersion,
                         std::move(mongoKey),
                         std::move(mongoRecord),
                         txservice::OperationType::Insert,
                         checkUnique);
         if (err != txservice::TxErrorCode::NO_ERROR) {
+            MONGO_LOG(1) << "yf: _insertRecords setKV failed, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique << ", error: " << txservice::TxErrorMessage(err);
             return TxErrorCodeToMongoStatus(err);
         }
 

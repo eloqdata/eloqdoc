@@ -418,6 +418,20 @@ public:
                                               RecordId* idsOut = nullptr) = 0;
 
     /**
+     * Batch check for duplicate keys before inserting records.
+     * This checks primary keys (RecordId) for duplicates.
+     * 
+     * @param opCtx - Operation context
+     * @param records - Vector of records to check (input/output: RecordId may be set)
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    virtual Status batchCheckDuplicateKey(OperationContext* opCtx,
+                                          std::vector<Record>* records) {
+        // Default implementation: no-op (for storage engines that don't need this)
+        return Status::OK();
+    }
+
+    /**
      * A thin wrapper around insertRecordsWithDocWriter() to simplify handling of single DocWriters.
      */
     StatusWith<RecordId> insertRecordWithDocWriter(OperationContext* opCtx,

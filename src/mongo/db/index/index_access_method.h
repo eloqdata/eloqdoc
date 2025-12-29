@@ -157,6 +157,26 @@ public:
     Status touch(OperationContext* opCtx, const BSONObj& obj);
 
     /**
+     * Get the underlying SortedDataInterface for this index.
+     * This allows storage engine specific implementations (like EloqIndex) to be accessed.
+     * 
+     * @return Pointer to the SortedDataInterface, or nullptr if not available
+     */
+    SortedDataInterface* getSortedDataInterface() const {
+        return _newInterface.get();
+    }
+
+    /**
+     * Batch check for duplicate keys before inserting records.
+     * 
+     * @param opCtx - Operation context
+     * @param bsonObjPtrs - Vector of pointers to BSON objects to check
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    virtual Status batchCheckDuplicateKey(OperationContext* opCtx,
+                                          const std::vector<const BSONObj*>& bsonObjPtrs);
+
+    /**
      * this pages in the entire index
      */
     Status touch(OperationContext* opCtx) const;

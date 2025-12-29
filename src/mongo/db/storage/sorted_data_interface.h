@@ -127,6 +127,19 @@ public:
                                const RecordId& loc) = 0;
 
     /**
+     * Batch check for duplicate keys before inserting records.
+     * 
+     * @param opCtx - Operation context
+     * @param bsonObjPtrs - Vector of pointers to BSON objects to check
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    virtual Status batchCheckDuplicateKey(OperationContext* opCtx,
+                                          const std::vector<const BSONObj*>& bsonObjPtrs) {
+        // Default implementation: no-op (for storage engines that don't need batch checking)
+        return Status::OK();
+    }
+
+    /**
      * Attempt to reduce the storage space used by this index via compaction. Only called if the
      * indexed record store supports compaction-in-place.
      */

@@ -22,6 +22,9 @@
 #include "mongo/db/record_id.h"
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/sorted_data_interface.h"
+#include "mongo/db/catalog/index_catalog.h"
+#include "mongo/db/index/multikey_paths.h"
+#include "mongo/bson/simple_bsonobj_comparator.h"
 
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
@@ -76,6 +79,17 @@ public:
     virtual bool isIdIndex() const = 0;
 
     virtual bool unique() const = 0;
+
+    /**
+     * Batch check for duplicate keys before inserting records.
+     * Override from SortedDataInterface.
+     * 
+     * @param opCtx - Operation context
+     * @param bsonObjPtrs - Vector of pointers to BSON objects to check
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    Status batchCheckDuplicateKey(OperationContext* opCtx,
+                                   const std::vector<const BSONObj*>& bsonObjPtrs) override;
 
 protected:
     class BulkBuilder;

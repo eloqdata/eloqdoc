@@ -403,8 +403,8 @@ try {
     bulk.execute();
     assert(false, "should have failed due to duplicate key");
 } catch (err) {
-    // assert(coll.count() == 50, "Unexpected number inserted by bulk write: " + coll.count());
-    assert(coll.count() == 1, "Unexpected number inserted by bulk write: " + coll.count());
+    assert(coll.count() == 50, "Unexpected number inserted by bulk write: " + coll.count());
+    // assert(coll.count() == 1, "Unexpected number inserted by bulk write: " + coll.count());
 }
 
 //

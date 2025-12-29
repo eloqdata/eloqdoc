@@ -341,6 +341,9 @@ public:
                         const std::vector<BsonRecord>& bsonRecords,
                         int64_t* keysInsertedOut) override;
 
+    Status batchCheckDuplicateKey(OperationContext* opCtx,
+                                  const std::vector<const BSONObj*>& bsonObjPtrs);
+
     /**
      * When 'keysDeletedOut' is not null, it will be set to the number of index keys removed by
      * this operation.
