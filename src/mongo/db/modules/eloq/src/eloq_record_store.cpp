@@ -1128,7 +1128,8 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     int64_t totalLength = 0;
     for (size_t i = 0; i < nRecords; i++) {
         const auto& record = records[i];
-        assert(record.id.isNull());
+        // we have already update record id on function `batchCheckDuplicateKey`
+        assert(!record.id.isNull());
         totalLength += record.data.size();
     }
 
