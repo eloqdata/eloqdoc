@@ -90,12 +90,7 @@ void serializeReply(OperationContext* opCtx,
                     size_t opsInBatch,
                     WriteResult result,
                     BSONObjBuilder* out) {
-    // Phase 1: Log entry point
-    MONGO_LOG(0) << "[Phase1] serializeReply called: opsInBatch=" << opsInBatch
-                 << ", result.results.size()=" << result.results.size();
-    
     if (shouldSkipOutput(opCtx)) {
-        MONGO_LOG(0) << "[Phase1] serializeReply: skipping output due to write concern";
         return;
     }
 
@@ -174,15 +169,6 @@ void serializeReply(OperationContext* opCtx,
 
     if (!errors.empty()) {
         out->append("writeErrors", errors);
-        // Phase 1: Logging to understand current response format
-        BSONObj tempObj = out->asTempObj();
-        bool hasOk = tempObj.hasField("ok");
-        bool okValue = hasOk ? tempObj["ok"].trueValue() : false;
-        // Use warning() to ensure log output, and LOG(0) for highest verbosity
-        warning() << "[Phase1] Bulk write errors: " << errors.size() << " errors, ok field: "
-                  << (hasOk ? (okValue ? "1" : "0") : "missing");
-        MONGO_LOG(0) << "[Phase1] Bulk write errors: " << errors.size() << " errors, ok field: "
-                     << (hasOk ? (okValue ? "1" : "0") : "missing");
     }
 
     // writeConcernError field is handled by command processor.
@@ -250,22 +236,6 @@ private:
                 BSONObjBuilder bob = result->getBodyBuilder();
                 runImpl(opCtx, bob);
                 CommandHelpers::extractOrAppendOk(bob);
-                // Phase 1: Logging to understand final response format
-                BSONObj response = bob.asTempObj();
-                if (response.hasField("writeErrors")) {
-                    warning() << "[Phase1] Final bulk write response: ok="
-                              << (response.hasField("ok") ? (response["ok"].trueValue() ? "1" : "0")
-                                                          : "missing")
-                              << ", writeErrors=" << response["writeErrors"].Array().size()
-                              << ", n=" << (response.hasField("n") ? response["n"].numberLong() : -1);
-                    MONGO_LOG(0) << "[Phase1] Final bulk write response: ok="
-                                 << (response.hasField("ok") ? (response["ok"].trueValue() ? "1" : "0")
-                                                             : "missing")
-                                 << ", writeErrors=" << response["writeErrors"].Array().size()
-                                 << ", n=" << (response.hasField("n") ? response["n"].numberLong() : -1);
-                }
-                warning() << "[Phase1] Final bulk write response (full): " << response.toString();
-                MONGO_LOG(0) << "[Phase1] Final bulk write response (full): " << response.toString();
             } catch (const DBException& ex) {
                 LastError::get(opCtx->getClient()).setLastError(ex.code(), ex.reason());
                 throw;
@@ -334,16 +304,7 @@ private:
         }
 
         void runImpl(OperationContext* opCtx, BSONObjBuilder& result) const override {
-            // Phase 1: Log entry point for insert command
-            warning() << "[Phase1] CmdInsert::runImpl called: documents=" << _batch.getDocuments().size()
-                      << ", ordered=" << _batch.getWriteCommandBase().getOrdered();
-            MONGO_LOG(0) << "[Phase1] CmdInsert::runImpl called: documents=" << _batch.getDocuments().size()
-                         << ", ordered=" << _batch.getWriteCommandBase().getOrdered();
-            
             auto reply = performInserts(opCtx, _batch);
-            
-            warning() << "[Phase1] performInserts returned: results.size()=" << reply.results.size();
-            MONGO_LOG(0) << "[Phase1] performInserts returned: results.size()=" << reply.results.size();
             
             serializeReply(opCtx,
                            ReplyStyle::kNotUpdate,
