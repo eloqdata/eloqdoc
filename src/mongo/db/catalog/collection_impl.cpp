@@ -728,7 +728,16 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
         ii = _indexCatalog.getIndexIterator(opCtx, true);
         while (ii.more()) {
             IndexDescriptor* descriptor = ii.next();
+            IndexCatalogEntry* entry = ii.catalogEntry(descriptor);
             IndexAccessMethod* iam = ii.accessMethod(descriptor);
+            if (!entry->isReady(opCtx)) {
+                continue;
+            }
+
+            if (!descriptor->unique()) {
+                continue;
+            }
+
             UpdateTicket* updateTicket = updateTickets.mutableMap()[descriptor];
             uassertStatusOK(iam->checkDuplicateKeysForUpdate(opCtx, *updateTicket));
         }

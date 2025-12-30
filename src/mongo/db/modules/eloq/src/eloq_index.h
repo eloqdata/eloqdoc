@@ -104,6 +104,20 @@ public:
                                        const std::vector<BSONObj>& addedKeys,
                                        const RecordId& currentRecordId) override;
 
+private:
+    /**
+     * Internal helper method to check duplicate keys for a vector of already-extracted keys.
+     * If currentRecordId is provided (not null), it will be excluded from duplicate check (for update operations).
+     * 
+     * @param opCtx - Operation context
+     * @param keys - Vector of BSONObj keys that have already been extracted
+     * @param currentRecordId - RecordId to exclude from duplicate check (null for insert operations)
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    Status _checkDuplicateKeysInternal(OperationContext* opCtx,
+                                       const std::vector<BSONObj>& keys,
+                                       const RecordId& currentRecordId);
+
 protected:
     class BulkBuilder;
     class IdBulkBuilder;
