@@ -219,7 +219,6 @@ assert.eq(coll.count(), 1);
 assert.eq(1, result.writeErrors[0].index);
 assert.eq('number', typeof result.writeErrors[0].code);
 assert.eq('string', typeof result.writeErrors[0].errmsg);
- 
 assert.eq(2, result.writeErrors[1].index);
 assert.eq('number', typeof result.writeErrors[1].code);
 assert.eq('string', typeof result.writeErrors[1].errmsg);

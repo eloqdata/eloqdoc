@@ -518,12 +518,13 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
                 }
             });
         } catch (const DBException& ex) {
-            bool canContinue = handleError(
-                opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), out, true);
-            
             if (ex.code() != ErrorCodes::DuplicateKey) {
                 throw;
             }
+            
+            bool canContinue = handleError(
+                opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), out, true);
+            
 
             MONGO_LOG(0) <<  "yf: handleError, exception = " << ex.toString() << ", code = " << ex.code() << ", key = " << it->doc.firstElement().fieldNameStringData() << ", value = " << it->doc.firstElement().toString()    ;
             

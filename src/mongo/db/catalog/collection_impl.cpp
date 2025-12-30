@@ -74,8 +74,6 @@
 #include "mongo/util/fail_point_service.h"
 #include "mongo/util/log.h"
 
-#include "mongo/db/storage/key_string.h"
-
 namespace mongo {
 
 MONGO_REGISTER_SHIM(Collection::makeImpl)
