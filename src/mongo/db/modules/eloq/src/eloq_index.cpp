@@ -27,6 +27,7 @@
 #include "mongo/util/log.h"
 
 #include "mongo/db/modules/eloq/src/base/eloq_key.h"
+#include "mongo/db/modules/eloq/src/base/eloq_record.h"
 #include "mongo/db/modules/eloq/src/base/eloq_util.h"
 #include "mongo/db/modules/eloq/src/eloq_cursor.h"
 #include "mongo/db/modules/eloq/src/eloq_index.h"
@@ -658,6 +659,101 @@ Status EloqIndex::batchCheckDuplicateKey(OperationContext* opCtx,
                 MONGO_LOG(1) << "yf: batchCheckDuplicateKey duplicate key found, index: "
                              << _indexName.StringView() << ", key = " <<  keyStringBuffers[batchIdx];
                 return {ErrorCodes::Error::DuplicateKey, "DuplicateKey"};
+            } else {
+                invariant(tuple.status_ == txservice::RecordStatus::Deleted);
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Status EloqIndex::checkDuplicateKeysForUpdate(OperationContext* opCtx,
+                                               const std::vector<BSONObj>& addedKeys,
+                                               const RecordId& currentRecordId) {
+    // Only check for unique indexes
+    if (!unique()) {
+        return Status::OK();
+    }
+
+    if (addedKeys.empty()) {
+        return Status::OK();
+    }
+
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    const Eloq::MongoKeySchema* keySchema = ru->getIndexSchema(_tableName, _indexName);
+    if (!keySchema) {
+        return Status::OK();  // No schema available, skip check
+    }
+
+    // Build batch for this unique index
+    // Use vectors to store KeyString buffers and MongoKey objects
+    std::vector<std::string> keyStringBuffers;  // Store KeyString buffer data
+    std::vector<std::unique_ptr<Eloq::MongoKey>> mongoKeys;  // Store MongoKey objects
+    std::vector<Eloq::MongoRecord> mongoRecords;  // Store MongoRecord objects
+    std::vector<txservice::ScanBatchTuple> indexBatchTuples;
+    
+    // Use a set to track keys within this batch to detect duplicates within the batch
+    BSONObjSet batchKeys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+
+    // For each key to be added
+    for (const BSONObj& key : addedKeys) {
+        // Check if this key already exists in the batch
+        if (batchKeys.find(key) != batchKeys.end()) {
+            MONGO_LOG(1) << "yf: checkDuplicateKeysForUpdate duplicate key found within batch, index: "
+                         << _indexName.StringView() << ", key: " << key.toString();
+            return {ErrorCodes::DuplicateKey, "DuplicateKey"};
+        }
+        batchKeys.insert(key.getOwned());
+        
+        // Convert BSON key to KeyString
+        KeyString keyString{KeyString::kLatestVersion, key, keySchema->Ordering()};
+        
+        // Store KeyString buffer data
+        keyStringBuffers.emplace_back(keyString.getBuffer(), keyString.getSize());
+        
+        // Create MongoKey from buffer
+        auto mongoKey = std::make_unique<Eloq::MongoKey>(
+            keyStringBuffers.back().data(), keyStringBuffers.back().size());
+        mongoKeys.push_back(std::move(mongoKey));
+        
+        // Create MongoRecord
+        mongoRecords.emplace_back();
+
+        // Add to batch
+        indexBatchTuples.emplace_back(txservice::TxKey(mongoKeys.back().get()),
+                                      &mongoRecords.back());
+    }
+
+    if (!indexBatchTuples.empty()) {
+        // Use batchGetKV to check all keys
+        uint64_t keySchemaVersion = keySchema->SchemaTs();
+        txservice::TxErrorCode err = ru->batchGetKV(
+            opCtx, _indexName, keySchemaVersion, indexBatchTuples, true);
+        if (err != txservice::TxErrorCode::NO_ERROR) {
+            MONGO_LOG(1) << "EloqIndex::checkDuplicateKeysForUpdate batchGetKV failed for index: "
+                         << _indexName.StringView() << ", error: " << txservice::TxErrorMessage(err);
+            return TxErrorCodeToMongoStatus(err);
+        }
+
+        // Check results for duplicates
+        for (size_t batchIdx = 0; batchIdx < indexBatchTuples.size(); batchIdx++) {
+            const txservice::ScanBatchTuple& tuple = indexBatchTuples[batchIdx];
+            if (tuple.status_ == txservice::RecordStatus::Normal) {
+                // Key exists in database or writeset
+                // Check if it's the same RecordId as currentRecordId (which is OK for updates)
+                Eloq::MongoRecord& record = mongoRecords[batchIdx];
+                // In index, RecordId is stored in the value (MongoRecord's EncodedBlobData)
+                // Extract RecordId from the record value
+                RecordId existingRecordId = record.ToRecordId(false);
+                if (existingRecordId != currentRecordId) {
+                    // Duplicate key found with different RecordId
+                    MONGO_LOG(1) << "yf: checkDuplicateKeysForUpdate duplicate key found, index: "
+                                 << _indexName.StringView() << ", key = " << keyStringBuffers[batchIdx]
+                                 << ", existingRecordId = " << existingRecordId
+                                 << ", currentRecordId = " << currentRecordId;
+                    return {ErrorCodes::DuplicateKey, "DuplicateKey"};
+                }
             } else {
                 invariant(tuple.status_ == txservice::RecordStatus::Deleted);
             }

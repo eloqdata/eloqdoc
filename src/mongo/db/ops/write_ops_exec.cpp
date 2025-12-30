@@ -469,6 +469,11 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
         if (session && session->inMultiDocumentTransaction()) {
             throw;
         }
+
+        if (e.code() != ErrorCodes::DuplicateKey) {
+            throw;
+        }
+
         MONGO_LOG(0) <<  "yf: catach, exception = " << e.toString() << ", code = " << e.code();
         // Otherwise, ignore this failure and behave as-if we never tried to do the combined batch
         // insert.  The loop below will handle reporting any non-transient errors.
@@ -515,6 +520,10 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
         } catch (const DBException& ex) {
             bool canContinue = handleError(
                 opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), out, true);
+            
+            if (ex.code() != ErrorCodes::DuplicateKey) {
+                throw;
+            }
 
             MONGO_LOG(0) <<  "yf: handleError, exception = " << ex.toString() << ", code = " << ex.code() << ", key = " << it->doc.firstElement().fieldNameStringData() << ", value = " << it->doc.firstElement().toString()    ;
             

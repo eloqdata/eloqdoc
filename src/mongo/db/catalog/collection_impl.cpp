@@ -723,6 +723,15 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
                                                 updateTicket,
                                                 entry->getFilterExpression()));
         }
+
+        // Check for duplicate keys in the added keys of each index before updating the record
+        ii = _indexCatalog.getIndexIterator(opCtx, true);
+        while (ii.more()) {
+            IndexDescriptor* descriptor = ii.next();
+            IndexAccessMethod* iam = ii.accessMethod(descriptor);
+            UpdateTicket* updateTicket = updateTickets.mutableMap()[descriptor];
+            uassertStatusOK(iam->checkDuplicateKeysForUpdate(opCtx, *updateTicket));
+        }
     }
 
     args->preImageDoc = oldDoc.value().getOwned();

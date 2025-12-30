@@ -91,6 +91,19 @@ public:
     Status batchCheckDuplicateKey(OperationContext* opCtx,
                                    const std::vector<const BSONObj*>& bsonObjPtrs) override;
 
+    /**
+     * Check for duplicate keys in update operations.
+     * Override from SortedDataInterface.
+     * 
+     * @param opCtx - Operation context
+     * @param addedKeys - Vector of BSONObj keys that will be added to the index
+     * @param currentRecordId - RecordId of the document being updated (to exclude from duplicate check)
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    Status checkDuplicateKeysForUpdate(OperationContext* opCtx,
+                                       const std::vector<BSONObj>& addedKeys,
+                                       const RecordId& currentRecordId) override;
+
 protected:
     class BulkBuilder;
     class IdBulkBuilder;

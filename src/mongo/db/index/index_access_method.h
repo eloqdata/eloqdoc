@@ -177,6 +177,30 @@ public:
                                           const std::vector<const BSONObj*>& bsonObjPtrs);
 
     /**
+     * Check for duplicate keys in UpdateTicket's added keys.
+     * This is called during update operations to validate that the new keys being added
+     * don't conflict with existing keys in the index (excluding the current document).
+     * 
+     * @param opCtx - Operation context
+     * @param addedKeys - Vector of BSONObj keys that will be added to the index
+     * @param currentRecordId - RecordId of the document being updated (to exclude from duplicate check)
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    virtual Status checkDuplicateKeysForUpdate(OperationContext* opCtx,
+                                               const std::vector<BSONObj>& addedKeys,
+                                               const RecordId& currentRecordId);
+
+    /**
+     * Check for duplicate keys in UpdateTicket's added keys.
+     * Convenience wrapper that extracts added keys from UpdateTicket.
+     * 
+     * @param opCtx - Operation context
+     * @param ticket - UpdateTicket containing the added keys to check
+     * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
+     */
+    Status checkDuplicateKeysForUpdate(OperationContext* opCtx, const UpdateTicket& ticket);
+
+    /**
      * this pages in the entire index
      */
     Status touch(OperationContext* opCtx) const;
