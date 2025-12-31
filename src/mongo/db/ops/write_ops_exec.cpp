@@ -368,7 +368,6 @@ void insertDocuments(OperationContext* opCtx,
 
     uassertStatusOK(collection->insertDocuments(
         opCtx, begin, end, &CurOp::get(opCtx)->debug(), /*enforceQuota*/ true, fromMigrate));
-    MONGO_LOG(0) <<  "yf: insertDocuments, commit";
     wuow.commit();
 }
 
@@ -474,7 +473,6 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
             throw;
         }
 
-        MONGO_LOG(0) <<  "yf: catach, exception = " << e.toString() << ", code = " << e.code();
         // Otherwise, ignore this failure and behave as-if we never tried to do the combined batch
         // insert.  The loop below will handle reporting any non-transient errors.
         collection.reset();
@@ -500,7 +498,6 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
                     if (!collection)
                         acquireCollection();
                     lastOpFixer->startingOp();
-                    MONGO_LOG(0) <<  "yf: insertDocuments, key = " << it->doc.firstElement().fieldNameStringData() << ", value = " << it->doc.firstElement().toString();
                     insertDocuments(opCtx, collection->getCollection(), it, it + 1, fromMigrate);
                     lastOpFixer->finishedOpSuccessfully();
                     SingleWriteResult result;
@@ -526,8 +523,6 @@ bool insertBatchAndHandleErrors(OperationContext* opCtx,
                 opCtx, ex, wholeOp.getNamespace(), wholeOp.getWriteCommandBase(), out, true);
             
 
-            MONGO_LOG(0) <<  "yf: handleError, exception = " << ex.toString() << ", code = " << ex.code() << ", key = " << it->doc.firstElement().fieldNameStringData() << ", value = " << it->doc.firstElement().toString()    ;
-            
             // Reset RecoveryUnit state if it was set to kFailedUnitOfWork by the nested WriteUnitOfWork
             // in insertDocuments. This is necessary when continuing to the next iteration after an error.
             // We only reset the state without aborting the transaction, since the entire insertMany operation

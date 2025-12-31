@@ -835,8 +835,6 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
 
         // Check if this key already exists in the batch
         if (batchKeys.find(idObj) != batchKeys.end()) {
-            MONGO_LOG(1) << "yf: EloqRecordStore::batchCheckDuplicateKey duplicate key found within batch, key: "
-                         << idObj.toString();
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         }
         batchKeys.insert(idObj.getOwned());
@@ -864,8 +862,6 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     for (size_t i = 0; i < nRecords; i++) {
         const txservice::ScanBatchTuple& tuple = batchTuples[i];
         if (tuple.status_ == txservice::RecordStatus::Normal) {
-            MONGO_LOG(1) << "yf: EloqRecordStore::batchCheckDuplicateKey duplicate key found, key: "
-                         << batchEntries[i].keyString.toString();
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         } else {
             invariant(tuple.status_ == txservice::RecordStatus::Deleted);
@@ -1163,7 +1159,6 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
             mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
         }
         bool checkUnique = true;
-        MONGO_LOG(1) << "yf: EloqRecordStore::_insertRecords setKV, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique;
         txservice::TxErrorCode err = ru->setKV(_tableName,
                         pkeySchemaVersion,
                         std::move(mongoKey),
@@ -1171,7 +1166,6 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
                         txservice::OperationType::Insert,
                         checkUnique);
         if (err != txservice::TxErrorCode::NO_ERROR) {
-            MONGO_LOG(1) << "yf: _insertRecords setKV failed, table: " << _tableName.StringView() << ", txn: " << ru->getTxm()->TxNumber() << ", key: " << ks.toString() << ", checkUnique: " << checkUnique << ", error: " << txservice::TxErrorMessage(err);
             return TxErrorCodeToMongoStatus(err);
         }
 

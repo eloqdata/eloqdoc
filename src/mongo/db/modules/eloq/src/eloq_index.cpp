@@ -603,8 +603,6 @@ Status EloqIndex::_checkDuplicateKeysInternal(OperationContext* opCtx,
     for (const BSONObj& key : keys) {
         // Check if this key already exists in the batch
         if (batchKeys.find(key) != batchKeys.end()) {
-            MONGO_LOG(1) << "yf: _checkDuplicateKeysInternal duplicate key found within batch, index: "
-                         << _indexName.StringView() << ", key: " << key.toString();
             return {ErrorCodes::DuplicateKey, "DuplicateKey"};
         }
         batchKeys.insert(key.getOwned());
@@ -634,8 +632,6 @@ Status EloqIndex::_checkDuplicateKeysInternal(OperationContext* opCtx,
         txservice::TxErrorCode err = ru->batchGetKV(
             opCtx, _indexName, keySchemaVersion, indexBatchTuples, true);
         if (err != txservice::TxErrorCode::NO_ERROR) {
-            MONGO_LOG(1) << "EloqIndex::_checkDuplicateKeysInternal batchGetKV failed for index: "
-                         << _indexName.StringView() << ", error: " << txservice::TxErrorMessage(err);
             return TxErrorCodeToMongoStatus(err);
         }
 
@@ -644,8 +640,6 @@ Status EloqIndex::_checkDuplicateKeysInternal(OperationContext* opCtx,
             const txservice::ScanBatchTuple& tuple = indexBatchTuples[batchIdx];
             if (tuple.status_ == txservice::RecordStatus::Normal) {
                 // For insert operations, any existing key is a duplicate
-                MONGO_LOG(1) << "yf: _checkDuplicateKeysInternal duplicate key found, index: "
-                                    << _indexName.StringView() << ", key = " << keyStringBuffers[batchIdx];
                 return {ErrorCodes::DuplicateKey, "DuplicateKey"};
                 
             } else {
@@ -820,9 +814,6 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
                     std::move(mongoRecord),
                     txservice::OperationType::Insert,
                     true);
-    if (err != txservice::TxErrorCode::NO_ERROR) {
-        MONGO_LOG(1) << "yf: EloqUniqueIndex::insert setKV failed, index: " << _indexName.StringView() << ", key: " << key.toString() << ", error: " << txservice::TxErrorMessage(err);
-    }
     
     return TxErrorCodeToMongoStatus(err);
 }
