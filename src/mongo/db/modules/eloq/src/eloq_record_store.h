@@ -237,8 +237,7 @@ public:
                          std::vector<Timestamp>* timestamps,
                          bool enforceQuota) override;
 
-    Status batchCheckDuplicateKey(OperationContext* opCtx,
-                                  std::vector<Record>* records) override;
+    Status batchCheckDuplicateKey(OperationContext* opCtx, std::vector<Record>* records) override;
 
 
     Status insertRecordsWithDocWriter(OperationContext* opCtx,

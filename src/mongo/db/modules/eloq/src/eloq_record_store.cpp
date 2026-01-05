@@ -809,9 +809,9 @@ StatusWith<RecordId> EloqRecordStore::insertRecord(
 }
 
 Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
-                                                 std::vector<Record>* records) {
+                                               std::vector<Record>* records) {
     MONGO_LOG(1) << "EloqRecordStore::batchCheckDuplicateKey, nRecords: " << records->size();
-    
+
     if (records->empty()) {
         return Status::OK();
     }
@@ -820,10 +820,10 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     auto batchEntries = std::make_unique<BatchReadEntry[]>(nRecords);
     std::vector<txservice::ScanBatchTuple> batchTuples;
     batchTuples.reserve(nRecords);
-    
+
     // Use a set to track keys within this batch to detect duplicates within the batch
     BSONObjSet batchKeys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
-    
+
     for (size_t i = 0; i < nRecords; i++) {
         Record& record = (*records)[i];
         BSONObj obj{record.data.data()};
@@ -848,7 +848,7 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     auto ru = EloqRecoveryUnit::get(opCtx);
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
-    
+
     // Check all keys for duplicates
     txservice::TxErrorCode err =
         ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
@@ -872,9 +872,9 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
 }
 
 Status EloqRecordStore::insertRecords(OperationContext* opCtx,
-                                     std::vector<Record>* records,
-                                     std::vector<Timestamp>* timestamps,
-                                     bool enforceQuota) {
+                                      std::vector<Record>* records,
+                                      std::vector<Timestamp>* timestamps,
+                                      bool enforceQuota) {
     MONGO_LOG(1) << "EloqRecordStore::insertRecords";
     return _insertRecords(opCtx, records->data(), timestamps->data(), records->size());
 }
@@ -1160,11 +1160,11 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
         }
         bool checkUnique = true;
         txservice::TxErrorCode err = ru->setKV(_tableName,
-                        pkeySchemaVersion,
-                        std::move(mongoKey),
-                        std::move(mongoRecord),
-                        txservice::OperationType::Insert,
-                        checkUnique);
+                                               pkeySchemaVersion,
+                                               std::move(mongoKey),
+                                               std::move(mongoRecord),
+                                               txservice::OperationType::Insert,
+                                               checkUnique);
         if (err != txservice::TxErrorCode::NO_ERROR) {
             return TxErrorCodeToMongoStatus(err);
         }

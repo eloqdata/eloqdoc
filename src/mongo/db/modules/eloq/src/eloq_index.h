@@ -19,12 +19,12 @@
 
 #include <string>
 
+#include "mongo/bson/simple_bsonobj_comparator.h"
+#include "mongo/db/catalog/index_catalog.h"
+#include "mongo/db/index/multikey_paths.h"
 #include "mongo/db/record_id.h"
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/sorted_data_interface.h"
-#include "mongo/db/catalog/index_catalog.h"
-#include "mongo/db/index/multikey_paths.h"
-#include "mongo/bson/simple_bsonobj_comparator.h"
 
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
@@ -83,21 +83,22 @@ public:
     /**
      * Batch check for duplicate keys before inserting records.
      * Override from SortedDataInterface.
-     * 
+     *
      * @param opCtx - Operation context
      * @param bsonObjPtrs - Vector of pointers to BSON objects to check
      * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
      */
     Status batchCheckDuplicateKey(OperationContext* opCtx,
-                                   const std::vector<const BSONObj*>& bsonObjPtrs) override;
+                                  const std::vector<const BSONObj*>& bsonObjPtrs) override;
 
     /**
      * Check for duplicate keys in update operations.
      * Override from SortedDataInterface.
-     * 
+     *
      * @param opCtx - Operation context
      * @param addedKeys - Vector of BSONObj keys that will be added to the index
-     * @param currentRecordId - RecordId of the document being updated (to exclude from duplicate check)
+     * @param currentRecordId - RecordId of the document being updated (to exclude from duplicate
+     * check)
      * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
      */
     Status checkDuplicateKeysForUpdate(OperationContext* opCtx,
@@ -107,11 +108,13 @@ public:
 private:
     /**
      * Internal helper method to check duplicate keys for a vector of already-extracted keys.
-     * If currentRecordId is provided (not null), it will be excluded from duplicate check (for update operations).
-     * 
+     * If currentRecordId is provided (not null), it will be excluded from duplicate check (for
+     * update operations).
+     *
      * @param opCtx - Operation context
      * @param keys - Vector of BSONObj keys that have already been extracted
-     * @param currentRecordId - RecordId to exclude from duplicate check (null for insert operations)
+     * @param currentRecordId - RecordId to exclude from duplicate check (null for insert
+     * operations)
      * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
      */
     Status _checkDuplicateKeysInternal(OperationContext* opCtx,
