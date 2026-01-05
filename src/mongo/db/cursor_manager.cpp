@@ -699,7 +699,13 @@ CursorId CursorManager::allocateCursorId_inlock() {
         } else {
             // The first 2 bits are 0, the next 30 bits are the collection identifier, the next 32
             // bits are random.
-            uint32_t myPart = static_cast<uint32_t>(_random->nextInt32());
+            //
+            // EloqDoc: The first 2 bits are 0, the next 30 bits are the database identifier,
+            // the next 8 bits are thread_group_id, the last 24 bits are random.
+            uint32_t threadGroupId = LocalThread::ID();
+            dassert(threadGroupId <= 0xFF);
+            uint32_t rand24 = static_cast<uint32_t>(_random->nextInt32()) & 0x00FFFFFFu;
+            uint32_t myPart = rand24 | ((threadGroupId & 0xFFu) << 24);
             id = cursorIdFromParts(_collectionCacheRuntimeId, myPart);
         }
         auto partition = _cursorMap->lockOnePartition(id);
@@ -707,6 +713,13 @@ CursorId CursorManager::allocateCursorId_inlock() {
             return id;
     }
     fassertFailed(17360);
+}
+
+int16_t CursorManager::threadGroupIdFromCursorId(CursorId id) {
+    // Extract bits 32-39 from the cursor id.
+    dassert(!isGloballyManagedCursor(id));
+    uint32_t part = static_cast<uint32_t>(id & 0xFFFFFFFFu);
+    return static_cast<int16_t>((part >> 24) & 0xFFu);
 }
 
 ClientCursorPin CursorManager::registerCursor(OperationContext* opCtx,

@@ -248,6 +248,8 @@ public:
                                     const NamespaceString& nss,
                                     stdx::function<Status(CursorManager*)> callback);
 
+    static int16_t threadGroupIdFromCursorId(CursorId id);
+
 private:
     static constexpr int kNumPartitions = 16;
     friend class ClientCursorPin;

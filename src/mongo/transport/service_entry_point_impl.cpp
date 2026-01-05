@@ -75,6 +75,9 @@ ServiceEntryPointImpl::ServiceEntryPointImpl(ServiceContext* svcCtx) : _svcCtx(s
     MONGO_LOG(1) << "enableCoroutine: " << serverGlobalParams.enableCoroutine
                  << ", reservedThreadNum: " << serverGlobalParams.reservedThreadNum;
     if (serverGlobalParams.enableCoroutine && serverGlobalParams.reservedThreadNum) {
+        uassert(ErrorCodes::InvalidOptions,
+                "Core number must be less than 256",
+                serverGlobalParams.reservedThreadNum < 256);
         _coroutineExecutor = std::make_unique<transport::ServiceExecutorCoroutine>(
             _svcCtx, serverGlobalParams.reservedThreadNum);
     }

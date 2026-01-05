@@ -83,18 +83,15 @@ void validateLSID(OperationContext* opCtx, const GetMoreRequest& request, Client
 
     uassert(50737,
             str::stream() << "Cannot run getMore on cursor " << request.cursorid
-                          << ", which was created in session "
-                          << *cursor->getSessionId()
+                          << ", which was created in session " << *cursor->getSessionId()
                           << ", without an lsid",
             opCtx->getLogicalSessionId() || !cursor->getSessionId());
 
     // TODO: SERVER-35323 - compare logicalSessionId that include userId.
     uassert(50738,
             str::stream() << "Cannot run getMore on cursor " << request.cursorid
-                          << ", which was created in session "
-                          << *cursor->getSessionId()
-                          << ", in session "
-                          << *opCtx->getLogicalSessionId(),
+                          << ", which was created in session " << *cursor->getSessionId()
+                          << ", in session " << *opCtx->getLogicalSessionId(),
             !opCtx->getLogicalSessionId() || !cursor->getSessionId() ||
                 (opCtx->getLogicalSessionId()->getId() == cursor->getSessionId()->getId()));
 }
@@ -114,17 +111,14 @@ void validateTxnNumber(OperationContext* opCtx,
 
     uassert(50740,
             str::stream() << "Cannot run getMore on cursor " << request.cursorid
-                          << ", which was created in transaction "
-                          << *cursor->getTxnNumber()
+                          << ", which was created in transaction " << *cursor->getTxnNumber()
                           << ", without a txnNumber",
             opCtx->getTxnNumber() || !cursor->getTxnNumber());
 
     uassert(50741,
             str::stream() << "Cannot run getMore on cursor " << request.cursorid
-                          << ", which was created in transaction "
-                          << *cursor->getTxnNumber()
-                          << ", in transaction "
-                          << *opCtx->getTxnNumber(),
+                          << ", which was created in transaction " << *cursor->getTxnNumber()
+                          << ", in transaction " << *opCtx->getTxnNumber(),
             !opCtx->getTxnNumber() || !cursor->getTxnNumber() ||
                 (*opCtx->getTxnNumber() == *cursor->getTxnNumber()));
 }
@@ -220,6 +214,20 @@ public:
                    BSONObjBuilder& result) {
         auto curOp = CurOp::get(opCtx);
         curOp->debug().cursorid = request.cursorid;
+
+        if (!CursorManager::isGloballyManagedCursor(request.cursorid)) {
+            int16_t threadGroupId = CursorManager::threadGroupIdFromCursorId(request.cursorid);
+            if (threadGroupId != LocalThread::ID()) {
+                log() << "Migrate to ThreadGroup " << threadGroupId << " for getMore on cursor "
+                      << request.cursorid << ". Current ThreadGroup " << LocalThread::ID();
+                Client* client = Client::getCurrent();
+                const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+                (*coro.migrateThreadGroupFuncPtr)(threadGroupId);
+                log() << "Migrate to ThreadGroup " << threadGroupId << " for getMore on cursor "
+                      << request.cursorid << " done.";
+                invariant(Client::getCurrent() == client);
+            }
+        }
 
         // Validate term before acquiring locks, if provided.
         if (request.term) {
