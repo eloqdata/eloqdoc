@@ -110,8 +110,12 @@ public:
     int64_t nextSeed();
 
 private:
-    // '_mutex' must not be held when acquiring a CursorManager mutex to avoid deadlock.
+// '_mutex' must not be held when acquiring a CursorManager mutex to avoid deadlock.
+#ifndef D_USE_CORO_SYNC
     SimpleMutex _mutex;
+#else
+    coro::Mutex _mutex;
+#endif
 
     using CursorIdToNssMap = stdx::unordered_map<CursorId, NamespaceString>;
     using IdToNssMap = stdx::unordered_map<unsigned, NamespaceString>;
@@ -143,7 +147,7 @@ GlobalCursorIdCache::GlobalCursorIdCache() : _nextId(0), _secureRandom() {}
 GlobalCursorIdCache::~GlobalCursorIdCache() {}
 
 int64_t GlobalCursorIdCache::nextSeed() {
-    stdx::lock_guard<SimpleMutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
     if (!_secureRandom)
         _secureRandom = SecureRandom::create();
     return _secureRandom->nextInt64();
@@ -154,7 +158,7 @@ uint32_t GlobalCursorIdCache::registerCursorManager(const NamespaceString& nss) 
     static_assert((kMaxIds & (0b11 << 30)) == 0,
                   "the first two bits of a collection identifier must always be zeroes");
 
-    stdx::lock_guard<SimpleMutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
 
     fassert(17359, _idToNss.size() < kMaxIds);
 
@@ -172,7 +176,7 @@ uint32_t GlobalCursorIdCache::registerCursorManager(const NamespaceString& nss) 
 }
 
 void GlobalCursorIdCache::deregisterCursorManager(uint32_t id, const NamespaceString& nss) {
-    stdx::lock_guard<SimpleMutex> lk(_mutex);
+    stdx::lock_guard lk(_mutex);
     invariant(nss == _idToNss[id]);
     _idToNss.erase(id);
 }
@@ -190,7 +194,7 @@ bool GlobalCursorIdCache::killCursor(OperationContext* opCtx, CursorId id, bool 
         }
         nss = pin.getValue().getCursor()->nss();
     } else {
-        stdx::lock_guard<SimpleMutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         uint32_t nsid = idFromCursorId(id);
         IdToNssMap::const_iterator it = _idToNss.find(nsid);
         if (it == _idToNss.end()) {
@@ -258,7 +262,7 @@ std::size_t GlobalCursorIdCache::timeoutCursors(OperationContext* opCtx, Date_t 
     // Compute the set of collection names that we have to time out cursors for.
     vector<NamespaceString> todo;
     {
-        stdx::lock_guard<SimpleMutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         for (auto&& entry : _idToNss) {
             todo.push_back(entry.second);
         }
@@ -306,7 +310,7 @@ void GlobalCursorIdCache::visitAllCursorManagers(OperationContext* opCtx, Visito
     // Compute the set of collection names that we have to get sessions for
     vector<NamespaceString> namespaces;
     {
-        stdx::lock_guard<SimpleMutex> lk(_mutex);
+        stdx::lock_guard lk(_mutex);
         for (auto&& entry : _idToNss) {
             namespaces.push_back(entry.second);
         }
@@ -420,12 +424,18 @@ CursorManager::CursorManager(NamespaceString nss)
                                                : globalCursorIdCache->registerCursorManager(_nss)),
       _random(stdx::make_unique<PseudoRandom>(globalCursorIdCache->nextSeed())),
       _registeredPlanExecutors(),
-      _cursorMap(stdx::make_unique<Partitioned<stdx::unordered_map<CursorId, ClientCursor*>>>()) {}
+#ifndef D_USE_CORO_SYNC
+      _cursorMap(stdx::make_unique<Partitioned<stdx::unordered_map<CursorId, ClientCursor*>>>())
+#else
+      _cursorMap()
+#endif
+{
+}
 
 CursorManager::~CursorManager() {
     // All cursors and PlanExecutors should have been deleted already.
     invariant(_registeredPlanExecutors.empty());
-    invariant(_cursorMap->empty());
+    invariant(_cursorMap.empty());
 
     if (!isGlobalManager()) {
         globalCursorIdCache->deregisterCursorManager(_collectionCacheRuntimeId, _nss);
@@ -442,20 +452,33 @@ void CursorManager::invalidateAll(OperationContext* opCtx,
     // CursorManager is thread-local in EloqDoc.
     //
     // fassert(28819, !BackgroundOperation::inProgForNs(_nss));
-    auto allExecPartitions = _registeredPlanExecutors.lockAllPartitions();
-    for (auto&& partition : allExecPartitions) {
-        for (auto&& exec : partition) {
+    {
+
+#ifndef D_USE_CORO_SYNC
+        auto allExecPartitions = _registeredPlanExecutors.lockAllPartitions();
+        for (auto&& partition : allExecPartitions) {
+            for (auto&& exec : partition) {
+                // The PlanExecutor is owned elsewhere, so we just mark it as killed and let it be
+                // cleaned up later.
+                exec->markAsKilled({ErrorCodes::QueryPlanKilled, reason});
+            }
+        }
+        allExecPartitions.clear();
+#else
+        stdx::lock_guard lock(_registeredPlanExecutorsMutex);
+        for (PlanExecutor* exec : _registeredPlanExecutors) {
             // The PlanExecutor is owned elsewhere, so we just mark it as killed and let it be
             // cleaned up later.
             exec->markAsKilled({ErrorCodes::QueryPlanKilled, reason});
         }
+#endif
     }
-    allExecPartitions.clear();
 
     // Mark all cursors as killed, but keep around those we can in order to provide a useful error
     // message to the user when they attempt to use it next time.
     std::vector<std::unique_ptr<ClientCursor, ClientCursor::Deleter>> toDisposeWithoutMutex;
     {
+#ifndef D_USE_CORO_SYNC
         auto allCurrentPartitions = _cursorMap->lockAllPartitions();
         for (auto&& partition : allCurrentPartitions) {
             for (auto it = partition.begin(); it != partition.end();) {
@@ -479,6 +502,29 @@ void CursorManager::invalidateAll(OperationContext* opCtx,
                 }
             }
         }
+#else
+        stdx::lock_guard lock(_cursorMapMutex);
+        for (auto it = _cursorMap.begin(); it != _cursorMap.end();) {
+            ClientCursor* cursor = it->second;
+            cursor->markAsKilled({ErrorCodes::QueryPlanKilled, reason});
+
+            // If there's an operation actively using the cursor, then that operation is now
+            // responsible for cleaning it up.  Otherwise we can immediately dispose of it.
+            if (cursor->_operationUsingCursor) {
+                it = _cursorMap.erase(it);
+                continue;
+            }
+
+            if (!collectionGoingAway) {
+                // We keep around unpinned cursors so that future attempts to use the cursor
+                // will result in a useful error message.
+                ++it;
+            } else {
+                toDisposeWithoutMutex.emplace_back(cursor);
+                it = _cursorMap.erase(it);
+            }
+        }
+#endif
     }
 
     // Dispose of the cursors we can now delete. This might involve lock acquisitions for safe
@@ -499,6 +545,7 @@ void CursorManager::invalidateDocument(OperationContext* opCtx,
         return;
     }
 
+#ifndef D_USE_CORO_SYNC
     auto allExecPartitions = _registeredPlanExecutors.lockAllPartitions();
     for (auto&& partition : allExecPartitions) {
         for (auto&& exec : partition) {
@@ -513,6 +560,18 @@ void CursorManager::invalidateDocument(OperationContext* opCtx,
             exec->invalidate(opCtx, dl, type);
         }
     }
+#else
+    stdx::lock_guard execLock(_registeredPlanExecutorsMutex);
+    for (PlanExecutor* exec : _registeredPlanExecutors) {
+        exec->invalidate(opCtx, dl, type);
+    }
+
+    stdx::lock_guard cursorLock(_cursorMapMutex);
+    for (auto&& entry : _cursorMap) {
+        PlanExecutor* exec = entry.second->getExecutor();
+        exec->invalidate(opCtx, dl, type);
+    }
+#endif
 }
 
 bool CursorManager::cursorShouldTimeout_inlock(const ClientCursor* cursor, Date_t now) {
@@ -525,6 +584,7 @@ bool CursorManager::cursorShouldTimeout_inlock(const ClientCursor* cursor, Date_
 std::size_t CursorManager::timeoutCursors(OperationContext* opCtx, Date_t now) {
     std::vector<std::unique_ptr<ClientCursor, ClientCursor::Deleter>> toDisposeWithoutMutex;
 
+#ifndef D_USE_CORO_SYNC
     for (size_t partitionId = 0; partitionId < kNumPartitions; ++partitionId) {
         auto lockedPartition = _cursorMap->lockOnePartitionById(partitionId);
         for (auto it = lockedPartition->begin(); it != lockedPartition->end();) {
@@ -537,6 +597,18 @@ std::size_t CursorManager::timeoutCursors(OperationContext* opCtx, Date_t now) {
             }
         }
     }
+#else
+    stdx::lock_guard lock(_cursorMapMutex);
+    for (auto it = _cursorMap.begin(); it != _cursorMap.end();) {
+        ClientCursor* cursor = it->second;
+        if (cursorShouldTimeout_inlock(cursor, now)) {
+            toDisposeWithoutMutex.emplace_back(cursor);
+            it = _cursorMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+#endif
 
     // Be careful not to dispose of cursors while holding the partition lock.
     for (auto&& cursor : toDisposeWithoutMutex) {
@@ -549,6 +621,7 @@ namespace {
 static AtomicUInt32 registeredPlanExecutorId;
 }  // namespace
 
+#ifndef D_USE_CORO_SYNC
 Partitioned<stdx::unordered_set<PlanExecutor*>>::PartitionId CursorManager::registerExecutor(
     PlanExecutor* exec) {
     auto partitionId = registeredPlanExecutorId.fetchAndAdd(1);
@@ -556,21 +629,40 @@ Partitioned<stdx::unordered_set<PlanExecutor*>>::PartitionId CursorManager::regi
     _registeredPlanExecutors.insert(exec);
     return partitionId;
 }
+#else
+void CursorManager::registerExecutor(PlanExecutor* exec) {
+    stdx::lock_guard lock(_registeredPlanExecutorsMutex);
+    _registeredPlanExecutors.insert(exec);
+}
+#endif
 
 void CursorManager::deregisterExecutor(PlanExecutor* exec) {
+#ifndef D_USE_CORO_SYNC
     if (auto partitionId = exec->getRegistrationToken()) {
         _registeredPlanExecutors.erase(exec);
     }
+#else
+    stdx::lock_guard lock(_registeredPlanExecutorsMutex);
+    _registeredPlanExecutors.erase(exec);
+#endif
 }
 
 StatusWith<ClientCursorPin> CursorManager::pinCursor(OperationContext* opCtx,
                                                      CursorId id,
                                                      AuthCheck checkSessionAuth) {
+#ifndef D_USE_CORO_SYNC
     auto lockedPartition = _cursorMap->lockOnePartition(id);
     auto it = lockedPartition->find(id);
     if (it == lockedPartition->end()) {
         return {ErrorCodes::CursorNotFound, str::stream() << "cursor id " << id << " not found"};
     }
+#else
+    stdx::unique_lock lock(_cursorMapMutex);
+    auto it = _cursorMap.find(id);
+    if (it == _cursorMap.end()) {
+        return {ErrorCodes::CursorNotFound, str::stream() << "cursor id " << id << " not found"};
+    }
+#endif
 
     ClientCursor* cursor = it->second;
     uassert(ErrorCodes::CursorInUse,
@@ -579,9 +671,15 @@ StatusWith<ClientCursorPin> CursorManager::pinCursor(OperationContext* opCtx,
     if (cursor->getExecutor()->isMarkedAsKilled()) {
         // This cursor was killed while it was idle.
         Status error = cursor->getExecutor()->getKillStatus();
+#ifndef D_USE_CORO_SYNC
         deregisterAndDestroyCursor(std::move(lockedPartition),
                                    opCtx,
                                    std::unique_ptr<ClientCursor, ClientCursor::Deleter>(cursor));
+#else
+        _cursorMap.erase(it);
+        lock.unlock();
+        cursor->dispose(opCtx);
+#endif
         return error;
     }
 
@@ -612,7 +710,11 @@ void CursorManager::unpin(OperationContext* opCtx,
     // Avoid computing the current time within the critical section.
     auto now = opCtx->getServiceContext()->getPreciseClockSource()->now();
 
+#ifndef D_USE_CORO_SYNC
     auto partition = _cursorMap->lockOnePartition(cursor->cursorid());
+#else
+    stdx::unique_lock lock(_cursorMapMutex);
+#endif
     invariant(cursor->_operationUsingCursor);
 
     // We must verify that no interrupts have occurred since we finished building the current
@@ -629,7 +731,13 @@ void CursorManager::unpin(OperationContext* opCtx,
     if (interruptStatus == ErrorCodes::Interrupted || interruptStatus == ErrorCodes::CursorKilled) {
         LOG(0) << "removing cursor " << cursor->cursorid()
                << " after completing batch: " << interruptStatus;
+#ifndef D_USE_CORO_SYNC
         return deregisterAndDestroyCursor(std::move(partition), opCtx, std::move(cursor));
+#else
+        _cursorMap.erase(cursor->cursorid());
+        lock.unlock();
+        return cursor->dispose(opCtx);
+#endif
     } else if (!interruptStatus.isOK()) {
         cursor->markAsKilled(interruptStatus);
     }
@@ -640,6 +748,7 @@ void CursorManager::unpin(OperationContext* opCtx,
 }
 
 void CursorManager::appendActiveSessions(LogicalSessionIdSet* lsids) const {
+#ifndef D_USE_CORO_SYNC
     auto allPartitions = _cursorMap->lockAllPartitions();
     for (auto&& partition : allPartitions) {
         for (auto&& entry : partition) {
@@ -649,9 +758,19 @@ void CursorManager::appendActiveSessions(LogicalSessionIdSet* lsids) const {
             }
         }
     }
+#else
+    stdx::lock_guard lock(_cursorMapMutex);
+    for (auto&& entry : _cursorMap) {
+        ClientCursor* cursor = entry.second;
+        if (auto id = cursor->getSessionId()) {
+            lsids->insert(id.value());
+        }
+    }
+#endif
 }
 
 void CursorManager::appendActiveCursors(std::vector<GenericCursor>* cursors) const {
+#ifndef D_USE_CORO_SYNC
     auto allPartitions = _cursorMap->lockAllPartitions();
     for (auto&& partition : allPartitions) {
         for (auto&& entry : partition) {
@@ -663,11 +782,23 @@ void CursorManager::appendActiveCursors(std::vector<GenericCursor>* cursors) con
             gc.setLsid(cursor->getSessionId());
         }
     }
+#else
+    stdx::lock_guard lock(_cursorMapMutex);
+    for (auto&& entry : _cursorMap) {
+        ClientCursor* cursor = entry.second;
+        cursors->emplace_back();
+        auto& gc = cursors->back();
+        gc.setId(cursor->_cursorid);
+        gc.setNs(cursor->nss());
+        gc.setLsid(cursor->getSessionId());
+    }
+#endif
 }
 
 stdx::unordered_set<CursorId> CursorManager::getCursorsForSession(LogicalSessionId lsid) const {
     stdx::unordered_set<CursorId> cursors;
 
+#ifndef D_USE_CORO_SYNC
     auto allPartitions = _cursorMap->lockAllPartitions();
     for (auto&& partition : allPartitions) {
         for (auto&& entry : partition) {
@@ -677,12 +808,21 @@ stdx::unordered_set<CursorId> CursorManager::getCursorsForSession(LogicalSession
             }
         }
     }
+#else
+    stdx::lock_guard lock(_cursorMapMutex);
+    for (auto&& entry : _cursorMap) {
+        ClientCursor* cursor = entry.second;
+        if (cursor->getSessionId() == lsid) {
+            cursors.insert(cursor->cursorid());
+        }
+    }
+#endif
 
     return cursors;
 }
 
 size_t CursorManager::numCursors() const {
-    return _cursorMap->size();
+    return _cursorMap.size();
 }
 
 CursorId CursorManager::allocateCursorId_inlock() {
@@ -708,9 +848,14 @@ CursorId CursorManager::allocateCursorId_inlock() {
             uint32_t myPart = rand24 | ((threadGroupId & 0xFFu) << 24);
             id = cursorIdFromParts(_collectionCacheRuntimeId, myPart);
         }
+#ifndef D_USE_CORO_SYNC
         auto partition = _cursorMap->lockOnePartition(id);
         if (partition->count(id) == 0)
             return id;
+#else
+        if (_cursorMap.count(id) == 0)
+            return id;
+#endif
     }
     fassertFailed(17360);
 }
@@ -734,9 +879,13 @@ ClientCursorPin CursorManager::registerCursor(OperationContext* opCtx,
     cursorParams.exec.get_deleter().dismissDisposal();
     cursorParams.exec->unsetRegistered();
 
-    // Note we must hold the registration lock from now until insertion into '_cursorMap' to ensure
-    // we don't insert two cursors with the same cursor id.
-    stdx::lock_guard<SimpleMutex> lock(_registrationLock);
+// Note we must hold the registration lock from now until insertion into '_cursorMap' to ensure
+// we don't insert two cursors with the same cursor id.
+#ifndef D_USE_CORO_SYNC
+    stdx::lock_guard lock(_registrationLock);
+#else
+    stdx::lock_guard lock(_cursorMapMutex);
+#endif
     CursorId cursorId = allocateCursorId_inlock();
     std::unique_ptr<ClientCursor, ClientCursor::Deleter> clientCursor(
         new ClientCursor(std::move(cursorParams), this, cursorId, opCtx, now));
@@ -746,17 +895,26 @@ ClientCursorPin CursorManager::registerCursor(OperationContext* opCtx,
         invariant(opCtx->getLogicalSessionId());
     }
 
-    // Transfer ownership of the cursor to '_cursorMap'.
+// Transfer ownership of the cursor to '_cursorMap'.
+#ifndef D_USE_CORO_SYNC
     auto partition = _cursorMap->lockOnePartition(cursorId);
     ClientCursor* unownedCursor = clientCursor.release();
     partition->emplace(cursorId, unownedCursor);
+#else
+    ClientCursor* unownedCursor = clientCursor.release();
+    _cursorMap.emplace(cursorId, unownedCursor);
+#endif
     return ClientCursorPin(opCtx, unownedCursor);
 }
 
 void CursorManager::deregisterCursor(ClientCursor* cursor) {
-    _cursorMap->erase(cursor->cursorid());
+#ifdef D_USE_CORO_SYNC
+    stdx::lock_guard lock(_cursorMapMutex);
+#endif
+    _cursorMap.erase(cursor->cursorid());
 }
 
+#ifndef D_USE_CORO_SYNC
 void CursorManager::deregisterAndDestroyCursor(
     Partitioned<stdx::unordered_map<CursorId, ClientCursor*>, kNumPartitions>::OnePartition&& lk,
     OperationContext* opCtx,
@@ -771,8 +929,10 @@ void CursorManager::deregisterAndDestroyCursor(
     // a deadlock when trying to acquire a CursorManager lock.
     cursor->dispose(opCtx);
 }
+#endif
 
 Status CursorManager::killCursor(OperationContext* opCtx, CursorId id, bool shouldAudit) {
+#ifndef D_USE_CORO_SYNC
     auto lockedPartition = _cursorMap->lockOnePartition(id);
     auto it = lockedPartition->find(id);
     if (it == lockedPartition->end()) {
@@ -782,6 +942,17 @@ Status CursorManager::killCursor(OperationContext* opCtx, CursorId id, bool shou
         }
         return {ErrorCodes::CursorNotFound, str::stream() << "Cursor id not found: " << id};
     }
+#else
+    stdx::unique_lock lock(_cursorMapMutex);
+    auto it = _cursorMap.find(id);
+    if (it == _cursorMap.end()) {
+        if (shouldAudit) {
+            audit::logKillCursorsAuthzCheck(
+                opCtx->getClient(), _nss, id, ErrorCodes::CursorNotFound);
+        }
+        return {ErrorCodes::CursorNotFound, str::stream() << "Cursor id not found: " << id};
+    }
+#endif
     auto cursor = it->second;
 
     if (cursor->_operationUsingCursor) {
@@ -805,16 +976,30 @@ Status CursorManager::killCursor(OperationContext* opCtx, CursorId id, bool shou
         audit::logKillCursorsAuthzCheck(opCtx->getClient(), _nss, id, ErrorCodes::OK);
     }
 
+#ifndef D_USE_CORO_SYNC
     deregisterAndDestroyCursor(std::move(lockedPartition), opCtx, std::move(ownedCursor));
+#else
+    _cursorMap.erase(it);
+    lock.unlock();
+    ownedCursor->dispose(opCtx);
+#endif
     return Status::OK();
 }
 
 Status CursorManager::checkAuthForKillCursors(OperationContext* opCtx, CursorId id) {
+#ifndef D_USE_CORO_SYNC
     auto lockedPartition = _cursorMap->lockOnePartition(id);
     auto it = lockedPartition->find(id);
     if (it == lockedPartition->end()) {
         return {ErrorCodes::CursorNotFound, str::stream() << "cursor id " << id << " not found"};
     }
+#else
+    stdx::unique_lock lock(_cursorMapMutex);
+    auto it = _cursorMap.find(id);
+    if (it == _cursorMap.end()) {
+        return {ErrorCodes::CursorNotFound, str::stream() << "cursor id " << id << " not found"};
+    }
+#endif
 
     ClientCursor* cursor = it->second;
     // Note that we're accessing the cursor without having pinned it! This is okay since we're only

@@ -249,7 +249,12 @@ PlanExecutor::PlanExecutor(OperationContext* opCtx,
     if (collection) {
         _nss = collection->ns();
         if (_yieldPolicy->canReleaseLocksDuringExecution()) {
+#ifndef D_USE_CORO_SYNC
             _registrationToken = collection->getCursorManager()->registerExecutor(this);
+#else
+            collection->getCursorManager()->registerExecutor(this);
+            _registrated = true;
+#endif
         }
     } else {
         invariant(_cq);
@@ -275,7 +280,11 @@ void PlanExecutor::reset(OperationContext* opCtx,
     _killStatus = Status::OK();
     _stash = {};
     _currentState = kUsable;
+#ifndef D_USE_CORO_SYNC
     _registrationToken.reset();
+#else
+    _registrated = false;
+#endif
     _everDetachedFromOperationContext = false;
 
     // There's no point in yielding if the collection doesn't exist.
@@ -288,7 +297,12 @@ void PlanExecutor::reset(OperationContext* opCtx,
     if (collection) {
         _nss = collection->ns();
         if (_yieldPolicy->canReleaseLocksDuringExecution()) {
+#ifndef D_USE_CORO_SYNC
             _registrationToken = collection->getCursorManager()->registerExecutor(this);
+#else
+            collection->getCursorManager()->registerExecutor(this);
+            _registrated = true;
+#endif
         }
     } else {
         invariant(_cq);
@@ -721,15 +735,23 @@ void PlanExecutor::dispose(OperationContext* opCtx, CursorManager* cursorManager
         return;
     }
 
-    // If we are registered with the CursorManager we need to be sure to deregister ourselves.
-    // However, if we have been killed we should not attempt to deregister ourselves, since the
-    // caller of markAsKilled() will have done that already, and the CursorManager may no longer
-    // exist. Note that the caller's collection lock prevents us from being marked as killed during
-    // this method, since any interruption event requires a lock in at least MODE_IX.
+// If we are registered with the CursorManager we need to be sure to deregister ourselves.
+// However, if we have been killed we should not attempt to deregister ourselves, since the
+// caller of markAsKilled() will have done that already, and the CursorManager may no longer
+// exist. Note that the caller's collection lock prevents us from being marked as killed during
+// this method, since any interruption event requires a lock in at least MODE_IX.
+#ifndef D_USE_CORO_SYNC
     if (cursorManager && _registrationToken && !isMarkedAsKilled()) {
         dassert(opCtx->lockState()->isCollectionLockedForMode(_nss.ns(), MODE_IS));
         cursorManager->deregisterExecutor(this);
     }
+#else
+    if (cursorManager && _registrated && !isMarkedAsKilled()) {
+        dassert(opCtx->lockState()->isCollectionLockedForMode(_nss.ns(), MODE_IS));
+        cursorManager->deregisterExecutor(this);
+        _registrated = false;
+    }
+#endif
     _root->dispose(opCtx);
     _currentState = kDisposed;
 }

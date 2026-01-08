@@ -41,8 +41,13 @@
 #include "mongo/db/session_killer.h"
 #include "mongo/stdx/unordered_map.h"
 #include "mongo/stdx/unordered_set.h"
-#include "mongo/util/concurrency/mutex.h"
 #include "mongo/util/duration.h"
+
+#ifndef D_USE_CORO_SYNC
+#include "mongo/util/concurrency/mutex.h"
+#else
+#include "mongo/db/coro_sync.h"
+#endif
 
 namespace mongo {
 
@@ -143,8 +148,12 @@ public:
      * happens automatically for yielding PlanExecutors, so this should only be called by a
      * PlanExecutor itself. Returns a token that must be stored for use during deregistration.
      */
+#ifndef D_USE_CORO_SYNC
     Partitioned<stdx::unordered_set<PlanExecutor*>>::PartitionId registerExecutor(
         PlanExecutor* exec);
+#else
+    void registerExecutor(PlanExecutor* exec);
+#endif
 
     /**
      * Remove an executor from the registry. It is legal to call this even if 'exec' is not
@@ -264,10 +273,13 @@ private:
         OperationContext* opCtx, std::unique_ptr<ClientCursor, ClientCursor::Deleter> clientCursor);
 
     void deregisterCursor(ClientCursor* cursor);
+
+#ifndef D_USE_CORO_SYNC
     void deregisterAndDestroyCursor(
         Partitioned<stdx::unordered_map<CursorId, ClientCursor*>, kNumPartitions>::OnePartition&&,
         OperationContext* opCtx,
         std::unique_ptr<ClientCursor, ClientCursor::Deleter> cursor);
+#endif
 
     void unpin(OperationContext* opCtx,
                std::unique_ptr<ClientCursor, ClientCursor::Deleter> cursor);
@@ -301,11 +313,21 @@ private:
     // - If you need to access multiple partitions within '_registeredPlanExecutors' or '_cursorMap'
     //   at once, you must acquire the mutexes for those partitions in ascending order, or use the
     //   partition helpers to acquire mutexes for all partitions.
+#ifndef D_USE_CORO_SYNC
     mutable SimpleMutex _registrationLock;
+#endif
     std::unique_ptr<PseudoRandom> _random;
+
+#ifndef D_USE_CORO_SYNC
     Partitioned<stdx::unordered_set<PlanExecutor*>, kNumPartitions, PlanExecutorPartitioner>
         _registeredPlanExecutors;
     std::unique_ptr<Partitioned<stdx::unordered_map<CursorId, ClientCursor*>, kNumPartitions>>
         _cursorMap;
+#else
+    mutable coro::Mutex _registeredPlanExecutorsMutex;
+    stdx::unordered_set<PlanExecutor*> _registeredPlanExecutors;
+    mutable coro::Mutex _cursorMapMutex;
+    stdx::unordered_map<CursorId, ClientCursor*> _cursorMap;
+#endif
 };
 }  // namespace mongo

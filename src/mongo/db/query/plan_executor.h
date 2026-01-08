@@ -472,19 +472,32 @@ public:
      * 'non-cached PlanExecutor'.
      */
     void unsetRegistered() {
+#ifndef D_USE_CORO_SYNC
         _registrationToken.reset();
+#else
+        _registrated = false;
+#endif
     }
 
     boost::optional<Partitioned<stdx::unordered_set<PlanExecutor*>>::PartitionId>
     getRegistrationToken() const& {
+#ifndef D_USE_CORO_SYNC
         return _registrationToken;
+#else
+        MONGO_UNREACHABLE;
+        return {};
+#endif
     }
     void getRegistrationToken() && = delete;
 
     void setRegistrationToken(
         Partitioned<stdx::unordered_set<PlanExecutor*>>::PartitionId token) & {
+#ifndef D_USE_CORO_SYNC
         invariant(!_registrationToken);
         _registrationToken = token;
+#else
+        MONGO_UNREACHABLE;
+#endif
     }
 
     bool isMarkedAsKilled() const {
@@ -600,9 +613,13 @@ private:
 
     enum { kUsable, kSaved, kDetached, kDisposed } _currentState = kUsable;
 
-    // Set if this PlanExecutor is registered with the CursorManager.
+// Set if this PlanExecutor is registered with the CursorManager.
+#ifndef D_USE_CORO_SYNC
     boost::optional<Partitioned<stdx::unordered_set<PlanExecutor*>>::PartitionId>
         _registrationToken;
+#else
+    bool _registrated = false;
+#endif
 
     bool _everDetachedFromOperationContext = false;
 };
