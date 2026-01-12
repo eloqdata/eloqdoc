@@ -130,9 +130,6 @@ Eloq::MongoCatalogFactory catalogFactory;
 
 mongo::MongoSystemHandler mongoSystemHandler;
 
-// data substrate config
-DEFINE_string(data_substrate_config, "", "Data Substrate Configuration");
-
 namespace mongo {
 
 extern std::function<std::pair<std::function<void()>, std::function<void(int16_t)>>(int16_t)>
@@ -150,18 +147,6 @@ std::string_view extractDbName(std::string_view nss) {
 EloqKVEngine::EloqKVEngine(const std::string& path) : _dbPath(path) {
     log() << "Starting Eloq storage engine. dbPath: " << path;
     log() << "Standalone mode: Initializing data substrate...";
-
-    std::filesystem::path systemLogPath(serverGlobalParams.logpath);
-    if (systemLogPath.has_parent_path()) {
-        static std::filesystem::path logdir = systemLogPath.parent_path();
-        GFLAGS_NAMESPACE::SetCommandLineOption("log_dir", logdir.c_str());
-    }
-    const char* tmp[] = {"eloqdb", nullptr};
-    char** dummy_argv = const_cast<char**>(tmp);
-    InitGoogleLogging(dummy_argv);
-
-
-    DataSubstrate::Instance().Init(FLAGS_data_substrate_config);
 
     auto& ds = DataSubstrate::Instance();
 
