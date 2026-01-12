@@ -349,7 +349,6 @@ env.Library(
         "src/base/eloq_table_schema.cpp",
         "src/base/eloq_catalog_factory.cpp",
         "src/base/eloq_util.cpp",
-        "src/base/metrics_registry_impl.cpp",
     ],
     LIBDEPS=[
         "$BUILD_DIR/mongo/base",

@@ -45,7 +45,6 @@
 #include "mongo/db/modules/eloq/src/base/eloq_log_agent.h"
 #include "mongo/db/modules/eloq/src/base/eloq_record.h"
 #include "mongo/db/modules/eloq/src/base/eloq_util.h"
-#include "mongo/db/modules/eloq/src/base/metrics_registry_impl.h"
 #include "mongo/db/modules/eloq/src/eloq_global_options.h"
 #include "mongo/db/modules/eloq/src/eloq_index.h"
 #include "mongo/db/modules/eloq/src/eloq_kv_engine.h"
