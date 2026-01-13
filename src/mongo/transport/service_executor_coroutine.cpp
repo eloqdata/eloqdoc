@@ -325,6 +325,11 @@ std::function<void()> ServiceExecutorCoroutine::coroutineLongResumeFunctor(uint1
     return [thd_group = &_threadGroups[threadGroupId], &task]() { thd_group->enqueueTask(task); };
 }
 
+void ServiceExecutorCoroutine::deferCallOnMainStack(uint16_t threadGroupId, Task&& task) {
+    invariant(threadGroupId < _threadGroups.size());
+    _threadGroups[threadGroupId].resumeTask(std::move(task));
+}
+
 void ServiceExecutorCoroutine::ongoingCoroutineCountUpdate(uint16_t threadGroupId, int delta) {
     _threadGroups[threadGroupId]._ongoingCoroutineCnt += delta;
 }

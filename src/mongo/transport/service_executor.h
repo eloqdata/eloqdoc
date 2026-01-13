@@ -114,6 +114,8 @@ public:
         return {};
     }
 
+    virtual void deferCallOnMainStack(uint16_t threadGroupId, Task&& task) {}
+
     virtual void ongoingCoroutineCountUpdate(uint16_t threadGroupId, int delta) {
         //
     }

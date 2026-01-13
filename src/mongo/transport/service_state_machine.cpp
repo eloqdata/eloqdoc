@@ -261,6 +261,10 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
       _osPageSize{static_cast<size_t>(::getpagesize())},
       _threadGroupId(groupId) {
     MONGO_LOG(1) << "ServiceStateMachine::ServiceStateMachine";
+
+    // Allocate coroutine stack. Boost pooled_fixedsize_stack is not suitable here because
+    // ServiceStateMachine is managed by shared_ptr and may be destroyed in asio-network thread or
+    // thread_group thread.
     _coroStack = (char*)::mmap(
         nullptr, kCoroStackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (_coroStack == MAP_FAILED) {
@@ -277,7 +281,17 @@ ServiceStateMachine::ServiceStateMachine(ServiceContext* svcContext,
 ServiceStateMachine::~ServiceStateMachine() {
     MONGO_LOG(1) << "ServiceStateMachine::~ServiceStateMachine";
     _source = {};
-    ::munmap(_coroStack, kCoroStackSize);
+    if (LocalThread::ID() == -1) {
+        ::munmap(_coroStack, kCoroStackSize);
+    } else {
+        dassert(LocalThread::ID() == _threadGroupId.load(std::memory_order_relaxed));
+        auto munmapTask = [coroStack = _coroStack] { ::munmap(coroStack, kCoroStackSize); };
+        // Enqueue munmapTask to the resume queue instead of the task queue, because the task queue
+        // has closed when shutdown. The coroutine processor won't quit if there are any queued
+        // tasks.
+        _serviceExecutor->deferCallOnMainStack(_threadGroupId.load(std::memory_order_relaxed),
+                                               std::move(munmapTask));
+    }
 }
 
 void ServiceStateMachine::reset(ServiceContext* svcContext,
