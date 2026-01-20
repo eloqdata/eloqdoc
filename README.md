@@ -32,7 +32,7 @@ The result is a cloud-native, storage-centric deployment model: EloqDoc typicall
 
 Explore [EloqDoc](https://www.eloqdata.com/product/eloqdoc) for more details, or skip ahead to the Key Features section for a deeper breakdown. You can also experience the managed cloud version at [EloqCloud](https://cloud.eloqdata.com).
 
-This repo contains the code for the plugable MongoDB compatible API layer. See [Architecture](#Architecture) for more details. The API sits on top of EloqData's [Data Substrate](https://github.com/eloqdata/tx_service) modular database foundation and the dependencies are included as submodules.
+This repo contains the code for the pluggable MongoDB compatible API layer. See [Architecture](#Architecture) for more details. The API sits on top of EloqData's [Data Substrate](https://github.com/eloqdata/tx_service) modular database foundation and the dependencies are included as submodules.
 
 👉 **Use Cases**: web applications, document stores, content platforms—anywhere you need MongoDB API compatibility **and** expect distributed performance and elasticity.
 
