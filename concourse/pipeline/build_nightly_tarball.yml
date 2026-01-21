@@ -26,12 +26,6 @@ resources:
       branch: main
       private_key: ((git-key))
       uri: git@github.com:eloqdata/eloqdoc.git
-  - name: eloqstore_src
-    type: git
-    source:
-      branch: main
-      uri: git@github.com:eloqdata/eloqstore.git
-      private_key: ((git-key))
   - name: raft_host_manager_src
     type: git
     source:
@@ -128,7 +122,6 @@ jobs:
             - get: raft_host_manager_src
             - get: eloq_logservice_src
             - get: image_ubuntu2204
-            - get: eloqstore_src
       - task: build-eloqdss-eloqstore-type
         image: image_ubuntu2204
         params:
@@ -209,7 +202,6 @@ jobs:
                 submodules: all
             - get: raft_host_manager_src
             - get: eloq_logservice_src
-            - get: eloqstore_src
             - get: image_ubuntu2404
       - task: build-eloqdss-eloqstore-type
         image: image_ubuntu2404

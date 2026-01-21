@@ -36,15 +36,6 @@ pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 
-if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
-  pushd store_handler/eloq_data_store_service
-  ln -s $WORKSPACE/eloqstore_src eloqstore
-  cd eloqstore
-  git submodule sync
-  git submodule update --init --recursive
-  popd
-fi
-
 cd $HOME/workspace/eloqdoc
 ELOQDOC_SRC=${PWD}
 
