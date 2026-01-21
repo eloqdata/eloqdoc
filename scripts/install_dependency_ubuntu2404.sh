@@ -301,6 +301,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     mkdir -p build && cd build && \
     cmake .. \
     -DWITH_GLOG=ON \
+    -DIO_URING_ENABLED=ON \
     -DBUILD_SHARED_LIBS=ON && \
     cmake --build . -j$COMPILE_JOBS && \
     sudo cp -r ./output/include/* /usr/include/ && \
