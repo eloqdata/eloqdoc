@@ -26,7 +26,7 @@ cd "$HOME"
 ln -sfn "${WORKSPACE}/eloqdoc_src" eloqdoc
 cd eloqdoc
 ln -sfn "$WORKSPACE/logservice_src" src/mongo/db/modules/eloq/log_service
-pushd src/mongo/db/modules/eloq/tx_service
+pushd src/mongo/db/modules/eloq/data_substrate/tx_service
 ln -sfn "$WORKSPACE/raft_host_manager_src" raft_host_manager
 popd
 ELOQDOC_SRC=${PWD}

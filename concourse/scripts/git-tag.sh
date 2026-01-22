@@ -56,7 +56,7 @@ if [ -n "$(git diff --name-only src/mongo/util/version.cpp)" ]; then
 fi
 
 # Create release branches for submodules if present
-create_and_push_release_branch "src/mongo/db/modules/eloq/eloq_log_service" "$REL_BRANCH"
-create_and_push_release_branch "src/mongo/db/modules/eloq/tx_service/raft_host_manager" "$REL_BRANCH"
-create_and_push_release_branch "src/mongo/db/modules/eloq/store_handler/eloq_data_store_service/eloqstore" "$REL_BRANCH"
+create_and_push_release_branch "src/mongo/db/modules/eloq/data_substrate/eloq_log_service" "$REL_BRANCH"
+create_and_push_release_branch "src/mongo/db/modules/eloq/data_substrate/tx_service/raft_host_manager" "$REL_BRANCH"
+create_and_push_release_branch "src/mongo/db/modules/eloq/data_substrate/store_handler/eloq_data_store_service/eloqstore" "$REL_BRANCH"
 
