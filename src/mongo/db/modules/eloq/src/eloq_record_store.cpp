@@ -575,6 +575,7 @@ private:
 
         bool endInclusive = false;
         bool isForWrite = _opCtx->isUpsert();
+        bool endSpecified = false;
         _cursor->indexScanOpen(_tableName,
                                _keySchema->SchemaTs(),
                                txservice::ScanIndexType::Primary,
@@ -585,7 +586,7 @@ private:
                                _forward ? txservice::ScanDirection::Forward
                                         : txservice::ScanDirection::Backward,
                                isForWrite,
-                               false);
+                               endSpecified);
     }
 
     OperationContext* _opCtx;                         // not owned

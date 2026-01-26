@@ -128,7 +128,7 @@ public:
 
     /**
      * Batch check for duplicate keys before inserting records.
-     * 
+     *
      * @param opCtx - Operation context
      * @param bsonObjPtrs - Vector of pointers to BSON objects to check
      * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
@@ -143,10 +143,11 @@ public:
      * Check for duplicate keys in update operations.
      * This is called during update operations to validate that the new keys being added
      * don't conflict with existing keys in the index (excluding the current document).
-     * 
+     *
      * @param opCtx - Operation context
      * @param addedKeys - Vector of BSONObj keys that will be added to the index
-     * @param currentRecordId - RecordId of the document being updated (to exclude from duplicate check)
+     * @param currentRecordId - RecordId of the document being updated (to exclude from duplicate
+     * check)
      * @return Status::OK if no duplicates found, ErrorCodes::DuplicateKey if duplicate found
      */
     virtual Status checkDuplicateKeysForUpdate(OperationContext* opCtx,
@@ -287,6 +288,8 @@ public:
          * any, isn't checked.
          */
         virtual void setEndPosition(const BSONObj& key, bool inclusive) = 0;
+
+        virtual void enablePrefetchRecords() {}
 
         /**
          * Moves forward and returns the new data or boost::none if there is no more data.

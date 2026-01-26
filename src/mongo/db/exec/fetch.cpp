@@ -29,6 +29,7 @@
 #include "mongo/platform/basic.h"
 
 #include "mongo/db/exec/fetch.h"
+#include "mongo/db/exec/index_scan.h"
 
 #include "mongo/db/catalog/collection.h"
 #include "mongo/db/concurrency/write_conflict_exception.h"
@@ -83,6 +84,13 @@ PlanStage::StageState FetchStage::doWork(WorkingSetID* out) {
     WorkingSetID id;
     StageState status;
     if (_idRetrying == WorkingSet::INVALID_ID) {
+        const std::unique_ptr<PlanStage>& childStage = child();
+        if (IndexScan* stage = dynamic_cast<IndexScan*>(childStage.get()); stage) {
+            SortedDataInterface::Cursor* cursor = stage->getCursor();
+            if (_cursor) {
+                cursor->enablePrefetchRecords();
+            }
+        }
         status = child()->work(&id);
     } else {
         status = ADVANCED;

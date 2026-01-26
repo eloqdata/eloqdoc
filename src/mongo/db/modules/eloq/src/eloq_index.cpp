@@ -128,6 +128,10 @@ public:
         MONGO_LOG(1) << "endPosition: " << _endPosition->toString();
     }
 
+    void enablePrefetchRecords() override {
+        _enablePrefetchRecords = true;
+    }
+
     boost::optional<IndexKeyEntry> seek(const BSONObj& key,
                                         bool inclusive,
                                         RequestedInfo parts = kKeyAndLoc) override {
@@ -322,7 +326,7 @@ private:
                     _indexType == IndexCursorType::UNIQUE) {
                     // For upsert operations, we dont prefetch records here to avoid
                     // unnecessary locks
-                    if (!_opCtx->isUpsert()) {
+                    if (!_opCtx->isUpsert() && _enablePrefetchRecords) {
                         auto err = _ensureRecordsFetched();
                         if (err != txservice::TxErrorCode::NO_ERROR) {
                             uassertStatusOK(TxErrorCodeToMongoStatus(err));
@@ -529,7 +533,7 @@ private:
             case IndexCursorType::UNIQUE:
             case IndexCursorType::STANDARD: {
                 // We dont have prefetch records for upsert operations
-                if (!_opCtx->isUpsert()) {
+                if (!_opCtx->isUpsert() && _enablePrefetchRecords) {
                     // Look up prefetched record by index
                     // Get current scan batch index directly from EloqCursor (no need to search)
                     // The corresponding index of record vector is scanBatchIdx -
@@ -650,6 +654,7 @@ private:
     }
 
     void _clearPrefetchedRecords() {
+        _enablePrefetchRecords = false;
         _prefetchedRecords.clear();
         _prefetchedBatchStartIdx = 0;
         _lastRecordsBatchCnt = 0;
@@ -693,6 +698,7 @@ private:
 
     boost::optional<EloqCursor> _cursor;
 
+    bool _enablePrefetchRecords{false};
     // Storage for prefetched records
     std::vector<std::unique_ptr<Eloq::MongoRecord>> _prefetchedRecords;
     size_t _prefetchedBatchStartIdx{

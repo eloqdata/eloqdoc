@@ -318,4 +318,8 @@ const SpecificStats* IndexScan::getSpecificStats() const {
     return &_specificStats;
 }
 
+SortedDataInterface::Cursor* IndexScan::getCursor() {
+    return _indexCursor.get();
+}
+
 }  // namespace mongo

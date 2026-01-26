@@ -111,6 +111,8 @@ public:
 
     const SpecificStats* getSpecificStats() const final;
 
+    SortedDataInterface::Cursor* getCursor();
+
     static const char* kStageType;
 
 private:
