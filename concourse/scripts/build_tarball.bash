@@ -92,6 +92,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 *) ARCH=$(uname -m) ;;
 esac
 
+eval ${INSTALL_PSQL}
 # Checkout to the latest tag if TAGGED is set, aligning submodules to release branches
 if [ -n "${TAGGED}" ]; then
     TAGGED=$(git tag --sort=-v:refname | head -n 1)
@@ -127,11 +128,11 @@ elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
   DATA_STORE_ID="eloqdss_rocksdb"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
   if [ "${WITH_LOG_STATE}" = "ROCKSDB_CLOUD_S3" ]; then
-    DATA_STORE_ID="eloqdss_eloqstore_s3"
+    DATA_STORE_ID="eloqstore_s3"
   elif [ "${WITH_LOG_STATE}" = "ROCKSDB_CLOUD_GCS" ]; then
-    DATA_STORE_ID="eloqdss_eloqstore_gcs"
+    DATA_STORE_ID="eloqstore_gcs"
   elif [ "${WITH_LOG_STATE}" = "ROCKSDB" ]; then
-    DATA_STORE_ID="eloqdss_eloqstore_local"
+    DATA_STORE_ID="eloqstore_local"
   else
     echo "Unsupported WITH_LOG_STATE: ${WITH_LOG_STATE}. Supported: ROCKSDB_CLOUD_S3, ROCKSDB_CLOUD_GCS, ROCKSDB"
     exit 1
@@ -313,7 +314,6 @@ tar -czvf eloqdoc.tar.gz -C $DEST_DIR .
 if [ -n "${TAGGED}" ]; then
     DOC_TARBALL="eloqdoc-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
     # optional record
-    eval ${INSTALL_PSQL}
     SQL="INSERT INTO tx_release VALUES ('eloqdoc', '${ARCH}', '${OS_ID}', '${DATA_STORE_ID}', $(echo ${TAGGED} | tr '.' ',')) ON CONFLICT DO NOTHING"
     psql postgresql://${PG_CONN}/eloq_release?sslmode=require -c "${SQL}" || true
 else
