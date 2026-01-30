@@ -127,11 +127,11 @@ elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
   DATA_STORE_ID="eloqdss_rocksdb"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
   if [ "${WITH_LOG_STATE}" = "ROCKSDB_CLOUD_S3" ]; then
-    DATA_STORE_ID="eloqdss_eloqstore_s3"
+    DATA_STORE_ID="eloqstore_s3"
   elif [ "${WITH_LOG_STATE}" = "ROCKSDB_CLOUD_GCS" ]; then
-    DATA_STORE_ID="eloqdss_eloqstore_gcs"
+    DATA_STORE_ID="eloqstore_gcs"
   elif [ "${WITH_LOG_STATE}" = "ROCKSDB" ]; then
-    DATA_STORE_ID="eloqdss_eloqstore_local"
+    DATA_STORE_ID="eloqstore_local"
   else
     echo "Unsupported WITH_LOG_STATE: ${WITH_LOG_STATE}. Supported: ROCKSDB_CLOUD_S3, ROCKSDB_CLOUD_GCS, ROCKSDB"
     exit 1
