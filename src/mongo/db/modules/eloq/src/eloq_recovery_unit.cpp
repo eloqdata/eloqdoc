@@ -372,7 +372,7 @@ void EloqRecoveryUnit::batchReadCatalog(
     for (const std::string& name : tableNames) {
         keys.emplace_back(txservice::TableName(std::string_view(name),
                                                txservice::TableType::RangePartition,
-                                               txservice::TableEngine::None));
+                                               txservice::TableEngine::EloqDoc));
         records.emplace_back();
     }
 
