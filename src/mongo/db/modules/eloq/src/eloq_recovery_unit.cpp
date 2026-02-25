@@ -43,6 +43,7 @@
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
 
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc_protocol.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_request.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_util.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
 
@@ -355,15 +356,16 @@ void EloqRecoveryUnit::batchReadCatalog(OperationContext* opCtx,
     (void)opCtx;
     out->clear();
     out->reserve(tableNames.size());
-    for (const std::string& tableNameStr : tableNames) {
-        txservice::TableName tableName{
-            tableNameStr, txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
-        txservice::CatalogKey catalogKey{tableName};
-        txservice::CatalogRecord catalogRecord;
-        auto [exists, errorCode] = readCatalog(catalogKey, catalogRecord, false);
-        uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
-        out->emplace_back(exists, std::move(catalogRecord));
-    }
+    getTxm();
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    txservice::BatchReadCatalogTxRequest req(&tableNames,
+                                             out,
+                                             coro.yieldFuncPtr,
+                                             coro.resumeFuncPtr,
+                                             _txm);
+    _txm->Execute(&req);
+    req.Wait();
+    uassertStatusOK(TxErrorCodeToMongoStatus(req.ErrorCode()));
 }
 
 txservice::TxErrorCode EloqRecoveryUnit::setKV(const txservice::TableName& tableName,
