@@ -42,7 +42,9 @@
 #include "mongo/db/modules/eloq/src/eloq_global_options.h"
 #include "mongo/db/modules/eloq/src/eloq_recovery_unit.h"
 
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc_protocol.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_key.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_request.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_util.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/type.h"
@@ -350,22 +352,60 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
     return {exists, errorCode};
 }
 
-void EloqRecoveryUnit::batchReadCatalog(OperationContext* opCtx,
-                                        const std::vector<std::string>& tableNames,
-                                        std::vector<std::pair<bool, txservice::CatalogRecord>>* out) {
+void EloqRecoveryUnit::batchReadCatalog(
+    OperationContext* opCtx,
+    const std::vector<std::string>& tableNames,
+    std::vector<std::pair<bool, txservice::CatalogRecord>>* out) {
     (void)opCtx;
     out->clear();
     out->reserve(tableNames.size());
+    if (tableNames.empty()) {
+        return;
+    }
     getTxm();
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
-    txservice::BatchReadCatalogTxRequest req(&tableNames,
-                                             out,
-                                             coro.yieldFuncPtr,
-                                             coro.resumeFuncPtr,
-                                             _txm);
+
+    std::vector<txservice::CatalogKey> keys;
+    std::vector<txservice::CatalogRecord> records;
+    keys.reserve(tableNames.size());
+    records.reserve(tableNames.size());
+    for (const std::string& name : tableNames) {
+        keys.emplace_back(txservice::TableName(std::string_view(name),
+                                               txservice::TableType::RangePartition,
+                                               txservice::TableEngine::None));
+        records.emplace_back();
+    }
+
+    MONGO_LOG(0) << "yf: batchReadCatalog, tableNames size: " << tableNames.size();
+    std::vector<txservice::ScanBatchTuple> read_batch;
+    read_batch.reserve(tableNames.size());
+    for (size_t i = 0; i < tableNames.size(); ++i) {
+        read_batch.emplace_back(txservice::TxKey(&keys[i]), &records[i]);
+    }
+
+    txservice::BatchReadTxRequest req(&txservice::catalog_ccm_name,
+                                      0,
+                                      read_batch,
+                                      false,
+                                      false,
+                                      false,
+                                      coro.yieldFuncPtr,
+                                      coro.resumeFuncPtr,
+                                      _txm,
+                                      false,
+                                      0,
+                                      false,
+                                      true);  // is_catalog_batch
     _txm->Execute(&req);
     req.Wait();
     uassertStatusOK(TxErrorCodeToMongoStatus(req.ErrorCode()));
+
+    for (size_t i = 0; i < read_batch.size(); ++i) {
+        bool exists = (read_batch[i].status_ == txservice::RecordStatus::Normal);
+        MONGO_LOG(0) << "yf: batchReadCatalog, table name: " << tableNames[i]
+                     << ", exists: " << exists;
+        out->emplace_back(exists, std::move(records[i]));
+    }
 }
 
 txservice::TxErrorCode EloqRecoveryUnit::setKV(const txservice::TableName& tableName,

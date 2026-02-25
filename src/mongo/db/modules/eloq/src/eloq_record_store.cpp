@@ -98,6 +98,10 @@ public:
             }
         }
         _prefetchIndex = 0;
+
+        MONGO_LOG(0) << "yf: batchReadCatalog, prefetched size: " << _prefetched.size()
+                     << ", table names size: " << _tableNameVector.size()
+                     << ", batch result size = " << batchResults.size();
     }
 
     EloqCatalogRecordStoreCursor(const EloqCatalogRecordStoreCursor&) = delete;
