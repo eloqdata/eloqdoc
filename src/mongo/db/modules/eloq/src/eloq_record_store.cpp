@@ -74,8 +74,6 @@ public:
     explicit EloqCatalogRecordStoreCursor(OperationContext* opCtx)
         : _ru{EloqRecoveryUnit::get(opCtx)} {
         MONGO_LOG(1) << "EloqCatalogRecordStoreCursor::EloqCatalogRecordStoreCursor";
-        // always do full table scan
-
         const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
         Eloq::GetAllTables(_tableNameVector, coro.yieldFuncPtr, coro.resumeFuncPtr);
         std::string output;
@@ -83,7 +81,23 @@ public:
             output.append(name).append("|");
         }
         MONGO_LOG(1) << "tables: " << output;
-        _iter = _tableNameVector.begin();
+
+        std::vector<std::pair<bool, txservice::CatalogRecord>> batchResults;
+        _ru->batchReadCatalog(opCtx, _tableNameVector, &batchResults);
+        _prefetched.reserve(batchResults.size());
+        std::string metadata;
+        for (size_t i = 0; i < batchResults.size(); ++i) {
+            const auto& [exists, catalogRecord] = batchResults[i];
+            if (!exists) {
+                continue;
+            }
+            metadata.clear();
+            Eloq::DeserializeSchemaImage(catalogRecord.Schema()->SchemaImage(), metadata);
+            if (!metadata.empty()) {
+                _prefetched.emplace_back(RecordId{_tableNameVector[i]}, std::move(metadata));
+            }
+        }
+        _prefetchIndex = 0;
     }
 
     EloqCatalogRecordStoreCursor(const EloqCatalogRecordStoreCursor&) = delete;
@@ -97,32 +111,14 @@ public:
 
     boost::optional<Record> next() override {
         MONGO_LOG(1) << "EloqCatalogRecordStoreCursor::next";
-        // Traverse the _tableNamevector until find a exist table and then return the metadata
-        while (_iter != _tableNameVector.end()) {
-            RecordId id{*_iter};
-            txservice::TableName tableName{
-                std::move(*_iter), txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
-            ++_iter;
-
-            txservice::CatalogKey catalogKey{tableName};
-            txservice::CatalogRecord catalogRecord;
-            auto [exists, errorCode] = _ru->readCatalog(catalogKey, catalogRecord, false);
-            uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
-
-            if (!exists) {
-                continue;
-            }
-
-            // Make sure _metadata is empty before DeserializeSchemaImage
-            _metadata.clear();
-            Eloq::DeserializeSchemaImage(catalogRecord.Schema()->SchemaImage(), _metadata);
-            if (!_metadata.empty()) {
-                MONGO_LOG(1) << "metadata: " << BSONObj{_metadata.data()}.jsonString();
-            }
-            return {{std::move(id), {_metadata.data(), static_cast<int>(_metadata.size())}}};
+        if (_prefetchIndex >= _prefetched.size()) {
+            return {};
         }
-
-        return {};
+        auto& [id, metadata] = _prefetched[_prefetchIndex++];
+        if (!metadata.empty()) {
+            MONGO_LOG(1) << "metadata: " << BSONObj{metadata.data()}.jsonString();
+        }
+        return {{id, {metadata.data(), static_cast<int>(metadata.size())}}};
     }
 
     boost::optional<Record> seekExact(const RecordId& id) override {
@@ -152,15 +148,8 @@ private:
     EloqRecoveryUnit* _ru;  // not owned
 
     std::vector<std::string> _tableNameVector;
-    std::vector<std::string>::iterator _iter;
-
-    // The RecordData returned after calling next() is actually store in here.
-    // We should guarantee the corresponding memory is valid until the next time next() is called
-    // so that thereis no need let the RecordData object getOwned and  we can avoid a memory
-    // allocation.
-    std::string _metadata;
-    // std::string _kvInfo;              // useless now
-    // std::string _keySchemasTsString;  // useless now
+    std::vector<std::pair<RecordId, std::string>> _prefetched;
+    size_t _prefetchIndex{0};
 };
 
 

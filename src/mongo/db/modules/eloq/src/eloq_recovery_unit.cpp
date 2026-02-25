@@ -349,6 +349,23 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::readCatalog(
     return {exists, errorCode};
 }
 
+void EloqRecoveryUnit::batchReadCatalog(OperationContext* opCtx,
+                                        const std::vector<std::string>& tableNames,
+                                        std::vector<std::pair<bool, txservice::CatalogRecord>>* out) {
+    (void)opCtx;
+    out->clear();
+    out->reserve(tableNames.size());
+    for (const std::string& tableNameStr : tableNames) {
+        txservice::TableName tableName{
+            tableNameStr, txservice::TableType::Primary, txservice::TableEngine::EloqDoc};
+        txservice::CatalogKey catalogKey{tableName};
+        txservice::CatalogRecord catalogRecord;
+        auto [exists, errorCode] = readCatalog(catalogKey, catalogRecord, false);
+        uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
+        out->emplace_back(exists, std::move(catalogRecord));
+    }
+}
+
 txservice::TxErrorCode EloqRecoveryUnit::setKV(const txservice::TableName& tableName,
                                                uint64_t keySchemaVersion,
                                                std::unique_ptr<Eloq::MongoKey> key,

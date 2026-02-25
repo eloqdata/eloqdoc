@@ -104,6 +104,15 @@ public:
         txservice::CatalogRecord& catalogRecord,
         bool isForWrite);
 
+    /**
+     * Batch read catalog for multiple tables. out[i] corresponds to tableNames[i]:
+     * (true, record) if exists, else (false, empty). Uses readCatalog per table
+     * (serial); Phase 3 may switch to BatchReadCatalogTxRequest for concurrent read.
+     */
+    void batchReadCatalog(OperationContext* opCtx,
+                         const std::vector<std::string>& tableNames,
+                         std::vector<std::pair<bool, txservice::CatalogRecord>>* out);
+
     [[nodiscard]] txservice::TxErrorCode setKV(const txservice::TableName& tableName,
                                                uint64_t keySchemaVersion,
                                                std::unique_ptr<Eloq::MongoKey> key,
