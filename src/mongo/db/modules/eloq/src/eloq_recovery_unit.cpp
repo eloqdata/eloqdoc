@@ -403,7 +403,7 @@ void EloqRecoveryUnit::batchReadCatalog(
     for (size_t i = 0; i < read_batch.size(); ++i) {
         bool exists = (read_batch[i].status_ == txservice::RecordStatus::Normal);
         MONGO_LOG(0) << "yf: batchReadCatalog, table name: " << tableNames[i]
-                     << ", exists: " << exists;
+                     << ", exists: " << exists << ", status = " << (int)read_batch[i].status_;
         out->emplace_back(exists, std::move(records[i]));
     }
 }
