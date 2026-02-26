@@ -376,7 +376,6 @@ void EloqRecoveryUnit::batchReadCatalog(
         records.emplace_back();
     }
 
-    MONGO_LOG(0) << "yf: batchReadCatalog, tableNames size: " << tableNames.size();
     std::vector<txservice::ScanBatchTuple> read_batch;
     read_batch.reserve(tableNames.size());
     for (size_t i = 0; i < tableNames.size(); ++i) {
@@ -402,8 +401,6 @@ void EloqRecoveryUnit::batchReadCatalog(
 
     for (size_t i = 0; i < read_batch.size(); ++i) {
         bool exists = (read_batch[i].status_ == txservice::RecordStatus::Normal);
-        MONGO_LOG(0) << "yf: batchReadCatalog, table name: " << tableNames[i]
-                     << ", exists: " << exists << ", status = " << (int)read_batch[i].status_;
         out->emplace_back(exists, std::move(records[i]));
     }
 }
