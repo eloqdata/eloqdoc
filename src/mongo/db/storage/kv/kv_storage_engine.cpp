@@ -359,9 +359,6 @@ KVStorageEngine::reconcileCatalogAndIdents(OperationContext* opCtx) {
         catalogIdents.insert(vec.begin(), vec.end());
     }
 
-    MONGO_LOG(0) << "yf: reconcileCatalogAndIdents, engineIdents size: " << engineIdents.size()
-                 << ", catalogIdents size: " << catalogIdents.size();
-
     // Drop all idents in the storage engine that are not known to the catalog. This can happen in
     // the case of a collection or index creation being rolled back.
     for (const auto& it : engineIdents) {

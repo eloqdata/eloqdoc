@@ -656,9 +656,6 @@ std::vector<std::string> KVCatalog::getAllIdentsForDB(StringData db) const {
 std::vector<std::string> KVCatalog::getAllIdents(OperationContext* opCtx) const {
     std::vector<std::string> v;
 
-    MONGO_LOG(0) << "yf: KvCatalog: GetAllIndents";
-    size_t loop_cnt = 0;
-
     auto cursor = _rs->getCursor(opCtx);
     while (auto record = cursor->next()) {
         BSONObj obj = record->data.releaseToBson();
@@ -668,7 +665,6 @@ std::vector<std::string> KVCatalog::getAllIdents(OperationContext* opCtx) const 
             continue;
         }
         v.push_back(obj["ident"].String());
-        loop_cnt++;
 
         BSONElement e = obj["idxIdent"];
         if (!e.isABSONObj()) {
@@ -680,8 +676,6 @@ std::vector<std::string> KVCatalog::getAllIdents(OperationContext* opCtx) const 
             v.push_back(elem.String());
         }
     }
-
-    MONGO_LOG(0) << "yf: KvCatalog: GetAllIndents, loop_cnt: " << loop_cnt;
 
     return v;
 }
