@@ -110,8 +110,8 @@ public:
      * (serial); Phase 3 may switch to BatchReadCatalogTxRequest for concurrent read.
      */
     void batchReadCatalog(OperationContext* opCtx,
-                         const std::vector<std::string>& tableNames,
-                         std::vector<std::pair<bool, txservice::CatalogRecord>>* out);
+                          const std::vector<std::string>& tableNames,
+                          std::vector<std::pair<bool, txservice::CatalogRecord>>* out);
 
     [[nodiscard]] txservice::TxErrorCode setKV(const txservice::TableName& tableName,
                                                uint64_t keySchemaVersion,
