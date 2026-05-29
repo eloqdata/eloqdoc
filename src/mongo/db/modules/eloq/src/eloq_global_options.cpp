@@ -99,6 +99,16 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
                           << ". Set both options to the same value."};
     }
 
+#ifdef DATA_STORE_TYPE_ELOQDSS_TIKV
+    if (dataSubstrateEnableMVCC) {
+        MONGO_LOG(0) << "ELOQDSS_TIKV MVCC is enabled: TiKV GC safepoint is "
+                        "not an Eloq archive cleanup watermark. Eloq snapshot "
+                        "reads depend on logical mvcc_archives rows; archive "
+                        "and tombstone cleanup must use an Eloq safe archive "
+                        "watermark or an explicit Eloq retention policy.";
+    }
+#endif
+
     serverGlobalParams.bootstrap = DataSubstrate::Instance().GetCoreConfig().bootstrap;
     MONGO_LOG(1) << "serverGlobalParams.bootstrap: " << serverGlobalParams.bootstrap;
     serverGlobalParams.reservedThreadNum = DataSubstrate::Instance().GetCoreConfig().core_num;
