@@ -79,7 +79,26 @@ Status EloqGlobalOptions::store(const moe::Environment& params,
     char** dummy_argv = const_cast<char**>(tmp);
     InitGoogleLogging(dummy_argv);
 
-    DataSubstrate::Instance().Init(FLAGS_data_substrate_config);
+    if (!DataSubstrate::Instance().Init(FLAGS_data_substrate_config)) {
+        return Status{ErrorCodes::InvalidOptions,
+                      str::stream() << "Failed to initialize data_substrate config from "
+                                    << FLAGS_data_substrate_config};
+    }
+
+    const bool storageEnableMVCC = params.count("storage.eloq.enableMVCC")
+        ? params["storage.eloq.enableMVCC"].as<bool>()
+        : true;
+    const bool dataSubstrateEnableMVCC = DataSubstrate::Instance().GetCoreConfig().enable_mvcc;
+    if (storageEnableMVCC != dataSubstrateEnableMVCC) {
+        return Status{ErrorCodes::InvalidOptions,
+                      str::stream()
+                          << "Inconsistent MVCC configuration: storage.eloq.enableMVCC="
+                          << (storageEnableMVCC ? "true" : "false")
+                          << " but data_substrate [local] enable_mvcc="
+                          << (dataSubstrateEnableMVCC ? "true" : "false")
+                          << ". Set both options to the same value."};
+    }
+
     serverGlobalParams.bootstrap = DataSubstrate::Instance().GetCoreConfig().bootstrap;
     MONGO_LOG(1) << "serverGlobalParams.bootstrap: " << serverGlobalParams.bootstrap;
     serverGlobalParams.reservedThreadNum = DataSubstrate::Instance().GetCoreConfig().core_num;
