@@ -59,6 +59,7 @@ DATA_STORE_TYPE_ROCKSDB_CLOUD_S3 = 3
 DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS = 4
 DATA_STORE_TYPE_ROCKSDB = 5
 DATA_STORE_TYPE_ELOQSTORE = 6
+DATA_STORE_TYPE_TIKV = 7
 
 ROCKSDB_CLOUD_FS_TYPE_S3 = 1
 ROCKSDB_CLOUD_FS_TYPE_GCS = 2
@@ -88,6 +89,8 @@ elif data_store_type_str == "ELOQDSS_ROCKSDB":
     data_store_type = DATA_STORE_TYPE_ROCKSDB
 elif data_store_type_str == "ELOQDSS_ELOQSTORE":
     data_store_type = DATA_STORE_TYPE_ELOQSTORE
+elif data_store_type_str == "ELOQDSS_TIKV":
+    data_store_type = DATA_STORE_TYPE_TIKV
 else:
     # Default fallback (or raise an error if invalid)
     print("Warning: Unknown DATA_STORE_TYPE '{}'. Defaulting to ROCKSDB_CLOUD.".format(
@@ -109,6 +112,10 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
     env.Append(CPPDEFINES=[
         "DATA_STORE_TYPE_ELOQDSS_ELOQSTORE"
+    ])
+elif data_store_type == DATA_STORE_TYPE_TIKV:
+    env.Append(CPPDEFINES=[
+        "DATA_STORE_TYPE_ELOQDSS_TIKV"
     ])
 
 if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
@@ -205,6 +212,35 @@ elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
             "$ELOQ_ENGINE_ROOT/data_substrate/store_handler/eloq_data_store_service/eloqstore/include",
         ]
     )
+elif data_store_type == DATA_STORE_TYPE_TIKV:
+    tikv_client_root = os.environ.get(
+        "TIKV_CLIENT_C_ROOT", "/home/lance/Projects/tikv-client-c")
+    tikv_client_build_dir = os.environ.get("TIKV_CLIENT_C_BUILD_DIR")
+    if not tikv_client_build_dir:
+        for candidate in (
+                os.path.join(tikv_client_root, "build"),
+                os.path.join(tikv_client_root, "build-docker")):
+            if os.path.exists(os.path.join(candidate, "src", "libkv_client.a")) or \
+                    os.path.exists(os.path.join(candidate, "src", "libkv_client.so")):
+                tikv_client_build_dir = candidate
+                break
+        if not tikv_client_build_dir:
+            tikv_client_build_dir = os.path.join(tikv_client_root, "build")
+
+    env["CPPPATH"].extend(
+        [
+            os.path.join(tikv_client_root, "include"),
+            os.path.join(tikv_client_build_dir, "third_party", "kvproto", "cpp"),
+            os.path.join(
+                tikv_client_build_dir, "third_party", "kvproto", "cpp", "kvproto"),
+        ]
+    )
+    env.PrependUnique(
+        LIBPATH=[
+            os.path.join(tikv_client_build_dir, "src"),
+            os.path.join(tikv_client_build_dir, "third_party", "kvproto", "cpp"),
+        ]
+    )
 
 base_deps = [
     # FindLibPath("absl_bad_variant_access"),
@@ -256,6 +292,12 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     store_deps = [FindLibPath("rocksdb")]
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
     store_deps = []
+elif data_store_type == DATA_STORE_TYPE_TIKV:
+    store_deps = [
+        FindLibPath("kv_client"),
+        FindLibPath("kvproto"),
+        FindLibPath("PocoFoundation"),
+    ]
 
 eloq_dependencies = [lib for lib in (
     base_deps + store_deps + log_deps + jemalloc_deps) if lib]
@@ -297,6 +339,8 @@ if data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_S3:
 elif data_store_type == DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS:
     env.Append(LIBS=["google_cloud_cpp_common"])
     env.Append(LIBS=["google_cloud_cpp_storage", "rocksdb-cloud-gcp"])
+elif data_store_type == DATA_STORE_TYPE_TIKV:
+    env.Append(LIBS=["kv_client", "kvproto", "PocoFoundation"])
 
 if with_log_state == LOG_STATE_TYPE_RKDB_S3:
     env.Append(LIBS=["aws-cpp-sdk-core"])  # Aws::InitAPI/Aws::ShutdownAPI
