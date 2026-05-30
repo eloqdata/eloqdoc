@@ -605,6 +605,120 @@ for `ELOQDSS_TIKV` must continue to fail clearly instead of silently producing
 invalid RocksDB-style artifacts. `CreateSnapshotForBackup` must not return
 RocksDB backup files for TiKV.
 
+##### TiKV BR Operator Runbook and Support Contract
+
+Support contract for the first production path:
+
+- The supported backup primitive is an operator-approved TiKV cluster backup or
+  storage snapshot that preserves the whole EloqDoc TiKV logical namespace at
+  one consistent cut. It is an external operator workflow, not the current
+  `CreateSnapshotForBackup` RPC.
+- A dedicated TiKV cluster for one EloqDoc deployment is the preferred support
+  shape. In that mode, take and restore a full TiKV cluster backup/snapshot; do
+  not attempt to filter by prefix until a prefix-scoped BR flow is validated.
+- A shared TiKV cluster is only supported after the operator workflow proves it
+  can select every key for the full `tikv_key_prefix` and every TiKV storage
+  component/column family required by the transaction API used by
+  `TikvKvClient`. A RawKV-only/default-CF-only backup is not acceptable for the
+  current transaction-client backend.
+- Operators must fence EloqDoc writes before choosing the backup cut. Until a
+  first-class read-only/fence entry point is added, the conservative procedure is
+  to stop application traffic and stop or quiesce all EloqDoc/TxService/DSS
+  writers before running the TiKV backup.
+- `FlushData` does not create a backup cut for TiKV; it only remains a no-op
+  durability acknowledgement. TiKV BR/snapshot metadata and the EloqDoc manifest
+  define the backup cut.
+- `mvcc_archives` and retained tombstones are part of the protected data set. Do
+  not derive the retention point from TiKV GC safepoint and do not run cleanup
+  that can remove versions needed by the selected recovery point.
+- Restore must target a fresh TiKV cluster or an otherwise empty
+  `tikv_key_prefix`. In-place restore over an existing prefix is unsupported.
+
+Operator runbook skeleton:
+
+1. **Preflight**
+   - Verify all EloqDoc components are built/configured with
+     `WITH_DATA_STORE=ELOQDSS_TIKV` / `DATA_STORE_TYPE_ELOQDSS_TIKV`.
+   - Record the running config: `data_store=ELOQDSS_TIKV`, `tikv_pd_endpoints`,
+     `tikv_key_prefix`, MVCC/archive settings, cleanup retention settings,
+     EloqDoc commit/config version, TiKV/PD versions, and BR/operator tool
+     version.
+   - Confirm backup storage credentials and network access from every TiKV node
+     or operator component that will participate in the backup.
+   - If the TiKV cluster is shared, stop here unless the exact prefix-scoped
+     backup command has been validated for this transaction-client keyspace.
+
+2. **Fence writes and choose a cut**
+   - Put the deployment into maintenance mode and stop client writes.
+   - Stop or quiesce all EloqDoc/TxService/DSS writers. If a future read-only
+     mode is wired, verify every shard has entered it before continuing.
+   - Wait for in-flight operations to drain and record the wall-clock time, TiKV
+     timestamp/backup timestamp if the operator workflow exposes one, and the
+     latest EloqDoc catalog/config cut used for the manifest.
+
+3. **Run the TiKV backup**
+   - For the preferred dedicated-cluster support shape, run the validated full
+     TiKV cluster BR/operator backup command against the recorded PD endpoints
+     and backup storage URI.
+   - For future prefix-scoped support, the start boundary is the exact
+     `tikv_key_prefix` and the end boundary is its lexicographic upper bound;
+     the workflow must include base/index keys, `mvcc_archives`, retained
+     tombstones, and any TiKV-stored Eloq metadata under that prefix.
+   - Treat any partial node/region/CF failure as a failed backup. Do not publish
+     a manifest for a partial backup.
+
+4. **Write the backup manifest**
+   - Store a manifest next to the TiKV backup containing at least:
+     `backup_name`, backup storage URI, BR/operator tool/version, TiKV/PD
+     cluster identity/version, PD endpoints used, backup timestamp/cut if
+     available, `tikv_key_prefix`, prefix upper bound when prefix-scoped, EloqDoc
+     binary commit/config version, `data_store=ELOQDSS_TIKV`, MVCC/archive
+     config, cleanup retention config, catalog/config snapshot identifier, and
+     whether the backup is full-cluster or prefix-scoped.
+   - Mark the manifest usable only after the backup command completes
+     successfully and the backup artifact inventory is durable.
+
+5. **Unfence**
+   - Resume EloqDoc/TxService/DSS writers only after the backup and manifest are
+     durable, or keep the deployment stopped if this was a migration backup.
+
+6. **Restore**
+   - Provision a fresh TiKV cluster or clear an unused `tikv_key_prefix`; never
+     restore into a prefix containing old EloqDoc keys.
+   - Validate the manifest before restore: the target config must use the same
+     `tikv_key_prefix`, compatible TiKV/EloqDoc versions, and matching
+     `data_store=ELOQDSS_TIKV`/MVCC settings.
+   - Run the corresponding TiKV BR/operator restore workflow. Prefix rewrite,
+     catalog rewrite, and mixed-cut base/archive restores are unsupported.
+   - Start EloqDoc only after restore succeeds and the manifest check passes.
+
+7. **Post-restore validation**
+   - Run CRUD and restart smoke.
+   - Verify base/index reads, reverse scan over `mvcc_archives`, snapshot
+     read/scan at the restored cut, and tombstone-retention behavior.
+   - Confirm cleanup workers still obey the restored safe archive watermark and
+     do not use TiKV GC safepoint as an Eloq archive cleanup watermark.
+
+Explicitly unsupported until separate validation exists:
+
+- Calling Eloq `CreateClusterBackup`/`CreateSnapshotForBackup` and expecting a
+  TiKV backup artifact.
+- In-place restore over an existing prefix or restoring into a different
+  `tikv_key_prefix`.
+- Mixing base/index keys from one backup with `mvcc_archives`, tombstones, or
+  catalog/config from another backup.
+- Prefix-scoped backup on a shared TiKV cluster without proof that the workflow
+  includes all transaction-client storage needed by `TikvKvClient`.
+- Any procedure that uses TiKV GC safepoint as the Eloq snapshot/archive
+  retention watermark.
+
+Reference operator material to validate future concrete commands:
+
+- TiDB/TiKV BR overview: <https://docs.pingcap.com/tidb/stable/backup-and-restore-overview/>
+- TiKV RawKV BR reference, useful as a contrast for why RawKV-only/default-CF
+  backup is not automatically sufficient for this transaction-client backend:
+  <https://docs.pingcap.com/tidb/stable/rawkv-backup-and-restore/>
+
 #### Metrics and Failure Injection
 
 Current implemented coverage:
@@ -692,11 +806,11 @@ validated end-to-end.
 Follow-up implementation tasks:
 
 1. **Operator runbook and support contract**
-   - Document the exact TiKV BR/operator flow, including how to select the full
-     EloqDoc `tikv_key_prefix`, how to fence writes or choose a consistent
-     backup timestamp, and why restore must use a fresh/empty prefix.
-   - State that RocksDB snapshot files and TiKV GC safepoint are not part of
-     EloqDoc TiKV backup/restore semantics.
+   - Initial runbook/support contract is documented in the Backup and Restore
+     section above.
+   - Future work should turn that contract into an operator-facing deployment
+     page and validate the exact BR/operator command for the chosen support
+     shape.
 
 2. **Backup manifest capture and validation**
    - Define the manifest fields required beside the TiKV backup: `tikv_key_prefix`,
@@ -768,4 +882,6 @@ Acceptance criteria:
 - `FlushData` no-op is intentional and documented.
 - TiKV backup remains fail-closed until the BR-first path is implemented and
   validated end-to-end.
+- BR operator runbook documents write fencing, manifest requirements, fresh
+  restore targets, and unsupported restore modes.
 - RocksDB backend behavior remains unchanged.
