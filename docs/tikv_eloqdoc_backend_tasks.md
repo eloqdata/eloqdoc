@@ -781,6 +781,188 @@ Restore pre-check rules:
 - After restore, keep the deployment fenced until CRUD, archive reverse scan,
   snapshot read/scan, tombstone-retention, and restart smoke all pass.
 
+##### Restore Validation Smoke Harness Design
+
+The restore validation smoke harness is the mandatory post-restore gate before
+any TiKV BR/operator backup is declared usable by EloqDoc. It validates that the
+restored prefix is internally consistent; it is not a backup implementation and
+must not make the current `CreateSnapshotForBackup` path appear supported.
+
+Harness phases:
+
+1. **Seed the source deployment before backup**
+   - Write base table rows across at least two tables and partitions, including
+     records that look like primary/base rows and index/secondary-table rows
+     from the DataStore keyspace point of view.
+   - Include normal CRUD state: live rows, deleted rows, range boundaries, and a
+     dropped-table or deleted-range sentinel that proves restore does not revive
+     data outside the selected cut.
+   - Include scan data for forward scan, reverse scan, pagination cursor resume,
+     and `type` filtering where non-matching rows appear between matching rows.
+   - Include `mvcc_archives` rows for the same logical keys at multiple Eloq
+     `commit_ts` values, including one archived delete/tombstone version.
+   - Include base-current plus archive-older rows so snapshot read and snapshot
+     scan at chosen read timestamps must read both base and archive versions.
+   - Include retained tombstones, live TTL rows, and expired TTL rows. Cleanup
+     must be disabled or run only through the conservative single-round helpers
+     during validation; restore validation must not depend on TiKV GC safepoint.
+   - Include a transaction/atomicity sentinel equivalent to the existing 2PC
+     smoke: a failed multi-key write must leave no partial visible row, and the
+     committed conflict winner must remain visible.
+
+2. **Capture expected results before backup**
+   - Record latest `Read` results, including not-found cases and record
+     `ts`/`ttl` metadata when relevant.
+   - Record forward and reverse `ScanNext` result pages, pagination cursors, and
+     `type` filter output.
+   - Record archive reverse-scan visible-version results for selected logical
+     keys and read timestamps.
+   - Record TxService-style snapshot read and snapshot scan results at the
+     selected read timestamps.
+   - Record tombstone-retention and cleanup-guard expectations: unknown safe
+     archive watermark is no-op, candidates older than a known watermark are
+     bounded, malformed/truncated rows are skipped conservatively, and
+     `mvcc_archives` are never processed by base TTL cleanup.
+   - Restart the source store once when practical and re-read a small baseline,
+     so the harness has an expected persistence baseline independent from the
+     restore target.
+
+3. **Fence, backup, and restore**
+   - Follow the TiKV BR operator runbook above: fence writers, capture the
+     consistent cut, produce the manifest, and keep restore fenced until the
+     harness passes.
+   - Restore only to a fresh TiKV cluster or an empty target
+     `tikv_key_prefix` that exactly matches the manifest. Prefix rewrite,
+     catalog rewrite, mixed cuts, and in-place restore are outside this harness
+     and must fail before validation starts.
+
+4. **Validate the restored deployment**
+   - Run the restore pre-check rules first and verify the target prefix was
+     empty before restore.
+   - Re-run latest CRUD reads, not-found reads, forward/reverse scans,
+     pagination, and `type` filtering; compare with the captured expectations.
+   - Re-run archive reverse scan, snapshot read, and snapshot scan; compare
+     visible versions and Eloq `commit_ts` values with the captured
+     expectations.
+   - Re-run tombstone/TTL cleanup safety checks in validation mode: unknown
+     watermark remains no-op, known-watermark candidates stay bounded and
+     prefix-scoped, and no check uses TiKV GC safepoint as an Eloq archive
+     watermark.
+   - Restart the restored EloqDoc/TiKV-facing components and repeat a minimal
+     read/scan/snapshot baseline before unfencing.
+   - Verify intentionally bad manifests are rejected fail-closed: wrong
+     `data_store`, mismatched `tikv_key_prefix`, incompatible `api_mode`, missing
+     artifact digest, mismatched catalog/config cut, incompatible MVCC/archive or
+     cleanup config, non-empty target prefix, RawKV-only backup, and
+     `uses_tikv_gc_safepoint_as_archive_watermark=true`.
+
+Test-case matrix and failure classification:
+
+- **CRUD and base/index keyspace**
+  - Seed: one base table and one index-like secondary table, each with live
+    rows, overwritten rows, explicit deletes, and bounded/open-ended range
+    delete sentinels across at least two partitions.
+  - Restore assertions: latest `Read` and not-found results match the captured
+    `ts`/`ttl`/payload expectations; deleted-range and dropped-table sentinels
+    stay absent; other partitions remain present.
+  - Failure class: manifest/config problem if the restored prefix or catalog cut
+    differs from the manifest; restore artifact problem if keys are missing,
+    extra, or from a mixed cut; EloqDoc backend bug if raw keys are present but
+    `Read`/delete/drop semantics decode incorrectly.
+
+- **Forward/reverse scan, pagination, and `type` filtering**
+  - Seed: ordered keys with interleaved record types and enough rows to force at
+    least two pages in both scan directions.
+  - Restore assertions: page order, cursor resume, range boundaries, and type
+    filter results match the pre-backup expectation, including continuing the
+    scan across non-matching rows.
+  - Failure class: restore artifact problem if restored key ordering or row set
+    differs; EloqDoc backend bug if the row set is intact but cursor, reverse
+    boundary, or type-filter semantics differ.
+
+- **Archive reverse scan**
+  - Seed: `mvcc_archives` rows for the same logical key at multiple Eloq
+    `commit_ts` values, plus one archived tombstone/delete version.
+  - Restore assertions: reverse scan from selected read timestamps returns the
+    same visible archive version and the same big-endian Eloq `commit_ts`
+    suffix; deleted archive versions are interpreted as deletes.
+  - Failure class: restore artifact problem if archive rows are missing or mixed
+    with another backup cut; EloqDoc backend bug if archive key decoding or
+    reverse-scan visibility is wrong.
+
+- **Snapshot read and snapshot scan**
+  - Seed: current base rows whose older versions exist only in `mvcc_archives`,
+    unchanged rows that should remain visible from base, and new rows that must
+    be hidden at an older snapshot timestamp.
+  - Restore assertions: snapshot read and snapshot scan at each captured read
+    timestamp return the same visible payloads and Eloq `commit_ts` values before
+    and after restore.
+  - Failure class: restore artifact problem if base and archive rows come from
+    different cuts; EloqDoc backend bug if intact rows produce wrong snapshot
+    visibility or commit timestamp ordering.
+
+- **Tombstone retention**
+  - Seed: retained canonical tombstones below, equal to, and above a known safe
+    archive watermark, plus live rows in the same partition.
+  - Restore assertions: tombstones required for snapshot/delete visibility remain
+    present until a valid cleanup watermark says they are candidates; equality
+    with the watermark is retained conservatively.
+  - Failure class: restore artifact problem if tombstones disappear during
+    restore; cleanup safety bug if validation cleanup deletes tombstones without
+    a safe watermark or deletes versions at/after the watermark.
+
+- **Cleanup safety after restore**
+  - Seed: expired base TTL rows, live TTL rows, malformed/truncated values,
+    `mvcc_archives`, and retained tombstones.
+  - Restore assertions: unknown watermark cleanup is no-op; expired-base cleanup
+    skips `mvcc_archives`, tombstones, and malformed rows conservatively;
+    archive/tombstone cleanup only reports/deletes bounded candidates older than
+    a known safe watermark and never uses TiKV GC safepoint.
+  - Failure class: cleanup safety bug for any unsafe delete, unbounded cursor,
+    cross-prefix scan, or TiKV-GC-derived watermark; EloqDoc backend bug if
+    candidate decoding counters are wrong without deleting data.
+
+- **Restart persistence**
+  - Seed: a small baseline from the CRUD, scan, and snapshot cases after source
+    `FlushData` and before backup.
+  - Restore assertions: after restoring and restarting EloqDoc/TiKV-facing
+    components, the same baseline reads/scans/snapshot reads still match.
+  - Failure class: restore artifact problem if restart exposes missing or stale
+    TiKV data; EloqDoc backend bug if data remains present but adapter startup,
+    prefix handling, or scan/read state is inconsistent after restart.
+
+- **Negative manifest/preflight cases**
+  - Seed: reuse the valid backup artifact, then mutate one manifest or target
+    preflight condition at a time: wrong `data_store`, mismatched
+    `tikv_key_prefix`, incompatible `api_mode`, missing artifact digest,
+    mismatched catalog/config cut, incompatible MVCC/archive or cleanup config,
+    non-empty target prefix, RawKV-only backup, and
+    `uses_tikv_gc_safepoint_as_archive_watermark=true`.
+  - Restore assertions: each case fails closed before restore or before
+    unfencing, with an actionable error and no partial target-prefix mutation.
+  - Failure class: manifest/config problem if the checker accepts an invalid
+    manifest or target config; restore artifact problem if a rejected restore has
+    already mutated the target prefix.
+
+Exit criteria:
+
+- All restored results match the pre-backup expectations and the restart
+  baseline.
+- No evidence exists of a mixed cut between base/index keys, `mvcc_archives`,
+  tombstones, and catalog/config state.
+- Failed negative cases fail before restore or before unfencing.
+- `CreateSnapshotForBackup` remains unsupported for TiKV until a later task
+  wires a user-visible BR/operator entry point or keeps that RPC fail-closed
+  with actionable operator guidance.
+
+Non-goals for the harness design:
+
+- Do not implement the restore worker, BR command wrapper, or user-visible
+  restore RPC in this step.
+- Do not connect background cleanup workers to the restore path.
+- Do not implement prefix rewrite or catalog rewrite.
+- Do not use TiKV GC safepoint as an Eloq snapshot/archive cleanup watermark.
+
 Explicitly unsupported until separate validation exists:
 
 - Calling Eloq `CreateClusterBackup`/`CreateSnapshotForBackup` and expecting a
@@ -902,10 +1084,14 @@ Follow-up implementation tasks:
      restore entry point.
 
 3. **Restore validation smoke harness**
-   - Seed data that covers CRUD, index/base keys, `mvcc_archives`, snapshot
-     read/scan, archive reverse scan, tombstone retention, and restart.
-   - Restore into a fresh deployment with the same prefix and run the full smoke
-     before declaring the backup usable.
+   - Initial harness design and use-case list are documented in the Backup and
+     Restore section above.
+   - Future work should implement it as an automated gate that seeds source
+     data, captures expectations, restores to a fresh same-prefix target, and
+     validates the documented test-case matrix: CRUD/base-index, scans, archive
+     reverse scan, snapshot read/scan, tombstone retention, cleanup safety,
+     restart persistence, and fail-closed manifest mismatch cases before any
+     backup is declared usable.
 
 4. **User-visible backup entry point**
    - Keep current `CreateSnapshotForBackup` unsupported behavior until tasks 1-3
@@ -968,4 +1154,9 @@ Acceptance criteria:
   restore targets, and unsupported restore modes.
 - Backup manifest schema and restore pre-check rules are fail-closed and reject
   prefix/config/cut mismatches.
+- Restore validation smoke harness covers CRUD, forward/reverse scan, archive
+  reverse scan, snapshot read/scan, tombstone retention, cleanup safety,
+  restart, and fail-closed manifest mismatch cases; each case documents seed
+  data, restore assertions, and failure classification before backup artifacts
+  are declared usable.
 - RocksDB backend behavior remains unchanged.
