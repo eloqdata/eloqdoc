@@ -547,31 +547,63 @@ Current behavior:
 - `FlushData` is a no-op success because TiKV commits are durable when the
   underlying transaction commits.
 
-Production rule:
+Current call chain/source audit:
 
-- RocksDB backup files are not available for TiKV backend.
-- A TiKV backend backup must preserve a consistent logical keyspace containing:
-  - all base/index table keys,
-  - all `mvcc_archives` keys needed by the chosen recovery point,
-  - metadata/config needed to rebuild the same `tikv_key_prefix`,
-  - the matching EloqDoc catalog state.
-- Restore must not combine base keys from one cut with archive keys from another
-  cut.
+- Cluster backup RPC is exposed as `CreateClusterBackup` in
+  `tx_service/include/proto/cc_request.proto` and implemented by
+  `CcNodeService::CreateClusterBackup`. It calls `BackupUtil::CreateBackup`,
+  which sends `CreateBackup` RPCs to each node-group leader.
+- Each leader handles `CcNodeService::CreateBackup` by enqueuing
+  `SnapshotManager::CreateBackup`; the worker path is
+  `SnapshotManager::HandleBackupTask`. That path runs one checkpoint round,
+  then calls `store_hd_->CreateSnapshotForBackup(backup_name, snapshot_files,
+  last_ckpt_ts)`.
+- When `store_hd_` is `DataStoreServiceClient`, the request fans out to every
+  DSS shard through `DataStoreServiceClient::CreateSnapshotForBackup` /
+  `CreateSnapshotForBackupInternal`, then enters `DataStoreService` and finally
+  the concrete `DataStore::CreateSnapshotForBackup` implementation for the
+  shard.
+- Existing RocksDB-style backup implementations create local snapshot files
+  under the configured backup path and can optionally rsync those files to
+  `dest_path`. That file artifact contract does not map to TiKV. TiKV currently
+  returns `CREATE_SNAPSHOT_ERROR` from `TikvDataStore::CreateSnapshotForBackup`
+  with an explicit unsupported message, so the cluster backup path fails closed
+  instead of reporting invalid RocksDB files.
+- Source audit found only create/fetch/terminate backup RPCs for this path.
+  There is no restore RPC or restore entry point wired to TiKV BR today; standby
+  snapshot sync hooks such as `RequestStorageSnapshotSync`/`OnSnapshotReceived`
+  are separate and must not be treated as TiKV backup restore support.
 
-Supported production directions:
+Chosen first production path: **TiKV cluster-level backup/restore**.
 
-1. **TiKV cluster-level backup/restore**
-   - Use TiKV/BR-style tooling or an operator-approved TiKV backup workflow.
-   - Scope must include the full EloqDoc key prefix.
-   - Restore must be validated against a fresh EloqDoc instance with the same
-     prefix configuration.
+- Use TiKV BR or an operator-approved TiKV cluster backup workflow as the first
+  supported path. This is the smallest safe production path because TiKV can
+  capture the physical keyspace at one consistent cut without adding a new
+  cross-table Eloq export protocol.
+- Scope must include every key under the EloqDoc `tikv_key_prefix`, including
+  base/index table keys, `mvcc_archives`, tombstones retained for snapshot
+  visibility, and any TiKV-stored Eloq metadata that belongs to that prefix.
+- The backup manifest must record enough EloqDoc configuration to restore with
+  the same logical namespace: `data_store=ELOQDSS_TIKV`, `tikv_key_prefix`, MVCC
+  archive settings, the EloqDoc build/config version, and the catalog/config
+  cut that matches the TiKV backup.
+- Restore must target a fresh TiKV/EloqDoc deployment or an otherwise empty
+  prefix. Reusing a prefix with leftover keys is unsupported.
+- Restore must not combine base keys from one cut with archive keys, tombstones,
+  or catalog/config from another cut.
 
-2. **Eloq logical backup/restore**
-   - Export/import logical base and archive rows through DataStore APIs.
-   - Slower but prefix-scoped and backend-neutral.
+Non-selected path: **Eloq logical backup/restore**.
 
-Until one direction is implemented, backup commands for `ELOQDSS_TIKV` must fail
-clearly instead of silently producing invalid RocksDB-style artifacts.
+- Logical export/import through DataStore APIs remains a valid future fallback
+  if prefix-level TiKV BR is not acceptable in an environment.
+- It is not the first path because it needs a new consistent-cut export/import
+  protocol across base keys, `mvcc_archives`, tombstones, and catalog state, and
+  would be slower than TiKV-native backup for production data.
+
+Until the TiKV BR path is implemented and validated end-to-end, backup commands
+for `ELOQDSS_TIKV` must continue to fail clearly instead of silently producing
+invalid RocksDB-style artifacts. `CreateSnapshotForBackup` must not return
+RocksDB backup files for TiKV.
 
 #### Metrics and Failure Injection
 
@@ -651,21 +683,55 @@ Acceptance criteria:
 - Versions newer than the watermark are never removed.
 - Cleanup cannot cross `tikv_key_prefix`, table, or partition boundaries.
 
-#### Task 7E: Decide and Implement TiKV Backup/Restore Mode
+#### Task 7E: TiKV Backup/Restore Implementation Split
 
-Scope:
+Decision: implement the TiKV cluster-level backup/restore path first. Keep
+`CreateSnapshotForBackup` fail-closed until the selected path is implemented and
+validated end-to-end.
 
-- Choose either TiKV cluster-level backup or Eloq logical backup as the first
-  supported production path.
-- Update `CreateSnapshotForBackup` behavior only after the chosen path is
-  implemented end-to-end.
+Follow-up implementation tasks:
 
-Acceptance criteria:
+1. **Operator runbook and support contract**
+   - Document the exact TiKV BR/operator flow, including how to select the full
+     EloqDoc `tikv_key_prefix`, how to fence writes or choose a consistent
+     backup timestamp, and why restore must use a fresh/empty prefix.
+   - State that RocksDB snapshot files and TiKV GC safepoint are not part of
+     EloqDoc TiKV backup/restore semantics.
 
-- Backup captures base and archive keys from a consistent logical cut.
-- Restore is validated by CRUD, archive reverse scan, snapshot read/scan, and
-  restart smoke.
-- Unsupported modes continue to fail clearly.
+2. **Backup manifest capture and validation**
+   - Define the manifest fields required beside the TiKV backup: `tikv_key_prefix`,
+     TiKV/PD cluster identity or endpoint set, backup timestamp, EloqDoc
+     data-store/MVCC config, binary/config version, and catalog/config cut.
+   - Refuse restore when the manifest prefix/config does not match the target
+     EloqDoc deployment.
+
+3. **Restore validation smoke harness**
+   - Seed data that covers CRUD, index/base keys, `mvcc_archives`, snapshot
+     read/scan, archive reverse scan, tombstone retention, and restart.
+   - Restore into a fresh deployment with the same prefix and run the full smoke
+     before declaring the backup usable.
+
+4. **User-visible backup entry point**
+   - Keep current `CreateSnapshotForBackup` unsupported behavior until tasks 1-3
+     are complete.
+   - After validation exists, either wire a clear TiKV external-BR orchestration
+     entry point or keep `CreateSnapshotForBackup` unsupported with an actionable
+     message pointing operators to the TiKV BR runbook. Do not pretend to produce
+     RocksDB-style files.
+
+5. **Optional later logical-backup track**
+   - If a backend-neutral path is still needed, add a separate design for a
+     consistent logical export/import protocol across base keys, `mvcc_archives`,
+     tombstones, and catalog/config state.
+
+Acceptance criteria for the selected path:
+
+- Backup captures base, archive, tombstone, and catalog/config state from one
+  consistent logical cut under the configured `tikv_key_prefix`.
+- Restore rejects mismatched prefix/config manifests and never mixes cuts.
+- Restore is validated by CRUD, archive reverse scan, snapshot read/scan,
+  tombstone-retention coverage, and restart smoke.
+- Unsupported or not-yet-integrated modes continue to fail clearly.
 
 #### Task 7F: Add Retry/Region Error Observability
 
@@ -700,5 +766,6 @@ Acceptance criteria:
 - Reverse scan is implemented before claiming snapshot read support.
 - TiKV not-found and empty value are distinguishable.
 - `FlushData` no-op is intentional and documented.
-- Backup unsupported path is explicit.
+- TiKV backup remains fail-closed until the BR-first path is implemented and
+  validated end-to-end.
 - RocksDB backend behavior remains unchanged.
