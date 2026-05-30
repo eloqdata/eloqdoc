@@ -699,6 +699,88 @@ Operator runbook skeleton:
    - Confirm cleanup workers still obey the restored safe archive watermark and
      do not use TiKV GC safepoint as an Eloq archive cleanup watermark.
 
+Backup manifest schema, version 1:
+
+```yaml
+schema_version: 1
+backup_name: operator-supplied-unique-name
+created_at_utc: RFC3339-timestamp
+backup_mode: full_cluster | prefix_scoped
+backup_artifact:
+  storage_uri: BR-or-operator-backup-location
+  tool: br | tikv-operator | storage-snapshot | other-approved-tool
+  tool_version: version-string
+  command_digest: hash-or-archived-command-spec-reference
+  artifact_inventory_digest: hash-of-files-or-objects-recorded-after-success
+consistency_cut:
+  write_fence_method: stopped-writers | read-only-mode | storage-snapshot-fence
+  fence_started_at_utc: RFC3339-timestamp
+  writers_drained_at_utc: RFC3339-timestamp
+  backup_timestamp: TiKV-or-BR-timestamp-if-exposed-otherwise-null
+  catalog_config_cut_id: catalog-config-snapshot-id-or-digest
+tikv_source:
+  pd_endpoints: [host:port, ...]
+  cluster_id: TiKV-or-PD-cluster-id-if-available
+  cluster_version: TiKV-version-set
+  api_mode: txn
+  keyspace_scope:
+    tikv_key_prefix: exact-prefix-from-EloqDoc-config
+    prefix_upper_bound: lexicographic-upper-bound-or-null-for-full-keyspace
+    scope_mode: full_cluster | validated_prefix_range
+  includes_transaction_storage: true
+eloqdoc_source:
+  data_store: ELOQDSS_TIKV
+  binary_version: EloqDoc-build-or-version
+  git_commit: EloqDoc-commit
+  config_digest: combined-EloqDoc-TxService-DSS-config-digest
+  enable_mvcc: true | false
+  mvcc_archive_config_digest: archive-related-config-digest
+  cleanup_retention_config_digest: cleanup-related-config-digest
+  catalog_config_cut_id: same-value-as-consistency-cut-catalog-config-cut-id
+protected_logical_sets:
+  base_and_index_keys: true
+  mvcc_archives: true
+  retained_tombstones: true
+  ti_kv_stored_eloq_metadata: true
+validation:
+  backup_completed: true
+  manifest_completed_after_artifacts_durable: true
+  rawkv_only_backup: false
+  uses_tikv_gc_safepoint_as_archive_watermark: false
+```
+
+Restore pre-check rules:
+
+- Reject any manifest with an unsupported `schema_version`, missing required
+  fields, `backup_completed != true`, or no durable artifact inventory digest.
+- Reject any manifest whose `eloqdoc_source.data_store` is not
+  `ELOQDSS_TIKV` or whose target deployment is not configured for
+  `ELOQDSS_TIKV`.
+- Recompute the target `tikv_key_prefix` upper bound and require exact equality
+  with the manifest. Empty prefix means full keyspace and is supported only for
+  the dedicated full-cluster restore shape.
+- Require a fresh TiKV cluster for `backup_mode=full_cluster`. For
+  `backup_mode=prefix_scoped`, require an empty target prefix and a manifest
+  that states `scope_mode=validated_prefix_range`; otherwise reject.
+- Reject prefix rewrite, catalog rewrite, or restore into a different
+  `tikv_key_prefix`. A future rewrite feature must be a separate design.
+- Require target TiKV/EloqDoc versions and `api_mode` to be compatible with the
+  manifest. The current backend requires transaction API storage; reject
+  `rawkv_only_backup=true` or `includes_transaction_storage != true`.
+- Require `consistency_cut.catalog_config_cut_id` to equal
+  `eloqdoc_source.catalog_config_cut_id`; reject if the operator cannot restore
+  the matching catalog/config cut with the TiKV artifact.
+- Require MVCC/archive and cleanup-retention config digests to match the target
+  or require the target to start with cleanup disabled until a human confirms
+  equivalent conservative settings.
+- Reject manifests that include TiKV GC safepoint as an Eloq archive cleanup
+  watermark or as the source of snapshot visibility.
+- Reject restore if any preflight smoke detects existing keys in the target
+  prefix, unless the restore target is a newly provisioned cluster known to be
+  empty.
+- After restore, keep the deployment fenced until CRUD, archive reverse scan,
+  snapshot read/scan, tombstone-retention, and restart smoke all pass.
+
 Explicitly unsupported until separate validation exists:
 
 - Calling Eloq `CreateClusterBackup`/`CreateSnapshotForBackup` and expecting a
@@ -813,11 +895,11 @@ Follow-up implementation tasks:
      shape.
 
 2. **Backup manifest capture and validation**
-   - Define the manifest fields required beside the TiKV backup: `tikv_key_prefix`,
-     TiKV/PD cluster identity or endpoint set, backup timestamp, EloqDoc
-     data-store/MVCC config, binary/config version, and catalog/config cut.
-   - Refuse restore when the manifest prefix/config does not match the target
-     EloqDoc deployment.
+   - Initial manifest schema and restore pre-check rules are documented in the
+     Backup and Restore section above.
+   - Future work should implement manifest generation, digest capture, and a
+     fail-closed restore preflight checker before wiring any user-visible
+     restore entry point.
 
 3. **Restore validation smoke harness**
    - Seed data that covers CRUD, index/base keys, `mvcc_archives`, snapshot
@@ -884,4 +966,6 @@ Acceptance criteria:
   validated end-to-end.
 - BR operator runbook documents write fencing, manifest requirements, fresh
   restore targets, and unsupported restore modes.
+- Backup manifest schema and restore pre-check rules are fail-closed and reject
+  prefix/config/cut mismatches.
 - RocksDB backend behavior remains unchanged.
