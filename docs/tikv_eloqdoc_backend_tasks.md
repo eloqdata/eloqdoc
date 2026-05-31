@@ -989,15 +989,21 @@ Current implemented coverage:
 
 - Basic TiKV read/write/scan/range-delete total and duration metrics are wired
   through `metrics::kv_meter`.
+- Retry/backoff metrics are based on the real tikv-client-c `BackoffEvent`
+  observer and are collected as `kv_tikv_backoff_total` with bounded
+  `operation`, `type`, and `max_sleep_exceeded` labels.
+- The TiKV adapter scopes public operations so retry/backoff events can be
+  attributed to read, write, conditional-delete, scan, and range-delete paths;
+  metrics-disabled and null-meter paths are no-ops.
 - Failure smoke covers empty PD endpoints, transaction conflict, and failed
   multi-key batch cleanup without partial visibility.
 
 Remaining production gaps:
 
-- Retry count metrics require a client-c backoff/retry observer or a wrapper
-  API. Do not fabricate retry counts by guessing from success/failure results.
-- Additional region error injection should be added once there is a stable
-  client-c test hook for region miss / epoch-not-match / unavailable store.
+- Region error injection should be added once there is a stable client-c test
+  hook for region miss / epoch-not-match / unavailable store. Keep this as a
+  separate smoke-test slice; do not regress the already-complete retry/backoff
+  metric wiring.
 
 ### 7.2 Follow-Up Task Split
 
@@ -1117,17 +1123,41 @@ Acceptance criteria for the selected path:
 
 #### Task 7F: Add Retry/Region Error Observability
 
-Scope:
+Status:
 
-- Extend tikv-client-c or the adapter with a real retry/backoff observer.
-- Record retry counts by operation type.
+- Retry/backoff observer and metrics are complete.
+- Local tikv-client-c now exposes a real `BackoffEvent` observer from actual
+  backoff sleeps.
+- EloqDoc TiKV adapter records `kv_tikv_backoff_total` by bounded operation and
+  backoff labels without changing behavior when metrics are disabled.
+
+Completed scope:
+
+- Extend tikv-client-c with a real retry/backoff observer.
+- Register the observer from the EloqDoc TiKV adapter.
+- Record retry/backoff counts by operation type.
+
+Remaining follow-up slice:
+
 - Add region miss / epoch-not-match / unavailable-store smoke tests when a
   stable injection hook exists.
+- Keep the slice limited to deterministic injection, expected retry/backoff
+  metric assertions, and fail-closed behavior for unavailable store; do not
+  change retry semantics or add high-cardinality metric labels.
 
-Acceptance criteria:
+Acceptance criteria for completed retry metrics:
 
 - Retry metrics are based on actual retry/backoff events.
 - Metrics do not change operation behavior when disabled.
+- Metric labels remain low-cardinality and operation-scoped.
+
+Acceptance criteria for the future region-error smoke slice:
+
+- Region miss, epoch-not-match, and unavailable-store scenarios can be triggered
+  deterministically without relying on timing races.
+- Tests assert the expected retry/backoff metric increments and operation label.
+- Unavailable-store coverage confirms failed operations fail clearly without
+  partial visibility or silent data loss.
 
 ## Implementation Order
 
