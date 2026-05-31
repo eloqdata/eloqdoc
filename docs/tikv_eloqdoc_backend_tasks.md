@@ -997,13 +997,16 @@ Current implemented coverage:
   metrics-disabled and null-meter paths are no-ops.
 - Failure smoke covers empty PD endpoints, transaction conflict, and failed
   multi-key batch cleanup without partial visibility.
+- The local tikv-client-c branch now has a deterministic region-error injection
+  hook for region miss, epoch-not-match, and unavailable-store paths.
+- EloqDoc TiKV read-path smoke uses that hook to cover region miss,
+  epoch-not-match, and store unavailable, and asserts the corresponding
+  `kv_tikv_backoff_total` metric with `operation=read`.
 
 Remaining production gaps:
 
-- Region error injection should be added once there is a stable client-c test
-  hook for region miss / epoch-not-match / unavailable store. Keep this as a
-  separate smoke-test slice; do not regress the already-complete retry/backoff
-  metric wiring.
+- Non-read-path region-error injection smokes can be added later if needed, but
+  the read-path retry/backoff observability slice is complete.
 
 ### 7.2 Follow-Up Task Split
 
@@ -1128,22 +1131,29 @@ Status:
 - Retry/backoff observer and metrics are complete.
 - Local tikv-client-c now exposes a real `BackoffEvent` observer from actual
   backoff sleeps.
+- Local tikv-client-c now exposes a deterministic region-error injection hook for
+  region miss, epoch-not-match, and unavailable-store test paths.
 - EloqDoc TiKV adapter records `kv_tikv_backoff_total` by bounded operation and
   backoff labels without changing behavior when metrics are disabled.
+- EloqDoc TiKV read-path region-error smoke/metrics coverage is complete.
 
 Completed scope:
 
 - Extend tikv-client-c with a real retry/backoff observer.
 - Register the observer from the EloqDoc TiKV adapter.
 - Record retry/backoff counts by operation type.
+- Extend tikv-client-c with a deterministic region-error injection hook.
+- Add EloqDoc TiKV read-path region miss / epoch-not-match / unavailable-store
+  smoke tests using the hook.
+- Assert the read-path retry/backoff metric increment with `operation=read` and
+  bounded labels.
 
 Remaining follow-up slice:
 
-- Add region miss / epoch-not-match / unavailable-store smoke tests when a
-  stable injection hook exists.
-- Keep the slice limited to deterministic injection, expected retry/backoff
-  metric assertions, and fail-closed behavior for unavailable store; do not
-  change retry semantics or add high-cardinality metric labels.
+- Add non-read-path region-error smokes later if production incidents show value.
+- Keep any future slices limited to deterministic injection, expected
+  retry/backoff metric assertions, and fail-closed behavior; do not change retry
+  semantics or add high-cardinality metric labels.
 
 Acceptance criteria for completed retry metrics:
 
@@ -1151,13 +1161,15 @@ Acceptance criteria for completed retry metrics:
 - Metrics do not change operation behavior when disabled.
 - Metric labels remain low-cardinality and operation-scoped.
 
-Acceptance criteria for the future region-error smoke slice:
+Acceptance criteria for completed read-path region-error smoke:
 
-- Region miss, epoch-not-match, and unavailable-store scenarios can be triggered
+- Region miss, epoch-not-match, and unavailable-store scenarios are triggered
   deterministically without relying on timing races.
-- Tests assert the expected retry/backoff metric increments and operation label.
-- Unavailable-store coverage confirms failed operations fail clearly without
-  partial visibility or silent data loss.
+- Tests assert the expected retry/backoff metric increment and `operation=read`
+  label.
+- Read-path unavailable-store coverage retries through the normal region-miss
+  backoff path and returns the correct final read result without partial
+  visibility or silent data loss.
 
 ## Implementation Order
 
