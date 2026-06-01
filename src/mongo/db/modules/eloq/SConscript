@@ -213,8 +213,12 @@ elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
         ]
     )
 elif data_store_type == DATA_STORE_TYPE_TIKV:
-    tikv_client_root = os.environ.get(
-        "TIKV_CLIENT_C_ROOT", "/home/lance/Projects/tikv-client-c")
+    # Default to the EloqDoc submodule backed by
+    # https://git.pingcap.net/pingkai/client-c. Operators can still override
+    # this with TIKV_CLIENT_C_ROOT when using a prebuilt local checkout.
+    tikv_client_root = os.environ.get("TIKV_CLIENT_C_ROOT")
+    if not tikv_client_root:
+        tikv_client_root = env.Dir("$ELOQ_ENGINE_ROOT/tikv-client-c").abspath
     tikv_client_build_dir = os.environ.get("TIKV_CLIENT_C_BUILD_DIR")
     if not tikv_client_build_dir:
         for candidate in (

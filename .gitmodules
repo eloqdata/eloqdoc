@@ -1,3 +1,7 @@
 [submodule "src/mongo/db/modules/eloq/data_substrate"]
 	path = src/mongo/db/modules/eloq/data_substrate
 	url = https://github.com/eloqdata/tx_service.git
+[submodule "src/mongo/db/modules/eloq/tikv-client-c"]
+	path = src/mongo/db/modules/eloq/tikv-client-c
+	url = git@github.com:lance6716/client-c.git
+	branch = eloqdoc/pr239-240-241-local
