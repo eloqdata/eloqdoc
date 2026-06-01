@@ -1,8 +1,7 @@
 # EloqDoc + TiKV 正式构建与本地试用指南
 
 本文说明如何在 `pingkai-master` 分支上构建完整的 EloqDoc TiKV 版本，
-并把本地 EloqDoc 服务接到本地 TiKV 集群上做基本试用。文件名里仍保留
-`local_smoke`，但本文主题不再是只构建冒烟测试二进制。
+并把本地 EloqDoc 服务接到本地 TiKV 集群上做基本试用。
 
 当前 TiKV 支持依赖本仓库的 `tikv-client-c` 子模块：
 
