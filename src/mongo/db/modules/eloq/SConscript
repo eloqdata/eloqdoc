@@ -306,7 +306,20 @@ elif data_store_type == DATA_STORE_TYPE_TIKV:
 eloq_dependencies = [lib for lib in (
     base_deps + store_deps + log_deps + jemalloc_deps) if lib]
 
-absl_lib_root = "$ELOQ_ENGINE_ROOT/build/data_substrate/tx_service/abseil-cpp"
+cmake_build_dir = os.environ.get("ELOQ_CMAKE_BUILD", "$ELOQ_ENGINE_ROOT/build")
+absl_lib_root_candidates = [
+    # When data_substrate is configured with an out-of-tree CMake build (for
+    # example build-centos7), its top-level CMakeLists.txt builds the shared
+    # tx_service Abseil copy under ${CMAKE_BINARY_DIR}/tx_service-abseil.
+    os.path.join(cmake_build_dir, "tx_service-abseil"),
+    # Keep the legacy in-tree CMake layout as a fallback for older local builds.
+    os.path.join(cmake_build_dir, "data_substrate", "tx_service", "abseil-cpp"),
+]
+absl_lib_root = next(
+    (path for path in absl_lib_root_candidates
+     if os.path.exists(os.path.join(path, "absl", "container"))),
+    absl_lib_root_candidates[0],
+)
 env.PrependUnique(
     LIBPATH=[
         os.path.join(absl_lib_root, "absl", "base"),
@@ -319,15 +332,22 @@ env.Append(LIBS=["absl_throw_delegate", "absl_log_severity",
 env.Append(LIBS=["absl_hash", "absl_raw_hash_set",
            "absl_city", "absl_low_level_hash"])
 
-env.Append(LIBPATH=["$ELOQ_ENGINE_ROOT/build/data_substrate"])
+# Prefer the matching CMake build/install directory for CMake-produced shared
+# libs. This is important for release Docker builds that use a build dir such as
+# build-centos7; otherwise SCons can accidentally link against stale
+# $ELOQ_ENGINE_ROOT/build artifacts from another toolchain/ABI.
+cmake_data_substrate_lib_dir = os.path.join(cmake_build_dir, "data_substrate")
 
 # Ensure the linker can find CMake-produced shared libs and link them explicitly.
 # CMake installs txservice/logservice/datastore/eloq_metrics into DEST_DIR/lib.
 dest_dir = os.environ.get("DEST_DIR", "")
 print("dest_dir: ", dest_dir)
 dest_lib_dir = os.path.join(dest_dir, "lib") if dest_dir else None
+cmake_lib_paths = []
 if dest_lib_dir and os.path.isdir(dest_lib_dir):
-    env.Append(LIBPATH=[dest_lib_dir])
+    cmake_lib_paths.append(dest_lib_dir)
+cmake_lib_paths.append(cmake_data_substrate_lib_dir)
+env.PrependUnique(LIBPATH=cmake_lib_paths)
 
 # Always link against the CMake-built module libraries to resolve txlog and service symbols.
 cmake_module_libs = ["data_substrate",
