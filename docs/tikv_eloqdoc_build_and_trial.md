@@ -1,13 +1,8 @@
-# EloqDoc + TiKV 正式构建与本地试用指南
+# EloqDoc + TiKV Docker 构建与本机试用指南
 
-本文说明如何在 `pingkai-master` 分支上构建完整的 EloqDoc TiKV 版本，
-并把本地 EloqDoc 服务接到本地 TiKV 集群上做基本试用。
+本文说明如何在 `pingkai-master` 分支上 **只用 Docker 编译 EloqDoc**，再在宿主机上用 `tiup playground` 启动 TiKV/PD，并运行 Docker 编译出的 EloqDoc 产物完成本地试用。
 
-当前 TiKV 支持依赖本仓库的 `tikv-client-c` 子模块：
-
-- 子模块路径：`src/mongo/db/modules/eloq/tikv-client-c`
-- 子模块来源：<https://git.pingcap.net/pingkai/client-c>
-- 使用分支：`eloqdoc/pr239-240-241-local`
+边界说明：Docker 只用于隔离 EloqDoc 编译依赖；TiKV 和 PD 不在 Docker 中编译，也不使用 TiKV/PD Docker 镜像。
 
 ## 1. 拉取代码和子模块
 
@@ -18,36 +13,33 @@ git checkout pingkai-master
 git submodule update --init --recursive
 ```
 
-确认 `tikv-client-c` 子模块已经指向 pingkai 版本：
+当前 TiKV 支持依赖本仓库的 `tikv-client-c` 子模块：
+
+- 路径：`src/mongo/db/modules/eloq/tikv-client-c`
+- 来源：<https://git.pingcap.net/pingkai/client-c>
+- 分支：`eloqdoc/pr239-240-241-local`
+
+## 2. 构建 Docker 编译镜像
 
 ```bash
-git config -f .gitmodules --get submodule.src/mongo/db/modules/eloq/tikv-client-c.url
-git submodule status src/mongo/db/modules/eloq/tikv-client-c
+docker build -f docker/tikv-build.Dockerfile -t eloqdoc-tikv-build:ubuntu24 .
 ```
 
-## 2. 安装构建依赖
+镜像里包含 CMake、Python 2.7、SCons 依赖，以及 EloqDoc TiKV 后端需要的 brpc、braft、mimalloc、gRPC、protobuf、Poco、RocksDB 等 C++ 依赖。宿主机不需要安装这些编译依赖。
 
-Ubuntu 24.04 可先复用仓库里的依赖脚本：
+## 3. 在 Docker 中编译 EloqDoc
 
-```bash
-bash scripts/install_dependency_ubuntu2404.sh
-pyenv global 2.7.18
-```
-
-如果使用其他 Linux 发行版，按该脚本里的包列表手动安装对应依赖。
-TiKV 后端额外需要 `gRPC`、`protobuf`、`Poco`、`gflags`、`glog`、`brpc`
-等 C++ 依赖。
-
-## 3. 正式构建 EloqDoc TiKV 版本
-
-下面的构建流程与 `docs/how-to-compile.md` 一致：先用 CMake 构建 core
-libraries，再用 SCons 构建并安装 EloqDoc；不同点是显式选择
-`ELOQDSS_TIKV`，并把 SCons 链接到同一次 CMake 构建出的
-`tikv-client-c` 产物。
+下面命令会把源码挂载到容器内，只在仓库目录下写入 `src/mongo/db/modules/eloq/build`、`build` 和 `install/tikv-docker`。
 
 ```bash
-export REPO=$PWD
-export INSTALL_PREFIX=$REPO/install/tikv
+mkdir -p logs
+
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD":/work/eloqdoc -w /work/eloqdoc \
+  eloqdoc-tikv-build:ubuntu24 bash -lc '
+set -euxo pipefail
+export REPO=/work/eloqdoc
+export INSTALL_PREFIX=$REPO/install/tikv-docker
 export ELOQ_CMAKE_BUILD=$REPO/src/mongo/db/modules/eloq/build
 export TIKV_CLIENT_C_ROOT=$REPO/src/mongo/db/modules/eloq/tikv-client-c
 export TIKV_CLIENT_C_BUILD_DIR=$ELOQ_CMAKE_BUILD/tikv-client-c
@@ -64,19 +56,19 @@ cmake -S src/mongo/db/modules/eloq \
 
 cmake --build "$ELOQ_CMAKE_BUILD" -j"$(nproc)"
 cmake --install "$ELOQ_CMAKE_BUILD"
-```
 
-然后构建 EloqDoc 主二进制：
+export DEST_DIR="$INSTALL_PREFIX"
+export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:/usr/local/lib:${LD_LIBRARY_PATH:-}"
 
-```bash
 env WITH_DATA_STORE=ELOQDSS_TIKV \
     WITH_LOG_STATE=ROCKSDB \
     TIKV_CLIENT_C_ROOT="$TIKV_CLIENT_C_ROOT" \
     TIKV_CLIENT_C_BUILD_DIR="$TIKV_CLIENT_C_BUILD_DIR" \
+    DEST_DIR="$INSTALL_PREFIX" \
 python scripts/buildscripts/scons.py \
     MONGO_VERSION=4.0.3 \
     VARIANT_DIR=RelWithDebInfo \
-    CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+    CXXFLAGS="-include gflags/gflags.h -include unistd.h -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move -Wno-deprecated-declarations" \
     --build-dir=#build \
     --prefix="$INSTALL_PREFIX" \
     --link-model=dynamic \
@@ -84,29 +76,57 @@ python scripts/buildscripts/scons.py \
     --disable-warnings-as-errors \
     -j"$(nproc)" \
     install-core
+
+./docker/tikv-copy-runtime-libs.sh "$INSTALL_PREFIX/lib"
+'
 ```
 
-构建完成后，`eloqdoc` 和 `eloqdoc-cli` 位于 `$INSTALL_PREFIX/bin`。
-
-## 4. 启动本地 TiKV
-
-在单独终端启动一个本地 TiKV playground：
+确认宿主机可解析运行时动态库：
 
 ```bash
-tiup playground nightly --mode tikv-slim --without-monitor
+export REPO=$PWD
+export INSTALL_PREFIX=$REPO/install/tikv-docker
+export ELOQ_CMAKE_BUILD=$REPO/src/mongo/db/modules/eloq/build
+export TIKV_CLIENT_C_BUILD_DIR=$ELOQ_CMAKE_BUILD/tikv-client-c
+export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:${LD_LIBRARY_PATH:-}"
+
+ldd "$INSTALL_PREFIX/bin/eloqdoc" | grep 'not found' || true
+ldd "$INSTALL_PREFIX/bin/eloqdoc-cli" | grep 'not found' || true
 ```
 
-默认 PD endpoint 是 `127.0.0.1:2379`。如果 playground 输出了不同的 PD
-地址，请同步修改下面 Data Substrate 配置里的 `tikv_pd_endpoints`。
+两条 `ldd` 命令没有 `not found` 输出即可。
 
-## 5. 准备 EloqDoc + TiKV 配置
+### 编译产物位置
 
-本地单节点试用不需要额外启动独立 `dss_server`：`ELOQDSS_TIKV` 会在
-EloqDoc 进程内启动本地 DataStoreService，并通过 `tikv-client-c` 访问
-TiKV。
+- EloqDoc 主程序：`install/tikv-docker/bin/eloqdoc`
+- EloqDoc CLI：`install/tikv-docker/bin/eloqdoc-cli`
+- EloqDoc 安装库和从 Docker 镜像复制出的运行时库：`install/tikv-docker/lib/`
+- data_substrate/tx_service/log_service 等 CMake 安装库：`install/tikv-docker/lib/libdata_substrate.so`、`libtxservice.so`、`liblogservice.so`
+- `tikv-client-c` C API 库：`src/mongo/db/modules/eloq/build/tikv-client-c/src/libkv_client.so`
+- `kvproto` C++ 库：`src/mongo/db/modules/eloq/build/tikv-client-c/third_party/kvproto/cpp/libkvproto.so`
+
+## 4. 用 tiup playground 启动 TiKV
+
+另开一个宿主机终端启动 TiKV/PD：
 
 ```bash
-export RUN_ROOT=$REPO/run/tikv-local
+tiup playground v8.5.5 --mode tikv-slim --tag eloqdoc-tikv-trial --without-monitor --host 127.0.0.1
+```
+
+默认 PD endpoint 是 `127.0.0.1:2379`。如果命令输出了不同地址，后续配置里的 `tikv_pd_endpoints` 要同步修改。
+
+## 5. 准备本机运行配置
+
+回到 EloqDoc 仓库目录：
+
+```bash
+export REPO=$PWD
+export INSTALL_PREFIX=$REPO/install/tikv-docker
+export ELOQ_CMAKE_BUILD=$REPO/src/mongo/db/modules/eloq/build
+export TIKV_CLIENT_C_BUILD_DIR=$ELOQ_CMAKE_BUILD/tikv-client-c
+export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:${LD_LIBRARY_PATH:-}"
+
+export RUN_ROOT=$REPO/run/tikv-docker-trial
 mkdir -p "$RUN_ROOT"/{db,logs,etc,data}
 ```
 
@@ -122,7 +142,7 @@ systemLog:
     ftdc:
       verbosity: 0
 net:
-  bindIpAll: true
+  bindIp: 127.0.0.1
   port: 27017
   serviceExecutor: "adaptive"
   adaptiveThreadNum: 2
@@ -140,8 +160,7 @@ setParameter:
 EOF_CONF
 ```
 
-创建 Data Substrate 配置。第一次启动用于 bootstrap，因此先保留
-`bootstrap=true`：
+创建 Data Substrate 配置。第一次启动需要 `bootstrap=true`：
 
 ```bash
 cat > "$RUN_ROOT/etc/data_substrate.cnf" <<EOF_CONF
@@ -170,24 +189,15 @@ tikv_archive_cleanup_retention_seconds=0
 EOF_CONF
 ```
 
-关键配置说明：
+注意：
 
 - `storage.eloq.enableMVCC` 必须与 `[local] enable_mvcc` 一致。
-- `[store] tikv_pd_endpoints` 是 TiKV PD 地址列表，多个地址用逗号分隔。
-- `[store] tikv_key_prefix` 建议每个本地试用环境使用独立前缀，避免与同一
-  TiKV 集群里的其他数据混用。
-- `tikv_archive_cleanup_retention_seconds=0` 表示不启用保守 retention
-  fallback；archive/tombstone cleanup 只能依赖 Eloq 安全水位。
+- `tikv_key_prefix` 建议每个本地试用环境使用独立值，避免与同一 TiKV 集群里的其他数据混用。
+- `tikv_archive_cleanup_retention_seconds=0` 表示不启用保守 retention fallback；archive/tombstone cleanup 只能依赖 Eloq 安全水位。
 
-## 6. Bootstrap 并启动 EloqDoc
+## 6. Bootstrap 并正常启动 EloqDoc
 
-先设置运行时库路径：
-
-```bash
-export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:${LD_LIBRARY_PATH:-}"
-```
-
-执行一次 bootstrap。成功后进程会输出 bootstrap 成功并退出：
+执行一次 bootstrap。成功后进程会输出 `Bootstrap for Eloqdoc success. Exiting...` 并退出：
 
 ```bash
 "$INSTALL_PREFIX/bin/eloqdoc" \
@@ -195,13 +205,13 @@ export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_C
   --data_substrate_config="$RUN_ROOT/etc/data_substrate.cnf"
 ```
 
-然后把 Data Substrate 配置切回正常启动模式：
+把配置切到正常启动模式：
 
 ```bash
 sed -i 's/^bootstrap=true$/bootstrap=false/' "$RUN_ROOT/etc/data_substrate.cnf"
 ```
 
-启动 EloqDoc 服务：
+启动 EloqDoc，并保持该终端运行：
 
 ```bash
 "$INSTALL_PREFIX/bin/eloqdoc" \
@@ -209,55 +219,65 @@ sed -i 's/^bootstrap=true$/bootstrap=false/' "$RUN_ROOT/etc/data_substrate.cnf"
   --data_substrate_config="$RUN_ROOT/etc/data_substrate.cnf"
 ```
 
+正常启动后，宿主机应能看到 `27017` 和 `16379` 端口：
+
+```bash
+ss -ltnp | grep -E ':(2379|20160|27017|16379)\b'
+```
+
 ## 7. 连接并试用
 
-另开一个终端执行 Mongo API 兼容的基本读写：
+另开一个宿主机终端，先设置与第 5 节相同的环境变量，然后执行：
 
 ```bash
-export INSTALL_PREFIX=/path/to/eloqdoc/install/tikv
-export ELOQ_CMAKE_BUILD=/path/to/eloqdoc/src/mongo/db/modules/eloq/build
-export TIKV_CLIENT_C_BUILD_DIR=$ELOQ_CMAKE_BUILD/tikv-client-c
-export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:${LD_LIBRARY_PATH:-}"
-"$INSTALL_PREFIX/bin/eloqdoc-cli" --eval 'db.tikv_trial.save({k: 1, v: "tikv"}); db.tikv_trial.find({k: 1});'
+"$INSTALL_PREFIX/bin/eloqdoc-cli" --quiet --eval '
+var d = db.getSiblingDB("tikv_trial_db");
+d.tikv_trial.drop();
+d.tikv_trial.insert({k: 1, v: "tikv"});
+print("after_insert=" + tojson(d.tikv_trial.find({k: 1}).toArray()));
+d.tikv_trial.update({k: 1}, {$set: {v: "updated"}});
+print("after_update=" + tojson(d.tikv_trial.find({k: 1}).toArray()));
+print("create_index=" + tojson(d.tikv_trial.createIndex({k: 1})));
+print("indexes=" + tojson(d.tikv_trial.getIndexes()));
+d.tikv_trial.remove({k: 1});
+print("after_remove=" + tojson(d.tikv_trial.find({k: 1}).toArray()));
+d.tikv_trial.insert({k: 2, v: "persist"});
+print("before_restart=" + tojson(d.tikv_trial.find({k: 2}).toArray()));
+'
 ```
 
-可以继续尝试更新、索引和删除：
+如需验证重启持久化：停止 EloqDoc，保持 TiKV playground 运行，再按第 6 节正常启动 EloqDoc，然后查询：
 
 ```bash
-"$INSTALL_PREFIX/bin/eloqdoc-cli" --eval 'db.tikv_trial.update({k: 1}, {$set: {v: "updated"}}); db.tikv_trial.find({k: 1});'
-"$INSTALL_PREFIX/bin/eloqdoc-cli" --eval 'db.tikv_trial.createIndex({k: 1}); db.tikv_trial.getIndexes();'
-"$INSTALL_PREFIX/bin/eloqdoc-cli" --eval 'db.tikv_trial.remove({k: 1}); db.tikv_trial.find({k: 1});'
+"$INSTALL_PREFIX/bin/eloqdoc-cli" --quiet --eval '
+var d = db.getSiblingDB("tikv_trial_db");
+print("after_restart=" + tojson(d.tikv_trial.find({k: 2}).toArray()));
+print("count_after_restart=" + d.tikv_trial.count({k: 2}));
+'
 ```
 
-如需验证重启持久化，停止并重新执行第 6 节的正常启动命令后，再用
-`eloqdoc-cli` 查询同一集合。
+`count_after_restart=1` 表示 TiKV 中的数据在 EloqDoc 重启后仍可读。
 
-## 8. 可选：运行 TiKV 后端冒烟测试
+## 8. 清理
 
-正式 build/试用不依赖这一节；它只是用于开发者快速确认 TiKV backend 的
-DataStore 行为是否仍然通过回归测试。
+- 停止 EloqDoc：在 EloqDoc 终端按 `Ctrl-C`。
+- 停止 TiKV playground：在 `tiup playground` 终端按 `Ctrl-C`。
+- 仓库内可删除产物：`build/`、`install/tikv-docker/`、`src/mongo/db/modules/eloq/build/`、`run/tikv-docker-trial/`、`logs/`。
+- TiUP 的 playground 数据在 `~/.tiup/data/<tag>/`；需要时按实际 tag 清理。
 
-```bash
-cmake --build "$ELOQ_CMAKE_BUILD" --target tikv_backend_smoke_test -j"$(nproc)"
+## 9. 本文实测结果
 
-TIKV_PD_ENDPOINTS=127.0.0.1:2379 \
-  "$ELOQ_CMAKE_BUILD/data_substrate/store_handler/eloq_data_store_service/tikv_backend_smoke_test"
-```
+本机实测使用：
 
-当前冒烟集合覆盖基础 put/read/delete/range/drop、正反向 scan、snapshot
-read/scan、restart persistence、cleanup safety、事务冲突、失败批写清理、
-backup fail-closed，以及 read-path region-error metrics。
+- Docker 镜像：`eloqdoc-tikv-build:ubuntu24`
+- TiKV/PD：`tiup playground v8.5.5 --mode tikv-slim --host 127.0.0.1`
+- EloqDoc 产物：`install/tikv-docker/bin/eloqdoc` 和 `install/tikv-docker/bin/eloqdoc-cli`
 
-## 9. 常见问题
+已通过：
 
-- CMake 仍指向旧的 client-c：删除 `$ELOQ_CMAKE_BUILD` 后重新 configure，
-  或显式设置 `-DTIKV_CLIENT_C_ROOT=...`。
-- SCons 找不到 `kv_client`/`kvproto`：确认 `TIKV_CLIENT_C_BUILD_DIR` 指向
-  CMake 构建目录下的 `tikv-client-c`，其中应包含 `src/libkv_client.*` 和
-  `third_party/kvproto/cpp/libkvproto.*`。
-- 启动时报 PD 连接失败或 `DB_NOT_OPEN`：确认 `tiup playground` 仍在运行，
-  并且 `[store] tikv_pd_endpoints` 与实际 PD endpoint 一致。
-- 启动时报 MVCC 配置不一致：同步修改 `storage.eloq.enableMVCC` 和
-  `[local] enable_mvcc`，二者必须同时为 `true` 或同时为 `false`。
-- 重复试用想清空数据：优先换一个新的 `tikv_key_prefix`；如需复用相同前缀，
-  需要确认旧 TiKV key 已被清理，避免读到前一次试用的数据。
+- Docker 内 CMake `ELOQDSS_TIKV` build/install。
+- Docker 内 SCons `install-core`。
+- 宿主机 `ldd` 检查 `eloqdoc` / `eloqdoc-cli` 无 `not found`。
+- 宿主机启动 `tiup playground` 后，运行 Docker 编译出的 EloqDoc 完成 bootstrap 和正常启动。
+- `eloqdoc-cli` 完成 insert/find/update/createIndex/remove。
+- 重启 EloqDoc 后再次查询，`count_after_restart=1`。
