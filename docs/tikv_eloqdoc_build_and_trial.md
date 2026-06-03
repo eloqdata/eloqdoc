@@ -293,3 +293,267 @@ print("count_after_restart=" + d.tikv_trial.count({k: 2}));
 ```
 
 `count_after_restart=1` 表示 TiKV 中的数据在 EloqDoc 重启后仍可读。
+
+## 9. 多节点 EloqDoc + TiKV/PD 集群部署示例
+
+第 5 节的 `tiup playground` 只适合单机试用，不具备 TiKV/PD 的高可用能力。生产或准生产验证建议至少部署 3 个 PD、3 个 TiKV 和 3 个 EloqDoc 计算节点。
+
+本节给出一个三节点示例。实际部署时请替换 IP、目录、CPU/内存和端口。
+
+### 9.1 HA 边界和配置原则
+
+- TiKV/PD 必须是多副本拓扑。单节点 TiKV/PD 即使接入多个 EloqDoc 节点，也只能验证计算层连接，不能提供存储层 HA。
+- EloqDoc 计算层建议 3 节点起步，并保持各节点 `[cluster] tx_ip_port_list` 完全一致，`node_group_replica_num=3`。
+- 同一个 EloqDoc 集群内，所有节点必须使用相同的 `tikv_pd_endpoints` 和 `tikv_key_prefix`。不同环境或不同集群必须使用不同的 `tikv_key_prefix`，避免共享 TiKV 集群时数据混用。
+- `bootstrap=true` 只能在一个 EloqDoc 节点上执行一次。成功后必须改回 `bootstrap=false`，再启动全部 EloqDoc 节点。
+- TiKV/PD 的高可用由 TiKV/PD 自身 Raft 副本保证；EloqDoc 客户端入口建议通过 HAProxy、LVS、NLB 等四层代理暴露。
+
+### 9.2 示例拓扑
+
+三台机器分别同时部署 PD、TiKV 和 EloqDoc：
+
+| 节点 | IP | EloqDoc 客户端端口 | EloqDoc tx_service | PD client | TiKV |
+| --- | --- | --- | --- | --- | --- |
+| node-a | `10.0.0.11` | `27017` | `16379` | `2379` | `20160` |
+| node-b | `10.0.0.12` | `27017` | `16379` | `2379` | `20160` |
+| node-c | `10.0.0.13` | `27017` | `16379` | `2379` | `20160` |
+
+如果只是在同一台机器模拟多 EloqDoc 进程，端口和目录必须全部错开，例如客户端端口用 `17000/17001/17002`，tx_service 端口用 `9200/9210/9220`。
+
+### 9.3 部署 3 PD + 3 TiKV
+
+推荐用 TiUP Cluster 部署 TiKV/PD。下面是一个最小 TiKV 拓扑示例：
+
+```yaml
+# topology.yaml
+global:
+  user: "tidb"
+  ssh_port: 22
+  deploy_dir: "/data/deploy"
+  data_dir: "/data/tidb-data"
+
+pd_servers:
+  - host: 10.0.0.11
+    client_port: 2379
+    peer_port: 2380
+  - host: 10.0.0.12
+    client_port: 2379
+    peer_port: 2380
+  - host: 10.0.0.13
+    client_port: 2379
+    peer_port: 2380
+
+tikv_servers:
+  - host: 10.0.0.11
+    port: 20160
+    status_port: 20180
+  - host: 10.0.0.12
+    port: 20160
+    status_port: 20180
+  - host: 10.0.0.13
+    port: 20160
+    status_port: 20180
+```
+
+部署和启动：
+
+```bash
+tiup cluster check topology.yaml --user root
+tiup cluster deploy eloqdoc-tikv v8.5.5 topology.yaml --user root
+tiup cluster start eloqdoc-tikv
+tiup cluster display eloqdoc-tikv
+```
+
+如果部署机不能直接用 `root` SSH，也可以使用已具备 sudo 权限的部署用户。最终只要能拿到 3 个 PD endpoint 即可，例如：
+
+```text
+10.0.0.11:2379,10.0.0.12:2379,10.0.0.13:2379
+```
+
+### 9.4 分发 EloqDoc release 产物
+
+第 4 节生成的 release 产物是整个 `install/tikv-centos7/` 目录。将它分发到每台 EloqDoc 节点：
+
+```bash
+rsync -a install/tikv-centos7/ 10.0.0.11:/opt/eloqdoc/tikv-centos7/
+rsync -a install/tikv-centos7/ 10.0.0.12:/opt/eloqdoc/tikv-centos7/
+rsync -a install/tikv-centos7/ 10.0.0.13:/opt/eloqdoc/tikv-centos7/
+```
+
+每台 EloqDoc 节点启动前设置：
+
+```bash
+export INSTALL_PREFIX=/opt/eloqdoc/tikv-centos7
+export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+mkdir -p /data/eloqdoc/{db,logs,etc,data}
+```
+
+### 9.5 EloqDoc 节点配置
+
+每台 EloqDoc 节点需要两个配置文件：
+
+- `/data/eloqdoc/etc/eloqdoc.conf`：Mongo wire protocol 入口、日志、dbPath 等本机配置。
+- `/data/eloqdoc/etc/data_substrate.cnf`：tx_service 集群、TiKV PD endpoint、TiKV key prefix 等配置。
+
+#### node-a：`/data/eloqdoc/etc/eloqdoc.conf`
+
+```yaml
+systemLog:
+  verbosity: 0
+  destination: file
+  path: "/data/eloqdoc/logs/eloqdoc.log"
+  component:
+    ftdc:
+      verbosity: 0
+net:
+  bindIpAll: true
+  port: 27017
+  serviceExecutor: "adaptive"
+  adaptiveThreadNum: 2
+storage:
+  dbPath: "/data/eloqdoc/db"
+  engine: "eloq"
+  eloq:
+    enableMVCC: true
+    txService:
+      ccProtocol: "OccRead"
+setParameter:
+  diagnosticDataCollectionEnabled: false
+  disableLogicalSessionCacheRefresh: true
+  ttlMonitorEnabled: true
+```
+
+node-b 和 node-c 如果分别在独立机器上部署，可以使用相同的本机路径和端口；如果在单机模拟，则必须把 `systemLog.path`、`storage.dbPath` 和 `net.port` 改成互不冲突的值。
+
+#### node-a：`/data/eloqdoc/etc/data_substrate.cnf`
+
+```ini
+[local]
+core_number=8
+node_memory_limit_mb=32768
+enable_data_store=true
+enable_wal=true
+eloq_data_path=/data/eloqdoc/data
+event_dispatcher_num=4
+enable_mvcc=true
+bootstrap=false
+tx_ip=10.0.0.11
+tx_port=16379
+
+[cluster]
+tx_ip_port_list=10.0.0.11:16379,10.0.0.12:16379,10.0.0.13:16379
+node_group_replica_num=3
+
+[store]
+tikv_pd_endpoints=10.0.0.11:2379,10.0.0.12:2379,10.0.0.13:2379
+tikv_key_prefix=eloqdoc-prod/
+tikv_request_timeout_seconds=5
+tikv_scan_batch_size=256
+tikv_archive_cleanup_retention_seconds=0
+```
+
+node-b 和 node-c 的 `data_substrate.cnf` 只需要改本机差异项：
+
+```ini
+# node-b
+[local]
+eloq_data_path=/data/eloqdoc/data
+bootstrap=false
+tx_ip=10.0.0.12
+tx_port=16379
+
+# node-c
+[local]
+eloq_data_path=/data/eloqdoc/data
+bootstrap=false
+tx_ip=10.0.0.13
+tx_port=16379
+```
+
+其余 `[cluster]` 和 `[store]` 内容保持完全一致。单机模拟时还要分别修改 `tx_port` 和 `eloq_data_path`，例如 `9200/9210/9220` 和 `/data/eloqdoc-a/data`、`/data/eloqdoc-b/data`、`/data/eloqdoc-c/data`。
+
+### 9.6 Bootstrap 和启动顺序
+
+先确认 TiKV/PD 已正常启动：
+
+```bash
+tiup cluster display eloqdoc-tikv
+```
+
+然后只在一个 EloqDoc 节点执行一次 bootstrap。以 node-a 为例，临时把 node-a 的 `/data/eloqdoc/etc/data_substrate.cnf` 改成：
+
+```ini
+bootstrap=true
+```
+
+执行：
+
+```bash
+"$INSTALL_PREFIX/bin/eloqdoc" \
+  --config=/data/eloqdoc/etc/eloqdoc.conf \
+  --data_substrate_config=/data/eloqdoc/etc/data_substrate.cnf
+```
+
+看到 `Bootstrap for Eloqdoc success. Exiting...` 后，立即改回：
+
+```ini
+bootstrap=false
+```
+
+再在三台 EloqDoc 节点上分别启动正常服务：
+
+```bash
+nohup "$INSTALL_PREFIX/bin/eloqdoc" \
+  --config=/data/eloqdoc/etc/eloqdoc.conf \
+  --data_substrate_config=/data/eloqdoc/etc/data_substrate.cnf \
+  > /data/eloqdoc/logs/eloqdoc.out 2>&1 &
+```
+
+启动后检查端口：
+
+```bash
+ss -ltnp | grep -E ':(27017|16379)\b'
+```
+
+### 9.7 统一客户端入口
+
+客户端可以直连任一 EloqDoc 节点，也可以通过四层代理获得统一入口。HAProxy TCP 示例：
+
+```haproxy
+frontend eloqdoc_front
+    bind *:27017
+    mode tcp
+    default_backend eloqdoc_back
+
+backend eloqdoc_back
+    mode tcp
+    option tcp-check
+    balance roundrobin
+    server eloqdoc-a 10.0.0.11:27017 maxconn 10240 check
+    server eloqdoc-b 10.0.0.12:27017 maxconn 10240 check
+    server eloqdoc-c 10.0.0.13:27017 maxconn 10240 check
+```
+
+客户端连接 HAProxy 时使用代理地址和 `27017`；如果直连节点，则使用对应节点 IP 和端口。如果 HAProxy 与某个 EloqDoc 节点部署在同一台机器，HAProxy 的监听端口不能与本机 EloqDoc 的 `net.port` 冲突。
+
+### 9.8 基础验证和故障演练
+
+连接任一节点或 HAProxy 入口执行基本读写：
+
+```bash
+"$INSTALL_PREFIX/bin/eloqdoc-cli" --host 10.0.0.11 --port 27017 --quiet --eval '
+var d = db.getSiblingDB("tikv_ha_db");
+d.t.drop();
+d.t.insert({k: 1, v: "ha"});
+print("find=" + tojson(d.t.find({k: 1}).toArray()));
+print("count=" + d.t.count({k: 1}));
+'
+```
+
+可做的最小 HA 验证：
+
+1. 停止一个 EloqDoc 进程，确认 HAProxy 仍能把新连接转发到其他 EloqDoc 节点。
+2. 停止一个 TiKV 或 PD 节点，确认 `tiup cluster display eloqdoc-tikv` 中剩余节点健康，EloqDoc 基础读写仍可继续。
+3. 恢复被停止的节点，再次确认集群健康。
+
+不要把这个验证理解为可以承受任意多节点故障。实际容灾能力取决于 TiKV/PD 副本数、region 分布、机器/机架故障域，以及 EloqDoc 计算节点和四层代理的部署方式。
