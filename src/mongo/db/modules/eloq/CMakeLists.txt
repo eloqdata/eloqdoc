@@ -52,4 +52,10 @@ if(USE_ASAN)
 endif()
 
 # --- Include build system modules ---
-add_subdirectory(data_substrate)
+# EloqDB (lintao-mod): the umbrella points this at the single shared checkout under
+# dependencies/ via -DDATA_SUBSTRATE_DIR, so no in-tree symlink is needed. Default keeps the
+# in-tree submodule path for a standalone build.
+if(NOT DATA_SUBSTRATE_DIR)
+    set(DATA_SUBSTRATE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate)
+endif()
+add_subdirectory(${DATA_SUBSTRATE_DIR} data_substrate)
