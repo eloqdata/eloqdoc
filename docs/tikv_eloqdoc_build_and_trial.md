@@ -1,6 +1,6 @@
 # EloqDoc + TiKV CentOS 7 Docker 构建与本机试用指南
 
-本文说明如何在 `pingkai-master` 分支上用固定 Linux 构建基线编译 EloqDoc + TiKV 后端，并在宿主机用 `tiup playground` 试跑。
+本文说明如何在 `tikv-centos7-build` 分支上用固定 Linux 构建基线编译 EloqDoc + TiKV 后端，并在宿主机用 `tiup playground` 试跑。
 
 核心目标：release binary 不随开发机系统库漂移。编译统一在 CentOS 7 / glibc 2.17 基线的 Docker builder 中完成；产物目录会打包非 glibc 运行时库并重写 rpath。
 
