@@ -1,4 +1,5 @@
 /build
+build-centos7
 /.jsdbshell
 /.dbshell
 /*.ninja
