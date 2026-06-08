@@ -427,7 +427,7 @@ win_version_min_choices = {
 }
 
 add_option('win-version-min',
-    choices=win_version_min_choices.keys(),
+    choices=list(win_version_min_choices.keys()),
     default=None,
     help='minimum Windows version to support',
     type='choice',
@@ -553,7 +553,7 @@ except ValueError as e:
 def variable_shlex_converter(val):
     # If the argument is something other than a string, propogate
     # it literally.
-    if not isinstance(val, basestring):
+    if not isinstance(val, str):
         return val
     parse_mode = get_option('variable-parse-mode')
     if parse_mode == 'auto':
@@ -896,7 +896,7 @@ SConsignFile(str(sconsDataDir.File('sconsign')))
 def printLocalInfo():
     import sys, SCons
     print( "scons version: " + SCons.__version__ )
-    print( "python version: " + " ".join( [ `i` for i in sys.version_info ] ) )
+    print( "python version: " + " ".join( [ repr(i) for i in sys.version_info ] ) )
 
 printLocalInfo()
 
@@ -2117,7 +2117,7 @@ def doConfigure(myenv):
         # to make them real errors.
         cloned.Append(CCFLAGS=['-Werror'])
         conf = Configure(cloned, help=False, custom_tests = {
-                'CheckFlag' : lambda(ctx) : CheckFlagTest(ctx, tool, extension, flag)
+                'CheckFlag' : lambda ctx : CheckFlagTest(ctx, tool, extension, flag)
         })
         available = conf.CheckFlag()
         conf.Finish()
@@ -2596,7 +2596,7 @@ def doConfigure(myenv):
         # Select those unique black files that are associated with the
         # currently enabled sanitizers, but filter out those that are
         # zero length.
-        blackfiles = {v for (k, v) in blackfiles_map.iteritems() if k in sanitizer_list}
+        blackfiles = {v for (k, v) in blackfiles_map.items() if k in sanitizer_list}
         blackfiles = [f for f in blackfiles if os.stat(f.path).st_size != 0]
 
         # Filter out any blacklist options that the toolchain doesn't support.
@@ -2953,7 +2953,7 @@ def doConfigure(myenv):
                 cryptoLibName,
                 ["openssl/crypto.h"],
                 "C",
-                "SSLeay_version(0);",
+                call="SSLeay_version(0);",
                 autoadd=True):
             maybeIssueDarwinSSLAdvice(conf.env)
             conf.env.ConfError("Couldn't find OpenSSL crypto.h header and library")
@@ -3113,7 +3113,7 @@ def doConfigure(myenv):
         and not conf.CheckLibWithHeader(
         "curl",
         ["curl/curl.h"], "C",
-        "curl_global_init(0);",
+        call="curl_global_init(0);",
         autoadd=False):
         env.ConfError("Could not find <curl/curl.h> and curl lib")
 
@@ -3209,7 +3209,7 @@ def doConfigure(myenv):
             "sasl2",
             ["stddef.h","sasl/sasl.h"],
             "C",
-            "sasl_version_info(0, 0, 0, 0, 0, 0);",
+            call="sasl_version_info(0, 0, 0, 0, 0, 0);",
             autoadd=False ):
         myenv.ConfError("Couldn't find SASL header/libraries")
 
@@ -3373,7 +3373,7 @@ def doConfigure(myenv):
                 ["mongoc-1.0"],
                 ["mongoc/mongoc.h"],
                 "C",
-                "mongoc_get_major_version();",
+                call="mongoc_get_major_version();",
                 autoadd=False ):
             conf.env['MONGO_HAVE_LIBMONGOC'] = "library" 
         if not conf.env['MONGO_HAVE_LIBMONGOC'] and env.TargetOSIs('darwin') and conf.CheckMongoCFramework():
@@ -3439,7 +3439,7 @@ def doConfigure(myenv):
 
         outputIndex = next((idx for idx in [0,1] if conf.CheckAltivecVbpermqOutput(idx)), None)
         if outputIndex is not None:
-	    conf.env.SetConfigHeaderDefine("MONGO_CONFIG_ALTIVEC_VEC_VBPERMQ_OUTPUT_INDEX", outputIndex)
+            conf.env.SetConfigHeaderDefine("MONGO_CONFIG_ALTIVEC_VEC_VBPERMQ_OUTPUT_INDEX", outputIndex)
         else:
             myenv.ConfError("Running on ppc64le, but can't find a correct vec_vbpermq output index.  Compiler or platform not supported")
 

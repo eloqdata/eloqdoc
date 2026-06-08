@@ -312,8 +312,8 @@ def main():  # pylint: disable=too-many-locals,too-many-statements
         # SERVER-21492 related issue where without running scons the tests/jstests/libs/key1
         # and key2 files are not chmod to 0600. Need to change permissions here since we
         # bypass SCons.
-        os.chmod("tests/jstests/libs/key1", 0600)
-        os.chmod("tests/jstests/libs/key2", 0600)
+        os.chmod("tests/jstests/libs/key1", 0o600)
+        os.chmod("tests/jstests/libs/key2", 0o600)
 
         # This is the artifacts.json file.
         write_out_artifacts(args.jsonArtifact, artifacts)

@@ -166,7 +166,7 @@ def replace_with_repr(unicode_error):
     # repr() of the offending bytes into the decoded string
     # at the position they occurred
     offender = unicode_error.object[unicode_error.start:unicode_error.end]
-    return (unicode(repr(offender).strip("'").strip('"')), unicode_error.end)
+    return (str(repr(offender).strip("'").strip('"')), unicode_error.end)
 
 
 codecs.register_error("repr", replace_with_repr)

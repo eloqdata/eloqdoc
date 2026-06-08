@@ -236,7 +236,7 @@ class MultiVersionDownloader(object):  # pylint: disable=too-many-instance-attri
             else:
                 print("Falling back to generic architecture.")
 
-        urls.sort(key=lambda (version, _): get_version_parts(version, for_sorting=True))
+        urls.sort(key=lambda version_url: get_version_parts(version_url[0], for_sorting=True))
         full_version = urls[-1][0]
         url = urls[-1][1]
         extract_dir = url.split("/")[-1][:-4]

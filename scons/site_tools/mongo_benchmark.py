@@ -14,7 +14,7 @@ def benchmark_list_builder_action(env, target, source):
     ofile = open(str(target[0]), 'wb')
     try:
         for s in _benchmarks:
-            print '\t' + str(s)
+            print('\t' + str(s))
             ofile.write('%s\n' % s)
     finally:
         ofile.close()

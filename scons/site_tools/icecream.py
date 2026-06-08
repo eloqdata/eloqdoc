@@ -18,7 +18,7 @@ import os
 import re
 import subprocess
 
-from pkg_resources import parse_version
+from packaging.version import parse as parse_version
 
 icecream_version_min = '1.1rc2'
 
@@ -99,7 +99,7 @@ def generate(env):
     suffixes = _CSuffixes + _CXXSuffixes
     for object_builder in SCons.Tool.createObjBuilders(env):
         emitterdict = object_builder.builder.emitter
-        for suffix in emitterdict.iterkeys():
+        for suffix in emitterdict.keys():
             if not suffix in suffixes:
                 continue
             base = emitterdict[suffix]

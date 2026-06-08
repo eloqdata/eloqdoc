@@ -161,7 +161,7 @@ def main():
     if prefix is None:
         prefix = tempfile.mkdtemp()
 
-    print "Working in directory %s" % prefix
+    print("Working in directory %s" % prefix)
 
     os.chdir(prefix)
     try:
@@ -240,7 +240,7 @@ def make_package(distro, build_os, arch, spec, srcdir):
     # directory, so the debian directory is needed in all cases (and
     # innocuous in the debianoids' sdirs).
     for pkgdir in ["debian", "rpm"]:
-        print "Copying packaging files from %s to %s" % ("%s/%s" % (srcdir, pkgdir), sdir)
+        print("Copying packaging files from %s to %s" % ("%s/%s" % (srcdir, pkgdir), sdir))
         # FIXME: sh-dash-cee is bad. See if tarfile can do this.
         packager.sysassert([
             "sh", "-c",

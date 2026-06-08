@@ -28,7 +28,7 @@ from __future__ import print_function
 __all__ = ('discover_modules', 'discover_module_directories', 'configure_modules',
            'register_module_test')  # pylint: disable=undefined-all-variable
 
-import imp
+import importlib.util
 import inspect
 import os
 
@@ -60,15 +60,12 @@ def discover_modules(module_root, allowed_modules):
 
         if os.path.isfile(build_py):
             print("adding module: %s" % (name))
-            fp = open(build_py, "r")
-            try:
-                module = imp.load_module("module_" + name, fp, build_py,
-                                         (".py", "r", imp.PY_SOURCE))
-                if getattr(module, "name", None) is None:
-                    module.name = name
-                found_modules.append(module)
-            finally:
-                fp.close()
+            spec = importlib.util.spec_from_file_location("module_" + name, build_py)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if getattr(module, "name", None) is None:
+                module.name = name
+            found_modules.append(module)
 
     return found_modules
 

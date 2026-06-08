@@ -249,7 +249,7 @@ class ProjFileGenerator(object):  # pylint: disable=too-many-instance-attributes
 def main():
     """Execute Main program."""
     if len(sys.argv) != 2:
-        print r"Usage: python scripts\buildscripts\make_vcxproj.py FILE_NAME"
+        print(r"Usage: python scripts\buildscripts\make_vcxproj.py FILE_NAME")
         return
 
     with ProjFileGenerator(sys.argv[1]) as projfile:

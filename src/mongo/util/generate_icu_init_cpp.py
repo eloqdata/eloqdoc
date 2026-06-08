@@ -110,8 +110,8 @@ MONGO_INITIALIZER(LoadICUData)(InitializerContext* context) {
 '''
     decimal_encoded_data = ''
     with open(data_file_path, 'rb') as data_file:
-        decimal_encoded_data = ','.join([str(ord(byte)) for byte in data_file.read()])
-    with open(cpp_file_path, 'wb') as cpp_file:
+        decimal_encoded_data = ','.join([str(byte) for byte in data_file.read()])
+    with open(cpp_file_path, 'w') as cpp_file:
         cpp_file.write(source_template % dict(decimal_encoded_data=decimal_encoded_data))
 
 if __name__ == '__main__':

@@ -554,7 +554,7 @@ def signal_process(logger, pid, signalnum):
 
         logger.info("Waiting for process to report")
         time.sleep(5)
-    except OSError, err:
+    except OSError as err:
         logger.error("Hit OS error trying to signal process: %s", err)
 
     except AttributeError:

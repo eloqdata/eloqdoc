@@ -37,11 +37,11 @@ sourcesList = [ "BinaryFragment.wxs",
 # Need to do this in order to get scons to translate path separators into native format
 buildDir = env.Dir("$BUILD_DIR").path
 if has_option("use-new-tools"):
-	toolBuildDir = "src\mongo-tools"
+	toolBuildDir = r"src\mongo-tools"
 else:
 	toolBuildDir = buildDir + r'\mongo'
 
-enterprisebase = 'src\mongo\db\modules\enterprise'
+enterprisebase = r'src\mongo\db\modules\enterprise'
 enterpriseToolBuildDir = buildDir + r'\mongo\db\modules\enterprise'
 
 # Set up parameters to pass to wix -
@@ -127,7 +127,7 @@ env.Command(objects,
             ' -dFlavor=' + msi_flavor +
             r' -dProjectDir=scripts\buildscripts\packaging\msi\\'
             ' -dProjectName=MongoDB'
-            ' -dCompassDir=src\mongo\installer\compass'
+            r' -dCompassDir=src\mongo\installer\compass'
             ' -dTargetDir=' + buildDir + r'\msi'
             ' -dTargetExt=.msi'
             ' -dTargetFileName=${SERVER_ARCHIVE}'

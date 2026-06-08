@@ -5,6 +5,7 @@ Import("get_option")
 
 link_model = get_option('link-model')
 SYSTEM_INCLUDE_PATH = [
+    os.path.join(os.environ["ELOQDB_PREFIX"], "include"),
     '/usr/include',
     '/usr/local/include',
     '/opt/include',
@@ -51,6 +52,13 @@ env = env.Clone()
 env.InjectMongoIncludePaths()
 
 env["ELOQ_ENGINE_ROOT"] = "#src/mongo/db/modules/eloq"
+
+# The umbrella build keeps a single shared data_substrate checkout under dependencies/ rather
+# than populating this module's data_substrate submodule in-tree (no submodule pulls). The
+# adapter exports ELOQDB_DATA_SUBSTRATE_DIR pointing at that shared checkout; fall back to the
+# in-tree submodule path so this SConscript still works against an upstream-style checkout.
+env["ELOQ_DATA_SUBSTRATE_ROOT"] = os.environ.get(
+    "ELOQDB_DATA_SUBSTRATE_DIR", "$ELOQ_ENGINE_ROOT/data_substrate")
 
 
 DATA_STORE_TYPE_DYNAMODB = 1
@@ -114,10 +122,10 @@ elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
 if os.environ.get("OPEN_LOG_SERVICE", "1") in ("1", "ON", "on", "true", "True"):
     env.Append(CPPDEFINES=["OPEN_LOG_SERVICE"])
     env["CPPPATH"].extend(
-        ["$ELOQ_ENGINE_ROOT/data_substrate/log_service/include"])
+        ["$ELOQ_DATA_SUBSTRATE_ROOT/log_service/include"])
 else:
     env["CPPPATH"].extend(
-        ["$ELOQ_ENGINE_ROOT/data_substrate/eloq_log_service/include"])
+        ["$ELOQ_DATA_SUBSTRATE_ROOT/eloq_log_service/include"])
 
 with_log_state_str = os.environ.get("WITH_LOG_STATE", "ROCKSDB").upper()
 if with_log_state_str == "MEMORY":
@@ -155,18 +163,18 @@ env["CPPPATH"].extend(
         "$ELOQ_ENGINE_ROOT",
         "$ELOQ_ENGINE_ROOT/src",
         "$ELOQ_ENGINE_ROOT/src/base",
-        "$ELOQ_ENGINE_ROOT/data_substrate",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/cc",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/fault",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/proto",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/remote",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/store",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/include/sequences",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/tx-log-protos",
-        "$ELOQ_ENGINE_ROOT/data_substrate/tx_service/abseil-cpp",
-        "$ELOQ_ENGINE_ROOT/data_substrate/store_handler",
-        "$ELOQ_ENGINE_ROOT/data_substrate/eloq_metrics/include",
+        "$ELOQ_DATA_SUBSTRATE_ROOT",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include/cc",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include/fault",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include/proto",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include/remote",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include/store",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/include/sequences",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx-log-protos",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/tx_service/abseil-cpp",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/store_handler",
+        "$ELOQ_DATA_SUBSTRATE_ROOT/eloq_metrics/include",
         FindIncludePath("mimalloc-2.1"),
         FindIncludePath("aws/core"),
         FindIncludePath("aws/kinesis"),
@@ -201,8 +209,8 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
     env["CPPPATH"].extend(
         [
-            "$ELOQ_ENGINE_ROOT/data_substrate/store_handler/eloq_data_store_service/eloqstore/",
-            "$ELOQ_ENGINE_ROOT/data_substrate/store_handler/eloq_data_store_service/eloqstore/include",
+            "$ELOQ_DATA_SUBSTRATE_ROOT/eloqstore/",
+            "$ELOQ_DATA_SUBSTRATE_ROOT/eloqstore/include",
         ]
     )
 
@@ -256,6 +264,13 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
     store_deps = [FindLibPath("rocksdb")]
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
     store_deps = []
+    # eloqstore is built inline as part of data_substrate (WITH_TXSERVICE) and is not installed
+    # into the shared prefix (its own install(TARGETS eloqstore...) rule is bypassed when it's
+    # pulled in via build_eloq_store.cmake rather than as a standalone project) — link it
+    # straight from the substrate build tree where libeloqstore.a actually lands. Likewise,
+    # EloqStore pulls in prometheus-cpp for its metrics, so the eloq core .so needs those too.
+    env.Append(LIBPATH=[os.path.join(
+        os.environ["ELOQDB_BUILD"], "substrate", "data_substrate")])
 
 eloq_dependencies = [lib for lib in (
     base_deps + store_deps + log_deps + jemalloc_deps) if lib]
@@ -287,6 +302,16 @@ if dest_lib_dir and os.path.isdir(dest_lib_dir):
 cmake_module_libs = ["data_substrate",
                      "logservice", "txservice", "eloq-metrics"]
 env.Append(LIBS=cmake_module_libs)
+
+# eloqstore symbols are referenced from data_substrate's store_handler (eloq_store_config.cpp
+# etc.), so -leloqstore must come AFTER -ldata_substrate on the link line — the linker only
+# pulls archive members to satisfy *already pending* undefined symbols, and won't revisit an
+# earlier -l once a later one introduces a new reference. Likewise its own link-time deps
+# (liburing, libcurl, jsoncpp, zstd, OpenSSL crypto, prometheus-cpp for EloqStore's metrics)
+# must follow it for the same reason.
+if data_store_type == DATA_STORE_TYPE_ELOQSTORE:
+    env.Append(LIBS=["eloqstore", "uring", "curl", "jsoncpp", "zstd", "crypto",
+                     "prometheus-cpp-core", "prometheus-cpp-pull"])
 
 # For RocksDB Cloud backends, ensure AWS/GCS SDKs are linked when needed because
 # this module directly references AWS Init/Shutdown APIs under S3 builds.

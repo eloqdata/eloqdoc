@@ -82,7 +82,7 @@ def _item_and_type(dic):
     # type: (Dict[Any, List[Any]]) -> Iterator[Tuple[Any, Any]]
     """Return an Iterator of (key, value) pairs from a dictionary."""
     return itertools.chain.from_iterable(
-        (_zip_scalar(value, key) for (key, value) in dic.viewitems()))
+        (_zip_scalar(value, key) for (key, value) in dic.items()))
 
 
 class SymbolTable(object):
