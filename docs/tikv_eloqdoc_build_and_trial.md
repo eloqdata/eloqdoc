@@ -300,6 +300,11 @@ print("count_after_restart=" + d.tikv_trial.count({k: 2}));
 
 本节给出一个三节点示例。实际部署时请替换 IP、目录、CPU/内存和端口。
 
+> 当前状态（2026-06-09）：下面的拓扑和配置仍然是多节点部署的目标形态，
+> 但 TiKV 后端下 3 个 EloqDoc 计算节点的初始化/加入语义还没有完成验收。
+> 已经验证过的启动方式和失败日志见 [9.9](#99-多节点启动方式验证记录2026-06-09)。
+> 在外部确认前，不要把本节当作已通过的生产部署 runbook。
+
 ### 9.1 HA 边界和配置原则
 
 - TiKV/PD 必须是多副本拓扑。单节点 TiKV/PD 即使接入多个 EloqDoc 节点，也只能验证计算层连接，不能提供存储层 HA。
@@ -557,3 +562,62 @@ print("count=" + d.t.count({k: 1}));
 3. 恢复被停止的节点，再次确认集群健康。
 
 不要把这个验证理解为可以承受任意多节点故障。实际容灾能力取决于 TiKV/PD 副本数、region 分布、机器/机架故障域，以及 EloqDoc 计算节点和四层代理的部署方式。
+
+### 9.9 多节点启动方式验证记录（2026-06-09）
+
+本小节记录已经实际验证过的 EloqDoc 多节点启动方式，便于后续和 EloqDoc
+DSS/tx_service 维护者确认语义。它不是最终部署方案。
+
+#### 9.9.1 验证环境
+
+- 验证机：`root@10.2.106.238`。
+- 验证目录：`/data/tianyuan-eloq/mgr-semantics-20260609220423`。
+- EloqDoc 二进制和运行库：复用已部署的
+  `/data/deploy/eloqdoc-23017/bin/eloqdoc/bin/eloqdoc` 与
+  `/data/deploy/eloqdoc-23017/bin/eloqdoc/lib`。
+- TiKV 后端：复用同机已有 3 个 PD/TiKV endpoint：
+  `127.0.0.1:22379,127.0.0.1:23379,127.0.0.1:24379`。
+- 每组实验都使用独立的 `dbPath`、`eloq_data_path`、Mongo 端口、tx_service
+  端口和唯一 `tikv_key_prefix`，避免和 TiUP PoC 集群互相覆盖。
+- 实验结束后已清理临时 EloqDoc 进程；`eloqdoc-poc` 的 PD/TiKV 未停止。
+
+#### 9.9.2 已验证的启动方式
+
+| 启动方式 | 端口 / 配置目录 | 结果 | 关键日志 |
+| --- | --- | --- | --- |
+| 三个节点同时以 `bootstrap=true` 初始化 | Mongo `28017/28018/28019`；tx_service `18379/18389/18399`；配置在 `all-bootstrap/{a,b,c}/etc` | 结果不一致：node-b、node-c 打印 bootstrap 成功并退出，node-a 失败。该方式不能作为合法初始化流程。 | `all-bootstrap/a/logs/eloqdoc.log`：`Failed to start data substrate`；`all-bootstrap/b/logs/eloqdoc.log`、`all-bootstrap/c/logs/eloqdoc.log`：`Bootstrap for Eloqdoc success. Exiting...` |
+| 一个节点 bootstrap 成功后，三个节点使用静态完整 `[cluster] tx_ip_port_list` 并发正常启动 | Mongo `28117/28118/28119`；tx_service `18479/18489/18499`；配置在 `static-concurrent/{a,b,c}/etc` | bootstrap 节点先成功；正常并发启动时 node-b 发生 SIGSEGV，Mongo 端口不可用，复现 TiUP 三节点场景同类失败。 | `static-concurrent/b/logs/eloqdoc.log`：`Got signal: 11 (Segmentation fault)`，栈中包含 `txservice::BatchReadOperation::Forward`、`txservice::TransactionExecution::Forward`、`txservice::TxProcessor::RunOneRound` |
+| 一个节点 bootstrap 后先正常启动首节点，再让后两个节点带 `eloq_dss_peer_node` 加入首节点 DSS 端口 | Mongo `28217/28218/28219`；tx_service `18579/18589/18599`；配置在 `peer-join/{a,b,c}/etc`；后两节点配置 `eloq_dss_peer_node=127.0.0.1:18586` | 首节点 bootstrap 成功并启动；后续 peer join 时首节点崩溃，后两节点报 data substrate 启动失败。 | `peer-join/a/logs/eloqdoc.log`：SIGSEGV，栈中包含 `EloqDS::DataStoreService::FetchDSSClusterConfig`；`peer-join/b/logs/eloqdoc.log`、`peer-join/c/logs/eloqdoc.log`：`Failed to start data substrate` |
+
+#### 9.9.3 和 TiUP PoC 的关系
+
+TiUP PoC 已经修复过两类编排问题：
+
+1. bootstrap 和正常启动前，按最终生成的 `storage.dbPath`、`[local] eloq_data_path`
+   和日志路径准备目录。
+2. bootstrap 完成后，先批量发起所有 EloqDoc systemd start，再统一检查 ready，
+   避免逐实例串行等待导致第二、第三个实例永远没有机会启动。
+
+这些修复生效后，TiUP 能发起 3 个 EloqDoc systemd 服务；但三节点实际运行仍
+失败。`eloqdoc-poc` 的关键现场日志在：
+
+```text
+/data/deploy/eloqdoc-23017/log/eloqdoc.log
+/data/deploy/eloqdoc-24017/log/eloqdoc.log
+/data/deploy/eloqdoc-25017/log/eloqdoc.log
+```
+
+当时现象是 23017 能监听并可用 `mongosh` 连接，但写入很慢或卡住；24017/25017
+没有稳定暴露 Mongo 端口，其中 25017 曾反复 SIGSEGV，栈同样落在
+`txservice::BatchReadOperation::Forward` 附近。
+
+#### 9.9.4 当前待外部确认的问题
+
+需要向 EloqDoc DSS/tx_service 维护者确认：
+
+1. TiKV 后端三 EloqDoc 节点是否应支持“一个节点 bootstrap 后，所有节点使用
+   静态完整 `[cluster] tx_ip_port_list` 并发正常启动”。
+2. 如果必须使用首节点 + DSS peer join，`eloq_dss_peer_node` 的正确配置字段、
+   端口和启动顺序是什么。
+3. 当前 `FetchDSSClusterConfig` 与 `BatchReadOperation::Forward` 处的崩溃是否
+   是 EloqDoc/DSS/tx_service bug，还是配置/启动顺序不符合预期。
