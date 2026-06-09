@@ -261,6 +261,58 @@ Implicit session: session { "id" : UUID("288393c1-aff6-4a84-ad46-dee6691b361d") 
 
 ---
 
+## Build from Source
+
+### System prerequisites (Ubuntu 24.04)
+
+```bash
+sudo apt install -y \
+    git build-essential cmake ninja-build pkg-config python3 python3-venv \
+    bison flex libssl-dev zlib1g-dev libgflags-dev libleveldb-dev \
+    libsnappy-dev liblz4-dev libzstd-dev libbz2-dev libcurl4-openssl-dev \
+    libjsoncpp-dev liburing-dev
+```
+
+### Build
+
+```bash
+git clone https://github.com/eloqdata/eloqdoc.git
+cd eloqdoc
+chmod +x build.sh
+./build.sh
+```
+
+`build.sh` handles everything automatically:
+
+1. Clones [eloq_build_env](https://github.com/ltzhang/eloq_build_env) as a sibling directory (the shared build environment — built once, reused by all Eloq products)
+2. Builds all shared dependencies into `../eloq_build_env/install/` (~30–60 min on first run; subsequent runs skip cached steps)
+3. Builds the EloqDoc Eloq module (CMake) and the MongoDB-compatible server (SCons + Python 3)
+
+The compiled binaries are at `../eloq_build_env/install/bin/eloqdoc` and `eloqdoc-cli`.
+
+### Re-building after code changes
+
+```bash
+cd eloqdoc
+./build.sh    # deps and substrate are cached — only EloqDoc is rebuilt
+```
+
+### Custom eloq_build_env location
+
+If `eloq_build_env` lives somewhere other than a sibling directory:
+
+```bash
+# Option 1: env var
+export ELOQ_BUILD_ENV=/path/to/eloq_build_env
+./build.sh
+
+# Option 2: symlink (add eloq_env to .gitignore)
+ln -s /path/to/eloq_build_env eloq_env
+./build.sh
+```
+
+---
+
 ## Advanced Topics
 
 * Follow [compile tutorial](docs/how-to-compile.md) to learn how to compile EloqDoc-RocksDB and EloqDocRocksDBCloud from scratch.
