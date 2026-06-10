@@ -40,8 +40,9 @@ docker build -f docker/tikv-build.Dockerfile -t eloqdoc-tikv-build:centos7 .
 - `src/mongo/db/modules/eloq/build-centos7`
 - `build-centos7`
 - `install/tikv-centos7`
+- `src/mongo/db/modules/eloq/data_substrate/eloq_log_service/bld`
 
-命令会先运行 `docker/tikv-prepare-submodules.sh`，把本仓库保存的 TiKV 构建补丁应用到 `data_substrate` 子模块工作区；补丁是幂等的。
+命令会在已有 `$INSTALL_PREFIX` 且 `$ELOQ_CMAKE_BUILD/install_manifest.txt` 非空时复用已安装的 Eloq CMake 产物，跳过耗时的 Eloq CMake build/install；否则先运行 `docker/tikv-prepare-submodules.sh`，把本仓库保存的 TiKV 构建补丁应用到 `data_substrate` 子模块工作区；补丁是幂等的。
 
 ```bash
 mkdir -p logs
@@ -58,23 +59,37 @@ export TIKV_CLIENT_C_BUILD_DIR=$ELOQ_CMAKE_BUILD/tikv-client-c
 export DEST_DIR=$INSTALL_PREFIX
 export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:/usr/local/lib64:/usr/local/lib:/opt/rh/devtoolset-10/root/usr/lib64:${LD_LIBRARY_PATH:-}"
 
-./docker/tikv-prepare-submodules.sh
+if [ -d "$INSTALL_PREFIX" ] && [ -s "$ELOQ_CMAKE_BUILD/install_manifest.txt" ]; then
+  echo "Reuse existing Eloq CMake install at $INSTALL_PREFIX; skip CMake build/install."
+else
+  ./docker/tikv-prepare-submodules.sh
 
-cmake -S src/mongo/db/modules/eloq \
-      -B "$ELOQ_CMAKE_BUILD" \
-      -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
-      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_CXX_STANDARD=17 \
-      -DBUILD_SHARED_LIBS=ON \
-      -DWITH_DATA_STORE=ELOQDSS_TIKV \
-      -DWITH_LOG_STATE=ROCKSDB \
-      -DTIKV_CLIENT_C_ROOT="$TIKV_CLIENT_C_ROOT"
+  cmake -S src/mongo/db/modules/eloq \
+        -B "$ELOQ_CMAKE_BUILD" \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_CXX_STANDARD=17 \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -DCMAKE_CXX_FLAGS="-include gflags/gflags.h -Wno-error -fPIC" \
+        -DBUILD_SHARED_LIBS=ON \
+        -DWITH_DATA_STORE=ELOQDSS_TIKV \
+        -DWITH_LOG_STATE=ROCKSDB \
+        -DFORK_HM_PROCESS=ON \
+        -DOPEN_LOG_SERVICE=OFF \
+        -DEXT_TX_PROC_ENABLED=ON \
+        -DELOQ_MODULE_ENABLED=ON \
+        -DSTATISTICS=ON \
+        -DUSE_ASAN=OFF \
+        -DTIKV_CLIENT_C_ROOT="$TIKV_CLIENT_C_ROOT"
 
-cmake --build "$ELOQ_CMAKE_BUILD" -j"$(nproc)"
-cmake --install "$ELOQ_CMAKE_BUILD"
+  cmake --build "$ELOQ_CMAKE_BUILD" -j"$(nproc)"
+  cmake --install "$ELOQ_CMAKE_BUILD"
+fi
 
-env WITH_DATA_STORE=ELOQDSS_TIKV \
+env OPEN_LOG_SERVICE=0 \
+    WITH_DATA_STORE=ELOQDSS_TIKV \
     WITH_LOG_STATE=ROCKSDB \
+    FORK_HM_PROCESS=1 \
     ELOQ_CMAKE_BUILD="$ELOQ_CMAKE_BUILD" \
     TIKV_CLIENT_C_ROOT="$TIKV_CLIENT_C_ROOT" \
     TIKV_CLIENT_C_BUILD_DIR="$TIKV_CLIENT_C_BUILD_DIR" \
@@ -84,7 +99,8 @@ python scripts/buildscripts/scons.py \
     VARIANT_DIR=RelWithDebInfo \
     CC=/opt/rh/devtoolset-10/root/usr/bin/gcc \
     CXX=/opt/rh/devtoolset-10/root/usr/bin/g++ \
-    CXXFLAGS="-include gflags/gflags.h -include unistd.h -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move -Wno-deprecated-declarations" \
+    CPPDEFINES="ELOQ_MODULE_ENABLED EXT_TX_PROC_ENABLED" \
+    CXXFLAGS="-include gflags/gflags.h -include unistd.h -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move -Wno-deprecated-declarations -Wno-maybe-uninitialized -Wno-stringop-overread -Wno-stringop-overflow -Wno-restrict" \
     --build-dir=#build-centos7 \
     --prefix="$INSTALL_PREFIX" \
     --link-model=dynamic \
@@ -100,6 +116,10 @@ python scripts/buildscripts/scons.py \
     "$ELOQ_CMAKE_BUILD/tx_service-abseil"
 
 ./docker/tikv-check-abi.sh "$INSTALL_PREFIX" 2.17
+
+cd src/mongo/db/modules/eloq/data_substrate/eloq_log_service
+cmake -B bld
+cmake --build bld -j 8
 ' 2>&1 | tee logs/tikv-centos7-build.log
 ```
 
@@ -128,6 +148,7 @@ python scripts/buildscripts/scons.py \
 
 - 主程序：`install/tikv-centos7/bin/eloqdoc`
 - CLI：`install/tikv-centos7/bin/eloqdoc-cli`
+- Host Manager：`install/tikv-centos7/bin/host_manager`
 - 已打包运行时库：`install/tikv-centos7/lib/`
 - CMake 安装库：`install/tikv-centos7/lib/libdata_substrate.so`、`libtxservice.so`、`liblogservice.so`、`libkv_client.so`、`libkvproto.so`
 
@@ -135,6 +156,7 @@ python scripts/buildscripts/scons.py \
 
 - CMake build dir：`src/mongo/db/modules/eloq/build-centos7/`
 - SCons build dir：`build-centos7/`
+- 独立 Eloq log service build dir：`src/mongo/db/modules/eloq/data_substrate/eloq_log_service/bld/`，其中 `launch_sv` 用于单独启动 log service。
 
 拷贝到新机器试跑时，至少带上整个 `install/tikv-centos7/` 目录，并在启动前设置：
 
