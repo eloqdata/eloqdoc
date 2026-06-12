@@ -118,10 +118,13 @@ python scripts/buildscripts/scons.py \
 ./docker/tikv-check-abi.sh "$INSTALL_PREFIX" 2.17
 
 cd src/mongo/db/modules/eloq/data_substrate/eloq_log_service
-cmake -B bld
+cmake -B bld \
+      -DCMAKE_CXX_FLAGS="-include gflags/gflags.h"
 cmake --build bld -j 8
 ' 2>&1 | tee logs/tikv-centos7-build.log
 ```
+
+独立 `eloq_log_service` 的 standalone CMake 目标会间接使用 gflags 类型；这里显式注入 `gflags/gflags.h`，与上面的 Eloq CMake / SCons 构建参数保持一致，避免单独构建 `launch_sv` 时缺少 gflags 头。
 
 `docker/tikv-prepare-submodules.sh` 会在子模块工作区应用以下构建补丁：
 
