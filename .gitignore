@@ -190,3 +190,6 @@ venv
 /.cursor
 /thoughts
 /db
+
+ctl-engine-info-log
+dist
