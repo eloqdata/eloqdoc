@@ -42,7 +42,7 @@ docker build -f docker/tikv-build.Dockerfile -t eloqdoc-tikv-build:centos7 .
 - `install/tikv-centos7`
 - `src/mongo/db/modules/eloq/data_substrate/eloq_log_service/bld`
 
-命令会在已有 `$INSTALL_PREFIX` 且 `$ELOQ_CMAKE_BUILD/install_manifest.txt` 非空时复用已安装的 Eloq CMake 产物，跳过耗时的 Eloq CMake build/install；否则先运行 `docker/tikv-prepare-submodules.sh`，把本仓库保存的 TiKV 构建补丁应用到 `data_substrate` 子模块工作区；补丁是幂等的。
+命令会完整进入 Eloq CMake configure/build/install 流程；是否增量编译交给 CMake/Ninja/Make 与 SCons 的原生依赖跟踪处理，不再通过额外 patch 或 `install_manifest.txt` 判断来绕过编译步骤。
 
 ```bash
 mkdir -p logs
@@ -59,32 +59,26 @@ export TIKV_CLIENT_C_BUILD_DIR=$ELOQ_CMAKE_BUILD/tikv-client-c
 export DEST_DIR=$INSTALL_PREFIX
 export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib:$TIKV_CLIENT_C_BUILD_DIR/src:$TIKV_CLIENT_C_BUILD_DIR/third_party/kvproto/cpp:/usr/local/lib64:/usr/local/lib:/opt/rh/devtoolset-10/root/usr/lib64:${LD_LIBRARY_PATH:-}"
 
-if [ -d "$INSTALL_PREFIX" ] && [ -s "$ELOQ_CMAKE_BUILD/install_manifest.txt" ]; then
-  echo "Reuse existing Eloq CMake install at $INSTALL_PREFIX; skip CMake build/install."
-else
-  ./docker/tikv-prepare-submodules.sh
+cmake -S src/mongo/db/modules/eloq \
+      -B "$ELOQ_CMAKE_BUILD" \
+      -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
+      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DCMAKE_CXX_STANDARD=17 \
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+      -DCMAKE_CXX_FLAGS="-include gflags/gflags.h -Wno-error -fPIC" \
+      -DBUILD_SHARED_LIBS=ON \
+      -DWITH_DATA_STORE=ELOQDSS_TIKV \
+      -DWITH_LOG_STATE=ROCKSDB \
+      -DFORK_HM_PROCESS=ON \
+      -DOPEN_LOG_SERVICE=OFF \
+      -DEXT_TX_PROC_ENABLED=ON \
+      -DELOQ_MODULE_ENABLED=ON \
+      -DSTATISTICS=ON \
+      -DUSE_ASAN=OFF \
+      -DTIKV_CLIENT_C_ROOT="$TIKV_CLIENT_C_ROOT"
 
-  cmake -S src/mongo/db/modules/eloq \
-        -B "$ELOQ_CMAKE_BUILD" \
-        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DCMAKE_CXX_STANDARD=17 \
-        -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
-        -DCMAKE_CXX_FLAGS="-include gflags/gflags.h -Wno-error -fPIC" \
-        -DBUILD_SHARED_LIBS=ON \
-        -DWITH_DATA_STORE=ELOQDSS_TIKV \
-        -DWITH_LOG_STATE=ROCKSDB \
-        -DFORK_HM_PROCESS=ON \
-        -DOPEN_LOG_SERVICE=OFF \
-        -DEXT_TX_PROC_ENABLED=ON \
-        -DELOQ_MODULE_ENABLED=ON \
-        -DSTATISTICS=ON \
-        -DUSE_ASAN=OFF \
-        -DTIKV_CLIENT_C_ROOT="$TIKV_CLIENT_C_ROOT"
-
-  cmake --build "$ELOQ_CMAKE_BUILD" -j"$(nproc)"
-  cmake --install "$ELOQ_CMAKE_BUILD"
-fi
+cmake --build "$ELOQ_CMAKE_BUILD" -j"$(nproc)"
+cmake --install "$ELOQ_CMAKE_BUILD"
 
 env OPEN_LOG_SERVICE=0 \
     WITH_DATA_STORE=ELOQDSS_TIKV \
@@ -126,10 +120,12 @@ cmake --build bld -j 8
 
 独立 `eloq_log_service` 的 standalone CMake 目标会间接使用 gflags 类型；这里显式注入 `gflags/gflags.h`，与上面的 Eloq CMake / SCons 构建参数保持一致，避免单独构建 `launch_sv` 时缺少 gflags 头。
 
-`docker/tikv-prepare-submodules.sh` 会在子模块工作区应用以下构建补丁：
+TiKV 后端所需的构建修正已直接在 `data_substrate` 子模块源码中：
 
 - 让 `data_substrate` 和 `tikv-client-c` 共用同一份 tx_service Abseil，避免重复定义 `absl::*` CMake target。
 - 兼容当前 `log_service` 头文件里使用 gflags 类型但未显式包含 gflags 头的问题。
+
+因此构建前不再运行额外的 `git apply`，也不再需要因为补丁更新源文件 mtime 而手工跳过 CMake build/install；回到原生流程后，直接重复执行上面的 Docker 构建命令即可。
 
 `docker/tikv-copy-runtime-libs.sh` 会：
 
