@@ -1,0 +1,28 @@
+#pragma once
+
+#if __cplusplus >= 202002L
+#include_next <format>
+#else
+
+#include <sstream>
+#include <string>
+#include <string_view>
+
+namespace std {
+
+// Compatibility shim for vendored EloqStore headers embedded in Mongo's
+// C++17 SCons build. It only supports the format pattern used by EloqStore.
+template <typename First, typename Second>
+inline std::string format(std::string_view pattern, const First& first, const Second& second) {
+    if (pattern == "{}(type: {})") {
+        std::ostringstream os;
+        os << first << "(type: " << second << ")";
+        return os.str();
+    }
+
+    return std::string(pattern);
+}
+
+}  // namespace std
+
+#endif

@@ -86,7 +86,12 @@ write_runtime_configs() {
   local bucket_name="$8"
   local bucket_prefix="$9"
 
-  mkdir -p "${run_dir}" "${install_prefix}/log" "${install_prefix}/data"
+  mkdir -p \
+    "${run_dir}" \
+    "${install_prefix}/log" \
+    "${install_prefix}/data/mongo" \
+    "${install_prefix}/data/eloq" \
+    "${install_prefix}/data/log_service"
 
   cat > "${run_dir}/eloqdoc.yaml" <<EOF
 systemLog:
@@ -226,9 +231,14 @@ build_eloqdoc() {
     dbg_flags=(--dbg=on --opt=off)
   fi
 
+  local scons_arch_flags=""
+  case "$(uname -m)" in
+    aarch64|arm64) scons_arch_flags="-march=armv8-a+crc" ;;
+  esac
+
   local scons_third_party_include="-idirafter ${ELOQ_THIRD_PARTY_PREFIX}/include"
-  local scons_cflags="${scons_third_party_include} -Wno-nonnull"
-  local scons_cxxflags="${scons_third_party_include} -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move"
+  local scons_cflags="${scons_third_party_include} ${scons_arch_flags} -Wno-nonnull"
+  local scons_cxxflags="${scons_third_party_include} ${scons_arch_flags} -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move"
   local scons_libpath="${ELOQ_THIRD_PARTY_PREFIX}/lib ${ELOQ_THIRD_PARTY_PREFIX}/lib64"
 
   env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
@@ -308,7 +318,11 @@ launch_eloqdoc() {
   export LD_LIBRARY_PATH="${install_prefix}/lib:${LD_LIBRARY_PATH:-}"
   export PATH="${install_prefix}/bin:${PATH}"
 
-  mkdir -p "${install_prefix}/log" "${install_prefix}/data"
+  mkdir -p \
+    "${install_prefix}/log" \
+    "${install_prefix}/data/mongo" \
+    "${install_prefix}/data/eloq" \
+    "${install_prefix}/data/log_service"
   nohup "${install_prefix}/bin/eloqdoc" \
     --config="${run_dir}/eloqdoc.yaml" \
     --data_substrate_config="${run_dir}/data_substrate.cnf" \

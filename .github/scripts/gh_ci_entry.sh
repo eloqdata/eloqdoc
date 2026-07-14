@@ -50,14 +50,22 @@ write_runtime_configs \
 build_eloqdoc "${BUILD_TYPE}" "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" "${ELOQDOC_INSTALL_PREFIX}"
 
 rm -rf "${ELOQDOC_INSTALL_PREFIX}/data"
-mkdir -p "${ELOQDOC_INSTALL_PREFIX}/data" "${ELOQDOC_INSTALL_PREFIX}/log"
+mkdir -p \
+  "${ELOQDOC_INSTALL_PREFIX}/data/mongo" \
+  "${ELOQDOC_INSTALL_PREFIX}/data/eloq" \
+  "${ELOQDOC_INSTALL_PREFIX}/data/log_service" \
+  "${ELOQDOC_INSTALL_PREFIX}/log"
 launch_eloqdoc "${RUN_DIR}" "${ELOQDOC_INSTALL_PREFIX}"
 wait_for_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
 run_jstests "${ELOQDOC_INSTALL_PREFIX}"
 
 shutdown_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
 rm -rf "${ELOQDOC_INSTALL_PREFIX}/data"
-mkdir -p "${ELOQDOC_INSTALL_PREFIX}/data" "${ELOQDOC_INSTALL_PREFIX}/log"
+mkdir -p \
+  "${ELOQDOC_INSTALL_PREFIX}/data/mongo" \
+  "${ELOQDOC_INSTALL_PREFIX}/data/eloq" \
+  "${ELOQDOC_INSTALL_PREFIX}/data/log_service" \
+  "${ELOQDOC_INSTALL_PREFIX}/log"
 launch_eloqdoc "${RUN_DIR}" "${ELOQDOC_INSTALL_PREFIX}"
 wait_for_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
 run_tpcc "${ELOQDOC_INSTALL_PREFIX}"

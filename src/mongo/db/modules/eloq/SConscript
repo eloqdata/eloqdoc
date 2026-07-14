@@ -232,6 +232,7 @@ elif data_store_type == DATA_STORE_TYPE_ROCKSDB:
 elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
     env["CPPPATH"].extend(
         [
+            "$ELOQ_ENGINE_ROOT/compat",
             "$ELOQ_ENGINE_ROOT/data_substrate/store_handler/eloq_data_store_service/eloqstore/",
             "$ELOQ_ENGINE_ROOT/data_substrate/store_handler/eloq_data_store_service/eloqstore/include",
         ]
