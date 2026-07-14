@@ -226,6 +226,9 @@ build_eloqdoc() {
     dbg_flags=(--dbg=on --opt=off)
   fi
 
+  local scons_cflags="-I${ELOQ_THIRD_PARTY_PREFIX}/include -Wno-nonnull"
+  local scons_cxxflags="-I${ELOQ_THIRD_PARTY_PREFIX}/include -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move"
+
   env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
       WITH_DATA_STORE="${WITH_DATA_STORE}" \
       WITH_LOG_STATE="${WITH_LOG_STATE}" \
@@ -233,8 +236,8 @@ build_eloqdoc() {
     python2 scripts/buildscripts/scons.py \
       MONGO_VERSION=4.0.3 \
       VARIANT_DIR="${build_type}" \
-      CFLAGS="-Wno-nonnull" \
-      CXXFLAGS="-Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move" \
+      CFLAGS="${scons_cflags}" \
+      CXXFLAGS="${scons_cxxflags}" \
       CPPDEFINES="ELOQ_MODULE_ENABLED EXT_TX_PROC_ENABLED" \
       CXX="${CXX}" \
       CC="${CC}" \
