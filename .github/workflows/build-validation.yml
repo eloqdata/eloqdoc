@@ -31,6 +31,7 @@ jobs:
       options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      PYENV_ROOT: /opt/pyenv
     steps:
       - name: Bootstrap checkout tools
         run: |
@@ -47,6 +48,14 @@ jobs:
         run: |
           git config --global --add safe.directory '*'
           bash scripts/checkout_product_submodules.sh
+
+      - name: Restore Python 2.7 cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/pyenv
+          key: pyenv-2.7.18-${{ matrix.arch }}-${{ hashFiles('scripts/install_dependency_ubuntu2404.sh', 'scripts/buildscripts/requirements.txt', 'scripts/buildscripts/resmokelib/requirements.txt') }}
+          restore-keys: |
+            pyenv-2.7.18-${{ matrix.arch }}-
 
       - name: Install system and Python dependencies
         run: |

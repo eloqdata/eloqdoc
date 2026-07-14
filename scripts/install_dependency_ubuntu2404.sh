@@ -70,6 +70,15 @@ configure_timezone() {
 }
 
 install_python2() {
+    export PYENV_ROOT="${PYENV_ROOT:-${HOME}/.pyenv}"
+    if [ -x "${PYENV_ROOT}/bin/pyenv" ]; then
+        export PATH="${PYENV_ROOT}/bin:${PATH}"
+        eval "$(pyenv init -)" || true
+        eval "$(pyenv virtualenv-init -)" || true
+        pyenv shell 2.7.18 >/dev/null 2>&1 || pyenv global 2.7.18 >/dev/null 2>&1 || true
+        hash -r
+    fi
+
     if ! command -v python2 >/dev/null 2>&1; then
         log_info "Installing Python 2.7.18 with pyenv"
         apt_install \
@@ -77,7 +86,6 @@ install_python2() {
             libsqlite3-dev libffi-dev libssl-dev libncurses5-dev \
             libncursesw5-dev xz-utils tk-dev wget unzip git curl ca-certificates
 
-        export PYENV_ROOT="${PYENV_ROOT:-${HOME}/.pyenv}"
         if [ ! -x "${PYENV_ROOT}/bin/pyenv" ]; then
             curl -fsSL https://pyenv.run | bash
         fi
