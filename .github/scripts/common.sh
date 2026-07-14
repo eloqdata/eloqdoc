@@ -240,12 +240,19 @@ build_eloqdoc() {
   local scons_cflags="${scons_third_party_include} ${scons_arch_flags} -Wno-nonnull"
   local scons_cxxflags="${scons_third_party_include} ${scons_arch_flags} -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move"
   local scons_libpath="${ELOQ_THIRD_PARTY_PREFIX}/lib ${ELOQ_THIRD_PARTY_PREFIX}/lib64"
+  local scons_cache_args=()
+  if [ -n "${SCONS_CACHE_DIR:-}" ]; then
+    mkdir -p "${SCONS_CACHE_DIR}"
+    echo "Using SCons cache at ${SCONS_CACHE_DIR}"
+    scons_cache_args=(--cache="${SCONS_CACHE_MODE:-nolinked}" --cache-dir="${SCONS_CACHE_DIR}")
+  fi
 
   env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
       WITH_DATA_STORE="${WITH_DATA_STORE}" \
       WITH_LOG_STATE="${WITH_LOG_STATE}" \
       ELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX}" \
     python2 scripts/buildscripts/scons.py \
+      "${scons_cache_args[@]}" \
       MONGO_VERSION=4.0.3 \
       VARIANT_DIR="${build_type}" \
       CFLAGS="${scons_cflags}" \
@@ -263,6 +270,13 @@ build_eloqdoc() {
       --disable-warnings-as-errors \
       -j"${BUILD_JOBS}" \
       install-core
+
+  if [ -n "${SCONS_CACHE_DIR:-}" ] && [ -d "${SCONS_CACHE_DIR}" ]; then
+    python2 scripts/buildscripts/scons_cache_prune.py \
+      --cache-dir="${SCONS_CACHE_DIR}" \
+      --cache-size="${SCONS_CACHE_SIZE_GB:-5}" \
+      --prune-ratio="${SCONS_CACHE_PRUNE_RATIO:-0.8}" || true
+  fi
 }
 
 start_minio() {
