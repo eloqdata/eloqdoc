@@ -33,7 +33,8 @@ if needs_minio "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}"; then
 fi
 
 RUN_DIR="${ELOQDOC_BASE_PATH}/.github/runtime/${BUILD_TYPE}-${ENGINE_ID}"
-BUCKET_NAME="eloqdoc-${CI_MODE}-${ENGINE_ID}-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
+BUCKET_ENGINE_ID="${ENGINE_ID//_/-}"
+BUCKET_NAME="eloqdoc-${CI_MODE}-${BUCKET_ENGINE_ID}-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
 BUCKET_PREFIX="gh-"
 
 write_runtime_configs \
