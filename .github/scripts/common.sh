@@ -229,6 +229,7 @@ build_eloqdoc() {
   local scons_third_party_include="-idirafter ${ELOQ_THIRD_PARTY_PREFIX}/include"
   local scons_cflags="${scons_third_party_include} -Wno-nonnull"
   local scons_cxxflags="${scons_third_party_include} -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move"
+  local scons_libpath="${ELOQ_THIRD_PARTY_PREFIX}/lib ${ELOQ_THIRD_PARTY_PREFIX}/lib64"
 
   env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
       WITH_DATA_STORE="${WITH_DATA_STORE}" \
@@ -240,6 +241,7 @@ build_eloqdoc() {
       CFLAGS="${scons_cflags}" \
       CXXFLAGS="${scons_cxxflags}" \
       CPPDEFINES="ELOQ_MODULE_ENABLED EXT_TX_PROC_ENABLED" \
+      LIBPATH="${scons_libpath}" \
       CXX="${CXX}" \
       CC="${CC}" \
       --build-dir=#build \
