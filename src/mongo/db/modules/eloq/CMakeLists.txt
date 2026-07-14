@@ -38,11 +38,8 @@ option(SMALL_RANGE "Optimize for small range sizes (affects tx_service)." OFF)
 option(USE_ASAN "Enable AddressSanitizer (ASan) for debugging." OFF)
 option(ABSL_PROPAGATE_CXX_STD "ABSL PROPAGATE CXX STD" ON)
 
-option(OPEN_LOG_SERVICE "Compile with open log service." ON)
-message("OPEN_LOG_SERVICE: " ${OPEN_LOG_SERVICE})
-if (OPEN_LOG_SERVICE)
-   add_compile_definitions(OPEN_LOG_SERVICE=1)
-endif()
+option(OPEN_LOG_SERVICE "Deprecated; data_substrate now always uses in-tree eloq_log_service." ON)
+message("OPEN_LOG_SERVICE is deprecated and ignored: " ${OPEN_LOG_SERVICE})
 
 if(USE_ASAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")

@@ -28,12 +28,8 @@
 #include "mongo/db/modules/eloq/src/eloq_index.h"
 #include "mongo/db/modules/eloq/src/eloq_record_store.h"
 
-#ifdef OPEN_LOG_SERVICE
-#include "mongo/db/modules/eloq/data_substrate/log_service/include/log_server.h"
-#else
 #include "mongo/db/modules/eloq/data_substrate/eloq_log_service/include/log_server.h"
 #include "mongo/db/modules/eloq/data_substrate/eloq_log_service/include/log_utils.h"
-#endif
 
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/sharder.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service.h"

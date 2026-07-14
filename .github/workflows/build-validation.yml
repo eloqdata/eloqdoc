@@ -1,0 +1,50 @@
+name: Build Validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  compile-all-variants:
+    name: compile-all-variants (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+    env:
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      CMAKE_PREFIX_PATH: /opt/eloq/third_party
+      CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
+      CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
+      LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout product submodules
+        run: |
+          git config --global --add safe.directory '*'
+          bash scripts/checkout_product_submodules.sh
+
+      - name: Setup third-party (cached)
+        uses: ./.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}
+          arch: ${{ matrix.arch }}
+          cache-scope: eloq-dev-ci-ubuntu2404
+
+      - name: Compile all variants
+        run: |
+          git config --global --add safe.directory '*'
+          bash .github/scripts/compile_all_variants.sh
