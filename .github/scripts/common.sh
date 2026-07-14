@@ -18,6 +18,7 @@ fi
 export PY_TPCC_PATH="${PY_TPCC_PATH:-${ELOQDOC_BASE_PATH}/../py_tpcc_src}"
 
 export ELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX:-/opt/eloq/third_party}"
+export ELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED:-ON}"
 export BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 [ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1
 
@@ -203,7 +204,7 @@ build_eloqdoc() {
     -DWITH_LOG_SERVICE=ON \
     -DFORK_HM_PROCESS=ON \
     -DELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX}" \
-    -DELOQ_THIRD_PARTY_REQUIRED=ON
+    -DELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED}"
   cmake --build "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build" -j"${BUILD_JOBS}"
   cmake --install "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build"
 

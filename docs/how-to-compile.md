@@ -9,7 +9,8 @@ git clone --recurse-submodules https://github.com/eloqdata/eloqdoc
 Assuming Ubuntu 24.04 is your development environment, run the following script to install dependencies.
 
 ```bash
-bash scripts/install_dependency_ubuntu2404.sh
+mkdir -p /tmp/eloqdoc-deps
+bash scripts/install_dependency_ubuntu2404.sh /tmp/eloqdoc-deps
 ```
 
 If you are using another Linux distribution, follow the steps in `install_dependency_ubuntu2404.sh` to install dependencies manually.

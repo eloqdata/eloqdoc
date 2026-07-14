@@ -4,6 +4,8 @@
 # Usage: ./install_eloq_dependancy.sh <TEMP_DIR> [--skip_eloq_common]
 #   TEMP_DIR: Required unless --skip_eloq_common is specified
 #   --skip_eloq_common: Optional. Skip common dependencies and only install Python
+#   ELOQ_SKIP_THIRD_PARTY=1: Optional. Install system and Python dependencies,
+#       but skip source-built third-party dependencies.
 
 set -eo pipefail
 
@@ -120,7 +122,25 @@ else
 fi
 log_info "Detected $CPU_COUNT CPU cores, will use $COMPILE_JOBS for parallel compilation"
 
+WORKSPACE="${WORKSPACE:-${TEMP_DIR:-$(pwd)}}"
+
 export DEBIAN_FRONTEND=noninteractive
+
+# Bare Ubuntu containers often run as root and do not include sudo yet.
+if ! command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    sudo() {
+        local env_args=()
+        while [ "$#" -gt 0 ] && [[ "$1" == *=* ]]; do
+            env_args+=("$1")
+            shift
+        done
+        if [ "${#env_args[@]}" -gt 0 ]; then
+            env "${env_args[@]}" "$@"
+        else
+            "$@"
+        fi
+    }
+fi
 
 if [ "$SKIP_ELOQ_COMMON" = false ]; then
     # ------------- System packages installation -------------
@@ -134,7 +154,12 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
         libssl-dev libgflags-dev libleveldb-dev libsnappy-dev openssl lcov \
         libbz2-dev liblz4-dev libzstd-dev libboost-context-dev ca-certificates \
         libc-ares-dev libc-ares2 m4 pkg-config tar libreadline-dev libsqlite3-dev \
-        llvm xz-utils tk-dev libffi-dev liblzma-dev
+        llvm xz-utils tk-dev libffi-dev liblzma-dev rsync patchelf \
+        libprotobuf-dev protobuf-compiler libjsoncpp-dev
+
+    if [ "${ELOQ_SKIP_THIRD_PARTY:-0}" = "1" ]; then
+        log_info "Skipping source-built third-party dependencies because ELOQ_SKIP_THIRD_PARTY=1"
+    else
 
     # ------------- Mimalloc installation -------------
     log_info "Installing mimalloc"
@@ -414,6 +439,7 @@ if [ "$SKIP_ELOQ_COMMON" = false ]; then
     cmake .. -DBUILD_SHARED_LIBS=ON && \
     cmake --build . -j$COMPILE_JOBS && \
     sudo cmake --install .
+    fi
 fi
 
 # ------------- Python 2.7.18 installation with pyenv -------------

@@ -1,5 +1,11 @@
 name: Build Validation
 
+# Compile-only validation from a bare Ubuntu 24.04 image. This follows the
+# documented user build path: install EloqDoc system/Python dependencies with
+# scripts/install_dependency_ubuntu2404.sh, restore or build the shared
+# Data Substrate third-party prefix from cache, then compile each shipped engine
+# combination. Functional tests stay in ci.yml.
+
 on:
   pull_request:
     branches: [main]
@@ -11,21 +17,26 @@ on:
 jobs:
   compile-all-variants:
     name: compile-all-variants (${{ matrix.arch }})
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     container:
-      image: eloqdata/ubuntu-dev:24.04
+      image: ubuntu:24.04
       options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
-      CMAKE_PREFIX_PATH: /opt/eloq/third_party
-      CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
-      CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
-      LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
     steps:
+      - name: Bootstrap checkout tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates sudo openssh-client tar zstd
+
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -37,12 +48,18 @@ jobs:
           git config --global --add safe.directory '*'
           bash scripts/checkout_product_submodules.sh
 
+      - name: Install system and Python dependencies
+        run: |
+          git config --global --add safe.directory '*'
+          ELOQ_SKIP_THIRD_PARTY=1 \
+            bash scripts/install_dependency_ubuntu2404.sh "${GITHUB_WORKSPACE}/build-validation-deps"
+
       - name: Setup third-party (cached)
         uses: ./.github/actions/setup-third-party
         with:
           source-dir: ${{ github.workspace }}
           arch: ${{ matrix.arch }}
-          cache-scope: ubuntu-dev
+          cache-scope: bare-ubuntu
 
       - name: Compile all variants
         run: |
