@@ -17,7 +17,14 @@ if [ -z "${ELOQDOC_BASE_PATH:-}" ]; then
 fi
 export PY_TPCC_PATH="${PY_TPCC_PATH:-${ELOQDOC_BASE_PATH}/../py_tpcc_src}"
 
-export ELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX:-/opt/eloq/third_party}"
+if [ -z "${ELOQ_THIRD_PARTY_PREFIX:-}" ]; then
+  local_third_party_prefix="${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/data_substrate/third_party/install"
+  if [ -d "${local_third_party_prefix}" ]; then
+    export ELOQ_THIRD_PARTY_PREFIX="${local_third_party_prefix}"
+  else
+    export ELOQ_THIRD_PARTY_PREFIX="/opt/eloq/third_party"
+  fi
+fi
 export ELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED:-ON}"
 export BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 [ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1

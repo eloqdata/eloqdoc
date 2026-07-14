@@ -64,7 +64,14 @@ env["ELOQ_ENGINE_ROOT"] = "#src/mongo/db/modules/eloq"
 
 env.AppendUnique(LIBPATH=[p for p in SYSTEM_LIBRARY_PATH if os.path.isdir(p)])
 
-third_party_prefix = os.environ.get("ELOQ_THIRD_PARTY_PREFIX", "/opt/eloq/third_party")
+local_third_party_prefix = os.path.abspath(os.path.join(
+    os.getcwd(), "src/mongo/db/modules/eloq/data_substrate/third_party/install"))
+third_party_prefix = os.environ.get("ELOQ_THIRD_PARTY_PREFIX")
+if not third_party_prefix:
+    if os.path.isdir(local_third_party_prefix):
+        third_party_prefix = local_third_party_prefix
+    else:
+        third_party_prefix = "/opt/eloq/third_party"
 if third_party_prefix:
     third_party_include = os.path.join(third_party_prefix, "include")
     third_party_lib = os.path.join(third_party_prefix, "lib")
