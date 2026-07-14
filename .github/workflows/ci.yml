@@ -17,7 +17,7 @@ jobs:
         arch: [amd64, arm64]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
-      image: eloqdata/eloq-dev-ci-ubuntu2404
+      image: eloqdata/ubuntu-dev:24.04
       options: --user root
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
@@ -40,7 +40,7 @@ jobs:
         with:
           source-dir: ${{ github.workspace }}/eloqdoc
           arch: ${{ matrix.arch }}
-          cache-scope: eloq-dev-ci-ubuntu2404
+          cache-scope: ubuntu-dev
 
   ent-ci:
     needs: prime-third-party
@@ -66,7 +66,7 @@ jobs:
 
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
-      image: eloqdata/eloq-dev-ci-ubuntu2404
+      image: eloqdata/ubuntu-dev:24.04
       options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
 
     name: ${{ github.event_name == 'push' && 'main' || 'PR' }} ${{ matrix.build_type }}-${{ matrix.engine.id }}-${{ matrix.arch }}
@@ -104,7 +104,7 @@ jobs:
         with:
           source-dir: ${{ github.workspace }}/eloqdoc
           arch: ${{ matrix.arch }}
-          cache-scope: eloq-dev-ci-ubuntu2404
+          cache-scope: ubuntu-dev
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.engine.id }})
         env:
