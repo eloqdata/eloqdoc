@@ -115,9 +115,9 @@ private:
         AtomicInt64 logicalBytesIn{0};
         AtomicInt64 requests{0};
     };
-    CacheAligned<Together> _together{};
-    static_assert(sizeof(decltype(_together)) <= stdx::hardware_constructive_interference_size,
+    static_assert(sizeof(Together) <= stdx::hardware_constructive_interference_size,
                   "cache line spill");
+    CacheAligned<Together> _together{};
 
     CacheAligned<AtomicInt64> _logicalBytesOut{0};
 };
