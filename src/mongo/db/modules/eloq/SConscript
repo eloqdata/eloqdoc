@@ -145,7 +145,11 @@ elif data_store_type == DATA_STORE_TYPE_ELOQSTORE:
     ])
 
 env["CPPPATH"].extend(
-    ["$ELOQ_ENGINE_ROOT/data_substrate/eloq_log_service/include"])
+    [
+        "$ELOQ_ENGINE_ROOT/data_substrate/eloq_log_service/include",
+        "$ELOQ_ENGINE_ROOT/data_substrate/third_party/ini",
+    ]
+)
 
 with_log_state_str = os.environ.get("WITH_LOG_STATE", "ROCKSDB").upper()
 if with_log_state_str == "MEMORY":
