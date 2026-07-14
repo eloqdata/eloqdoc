@@ -56,7 +56,7 @@ engine_id() {
   local log_state="$2"
 
   case "${data_store_type}:${log_state}" in
-    ROCKSDB:ROCKSDB) echo "rocksdb" ;;
+    ELOQDSS_ROCKSDB:ROCKSDB) echo "rocksdb" ;;
     ELOQDSS_ROCKSDB_CLOUD_S3:ROCKSDB_CLOUD_S3) echo "rocks_s3" ;;
     ELOQDSS_ELOQSTORE:ROCKSDB_CLOUD_S3) echo "eloqstore_s3" ;;
     *)

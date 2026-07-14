@@ -55,7 +55,7 @@ jobs:
         arch: [amd64, arm64]
         engine:
           - id: rocksdb
-            data_store_type: ROCKSDB
+            data_store_type: ELOQDSS_ROCKSDB
             log_state: ROCKSDB
           - id: rocks_s3
             data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3

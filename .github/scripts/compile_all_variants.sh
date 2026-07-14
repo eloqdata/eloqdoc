@@ -9,7 +9,7 @@ git config --global --add safe.directory '*'
 bash scripts/checkout_product_submodules.sh
 
 VARIANTS=(
-  "rocksdb|ROCKSDB|ROCKSDB"
+  "rocksdb|ELOQDSS_ROCKSDB|ROCKSDB"
   "rocks_s3|ELOQDSS_ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_S3"
   "eloqstore_s3|ELOQDSS_ELOQSTORE|ROCKSDB_CLOUD_S3"
 )
