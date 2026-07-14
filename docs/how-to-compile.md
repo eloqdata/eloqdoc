@@ -14,6 +14,13 @@ bash scripts/install_dependency_ubuntu2404.sh
 
 If you are using another Linux distribution, follow the steps in `install_dependency_ubuntu2404.sh` to install dependencies manually.
 
+EloqDoc still uses the MongoDB 4.0 `scons` build, which requires Python 2.7 and its build-time packages. Ubuntu 24.04 does not provide Python 2.7 through the default apt repositories, so the dependency script installs Python 2.7.18 with `pyenv`. If you use a custom image or install dependencies manually, make sure `python2` and `pip2` are available on `PATH` before building.
+
+```bash
+python2 --version
+pip2 --version
+```
+
 ## 1. Compile EloqDoc-RocksDB
 
 There are two components to compile: EloqDoc and core libraries. EloqDoc is compiled with `scons`, and the core libraries are compiled with `cmake`.
@@ -41,7 +48,7 @@ cmake --install src/mongo/db/modules/eloq/build
 
 ### 1.3 Compile EloqDoc-RocksDB
 
-The `scons` build tool depends on Python 2.7. Switch to a Python 2.7 environment before running `scons`. The `install_dependency-ubuntu2404.sh` script installs Python 2.7.18 and the required packages.
+The `scons` build tool depends on Python 2.7. Switch to a Python 2.7 environment before running `scons`. The `install_dependency_ubuntu2404.sh` script installs Python 2.7.18 and the required packages.
 
 ```bash
 pyenv global 2.7.18

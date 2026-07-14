@@ -37,7 +37,7 @@ setup_python2() {
   fi
 
   if ! command -v python2 >/dev/null 2>&1; then
-    echo "python2 is required to build EloqDoc." >&2
+    echo "python2 is required to build EloqDoc. Install Python 2.7 and ensure python2 is on PATH; see docs/how-to-compile.md." >&2
     exit 1
   fi
   python2 --version
