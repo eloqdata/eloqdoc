@@ -52,6 +52,37 @@ apt_install() {
         apt-get install -y --no-install-recommends "$@"
 }
 
+run_with_failure_log() {
+    local description="$1"
+    shift
+    local safe_name="${description//[^A-Za-z0-9_.-]/_}"
+    local log_file="${TEMP_DIR}/${safe_name}.log"
+    local interval="${CI_HEARTBEAT_INTERVAL_SECONDS:-60}"
+    local pid
+    local status=0
+
+    log_info "${description}"
+    if [ "${ELOQ_VERBOSE_DEPS:-0}" = "1" ]; then
+        "$@"
+        return
+    fi
+
+    "$@" >"${log_file}" 2>&1 &
+    pid=$!
+    while kill -0 "${pid}" 2>/dev/null; do
+        sleep "${interval}" || true
+        if kill -0 "${pid}" 2>/dev/null; then
+            log_info "${description} still running ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+        fi
+    done
+    wait "${pid}" || status=$?
+    if [ "${status}" -ne 0 ]; then
+        log_error "${description} failed; full log follows (${log_file})"
+        cat "${log_file}" >&2 || true
+        return "${status}"
+    fi
+}
+
 configure_timezone() {
     local needs_tz_config=false
     if [ ! -f /etc/timezone ] || ! grep -qE '^(Etc/UTC|UTC)$' /etc/timezone; then
@@ -95,7 +126,7 @@ install_python2() {
         eval "$(pyenv virtualenv-init -)" || true
 
         if ! pyenv versions --bare | grep -qx "2.7.18"; then
-            pyenv install 2.7.18
+            run_with_failure_log "Building Python 2.7.18 with pyenv" pyenv install 2.7.18
         fi
         pyenv global 2.7.18
         hash -r
@@ -107,14 +138,14 @@ install_python2() {
     fi
 
     if ! python2 -m pip --version >/dev/null 2>&1; then
-        log_info "Installing pip for Python 2.7"
         curl -fsSL https://bootstrap.pypa.io/pip/2.7/get-pip.py -o "${TEMP_DIR}/get-pip.py"
-        python2 "${TEMP_DIR}/get-pip.py" 'pip<21' 'setuptools<45' 'wheel<0.38'
+        run_with_failure_log "Installing pip for Python 2.7" \
+            python2 "${TEMP_DIR}/get-pip.py" 'pip<21' 'setuptools<45' 'wheel<0.38'
     fi
 
     python2 --version
-    log_info "Installing Python dependencies from ${SCRIPT_DIR}/buildscripts/requirements.txt"
-    python2 -m pip install --no-cache-dir -r "${SCRIPT_DIR}/buildscripts/requirements.txt"
+    run_with_failure_log "Installing Python dependencies from buildscripts/requirements.txt" \
+        python2 -m pip install --no-cache-dir -r "${SCRIPT_DIR}/buildscripts/requirements.txt"
 }
 
 SKIP_ELOQ_COMMON=false
