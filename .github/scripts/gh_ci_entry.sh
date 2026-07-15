@@ -49,6 +49,7 @@ write_runtime_configs \
   "${BUCKET_PREFIX}"
 
 build_eloqdoc "${BUILD_TYPE}" "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" "${ELOQDOC_INSTALL_PREFIX}"
+cleanup_build_outputs
 
 rm -rf "${ELOQDOC_INSTALL_PREFIX}/data"
 mkdir -p \

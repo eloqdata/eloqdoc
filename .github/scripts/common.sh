@@ -274,9 +274,15 @@ build_eloqdoc() {
   if [ -n "${SCONS_CACHE_DIR:-}" ] && [ -d "${SCONS_CACHE_DIR}" ]; then
     python2 scripts/buildscripts/scons_cache_prune.py \
       --cache-dir="${SCONS_CACHE_DIR}" \
-      --cache-size="${SCONS_CACHE_SIZE_GB:-5}" \
+      --cache-size="${SCONS_CACHE_SIZE_GB:-2}" \
       --prune-ratio="${SCONS_CACHE_PRUNE_RATIO:-0.8}" || true
   fi
+}
+
+cleanup_build_outputs() {
+  rm -rf \
+    "${ELOQDOC_BASE_PATH}/build" \
+    "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build"
 }
 
 start_minio() {
