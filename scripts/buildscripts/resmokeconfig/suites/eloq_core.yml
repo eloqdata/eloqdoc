@@ -60,7 +60,7 @@ selector:
   - tests/jstests/core/basica.js
   - tests/jstests/core/batch_size.js
   - tests/jstests/core/batch_write_collation_estsize.js
-  - tests/jstests/core/batch_write_command_delete.js # It is normal for this test to run slowly.
+  # - tests/jstests/core/batch_write_command_delete.js # Hangs in GitHub Actions EloqDoc CI.
   - tests/jstests/core/batch_write_command_insert.js # It is normal for this test to run slowly.
   - tests/jstests/core/batch_write_command_update.js # It is normal for this test to run slowly.
   - tests/jstests/core/batch_write_command_wc.js

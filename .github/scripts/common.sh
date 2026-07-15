@@ -420,15 +420,18 @@ shutdown_eloqdoc() {
 
 run_jstests() {
   local install_prefix="$1"
+  local timeout_seconds="${JSTEST_TIMEOUT_SECONDS:-3600}"
 
   cd "${ELOQDOC_BASE_PATH}"
-  env LD_LIBRARY_PATH="${install_prefix}/lib:${LD_LIBRARY_PATH:-}" \
-      PATH="${install_prefix}/bin:${PATH}" \
-    python2 scripts/buildscripts/resmoke.py \
-      --mongo="${install_prefix}/bin/eloqdoc-cli" \
-      --suites=eloq_basic,eloq_core \
-      --shellPort=27017 \
-      --continueOnFailure
+  run_with_heartbeat "jstests" \
+    timeout "${timeout_seconds}" \
+      env LD_LIBRARY_PATH="${install_prefix}/lib:${LD_LIBRARY_PATH:-}" \
+        PATH="${install_prefix}/bin:${PATH}" \
+      python2 scripts/buildscripts/resmoke.py \
+        --mongo="${install_prefix}/bin/eloqdoc-cli" \
+        --suites=eloq_basic,eloq_core \
+        --shellPort=27017 \
+        --continueOnFailure
 }
 
 run_tpcc() {
