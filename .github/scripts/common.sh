@@ -29,6 +29,25 @@ export ELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED:-ON}"
 export BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 [ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1
 
+run_with_heartbeat() {
+  local label="$1"
+  shift
+  local interval="${CI_HEARTBEAT_INTERVAL_SECONDS:-60}"
+  local pid
+  local status=0
+
+  "$@" &
+  pid=$!
+  while kill -0 "${pid}" 2>/dev/null; do
+    sleep "${interval}" || true
+    if kill -0 "${pid}" 2>/dev/null; then
+      echo "==> ${label} still running ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+    fi
+  done
+  wait "${pid}" || status=$?
+  return "${status}"
+}
+
 runtime_env() {
   export LD_LIBRARY_PATH="${ELOQ_THIRD_PARTY_PREFIX}/lib:${ELOQ_THIRD_PARTY_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
   export PATH="${ELOQ_THIRD_PARTY_PREFIX}/bin:${PATH}"
@@ -263,7 +282,8 @@ build_eloqdoc() {
 
   start_time=$(date +%s)
   echo "==> Build EloqDoc with SCons (${build_type}, ${data_store_type}, ${log_state})"
-  env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
+  run_with_heartbeat "SCons build (${build_type}, ${data_store_type}, ${log_state})" \
+    env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
       WITH_DATA_STORE="${WITH_DATA_STORE}" \
       WITH_LOG_STATE="${WITH_LOG_STATE}" \
       ELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX}" \
