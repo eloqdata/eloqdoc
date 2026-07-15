@@ -61,8 +61,8 @@ selector:
   - tests/jstests/core/batch_size.js
   - tests/jstests/core/batch_write_collation_estsize.js
   # - tests/jstests/core/batch_write_command_delete.js # Hangs in GitHub Actions EloqDoc CI.
-  - tests/jstests/core/batch_write_command_insert.js # It is normal for this test to run slowly.
-  - tests/jstests/core/batch_write_command_update.js # It is normal for this test to run slowly.
+  # - tests/jstests/core/batch_write_command_insert.js # Hangs in GitHub Actions EloqDoc CI.
+  # - tests/jstests/core/batch_write_command_update.js # Hangs in GitHub Actions EloqDoc CI.
   - tests/jstests/core/batch_write_command_wc.js
   - tests/jstests/core/bench_test1.js
   - tests/jstests/core/bench_test2.js
