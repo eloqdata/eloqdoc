@@ -190,6 +190,7 @@ build_eloqdoc() {
   local data_store_type="$2"
   local log_state="$3"
   local install_prefix="${4:-${ELOQDOC_BASE_PATH}/install}"
+  local start_time
 
   runtime_env
   setup_python2
@@ -199,6 +200,7 @@ build_eloqdoc() {
   mkdir -p "${install_prefix}"
   export DEST_DIR="${install_prefix}"
 
+  echo "==> Configure Eloq module (${build_type}, ${data_store_type}, ${log_state})"
   cmake -G Ninja \
     -S "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq" \
     -B "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build" \
@@ -217,8 +219,16 @@ build_eloqdoc() {
     -DFORK_HM_PROCESS=ON \
     -DELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX}" \
     -DELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED}"
+
+  start_time=$(date +%s)
+  echo "==> Build Eloq module (${build_type}, ${data_store_type}, ${log_state})"
   cmake --build "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build" -j"${BUILD_JOBS}"
+  echo "==> Eloq module build finished in $(( $(date +%s) - start_time ))s"
+
+  start_time=$(date +%s)
+  echo "==> Install Eloq module (${build_type}, ${data_store_type}, ${log_state})"
   cmake --install "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build"
+  echo "==> Eloq module install finished in $(( $(date +%s) - start_time ))s"
 
   export WITH_DATA_STORE="${data_store_type}"
   export WITH_LOG_STATE="${log_state}"
@@ -246,13 +256,20 @@ build_eloqdoc() {
     echo "Using SCons cache at ${SCONS_CACHE_DIR}"
     scons_cache_args=(--cache="${SCONS_CACHE_MODE:-nolinked}" --cache-dir="${SCONS_CACHE_DIR}")
   fi
+  local scons_quiet_args=()
+  if [ "${SCONS_VERBOSE:-0}" != "1" ]; then
+    scons_quiet_args=(--silent)
+  fi
 
+  start_time=$(date +%s)
+  echo "==> Build EloqDoc with SCons (${build_type}, ${data_store_type}, ${log_state})"
   env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
       WITH_DATA_STORE="${WITH_DATA_STORE}" \
       WITH_LOG_STATE="${WITH_LOG_STATE}" \
       ELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX}" \
     python2 scripts/buildscripts/scons.py \
       "${scons_cache_args[@]}" \
+      "${scons_quiet_args[@]}" \
       MONGO_VERSION=4.0.3 \
       VARIANT_DIR="${build_type}" \
       CFLAGS="${scons_cflags}" \
@@ -270,8 +287,10 @@ build_eloqdoc() {
       --disable-warnings-as-errors \
       -j"${BUILD_JOBS}" \
       install-core
+  echo "==> SCons build finished in $(( $(date +%s) - start_time ))s"
 
   if [ -n "${SCONS_CACHE_DIR:-}" ] && [ -d "${SCONS_CACHE_DIR}" ]; then
+    echo "==> Prune SCons cache (${SCONS_CACHE_DIR})"
     python2 scripts/buildscripts/scons_cache_prune.py \
       --cache-dir="${SCONS_CACHE_DIR}" \
       --cache-size="${SCONS_CACHE_SIZE_GB:-2}" \
