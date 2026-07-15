@@ -575,7 +575,7 @@ selector:
   - tests/jstests/core/json_schema/required.js
   - tests/jstests/core/json_schema/unique_items.js
   - tests/jstests/core/jssymbol.js
-  - tests/jstests/core/kill_cursors.js
+  # - tests/jstests/core/kill_cursors.js # Triggers an EloqDoc SIGSEGV in GitHub Actions RocksDB Cloud S3 Debug CI.
   - tests/jstests/core/killop_drop_collection.js
   # - tests/jstests/core/list_all_local_cursors.js # 11: Unrecognized pipeline stage name: '$listLocalCursors'
   - tests/jstests/core/list_all_local_sessions.js

@@ -436,20 +436,28 @@ run_jstests() {
 
 run_tpcc() {
   local install_prefix="$1"
+  local tpcc_venv="${install_prefix}/tpcc-venv"
+  local tpcc_python="${tpcc_venv}/bin/python"
+  local tpcc_duration="${TPCC_DURATION_SECONDS:-600}"
+  local tpcc_status=0
 
   if [ ! -d "${PY_TPCC_PATH}/pytpcc" ]; then
     echo "py-tpcc checkout not found at ${PY_TPCC_PATH}" >&2
     return 1
   fi
 
+  python3 -m venv "${tpcc_venv}"
+  "${tpcc_python}" -m pip install --disable-pip-version-check --no-cache-dir pymongo==4.13.2
+
   cd "${PY_TPCC_PATH}/pytpcc"
-  pip3 install pymongo==4.13.2
   ln -sfn "${ELOQDOC_BASE_PATH}/concourse/scripts/pytpcc.cfg" mongodb.config
-  python3 tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
-  python3 tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb
-  python3 tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 \
-    --duration "${TPCC_DURATION_SECONDS:-600}" mongodb >./tpcc-run.log 2>&1
-  tail -n 1000 ./tpcc-run.log
+  "${tpcc_python}" tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
+  "${tpcc_python}" tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb
+  run_with_heartbeat "tpcc benchmark" bash -c \
+    '"$1" tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 --duration "$2" mongodb >./tpcc-run.log 2>&1' \
+    bash "${tpcc_python}" "${tpcc_duration}" || tpcc_status=$?
+  tail -n 1000 ./tpcc-run.log || true
+  return "${tpcc_status}"
 }
 
 dump_ci_failure_logs() {
