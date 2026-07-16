@@ -210,7 +210,7 @@ selector:
   - tests/jstests/core/eval_wait_for_read_write_concern.js
   - tests/jstests/core/evala.js
   # - tests/jstests/core/evalb.js 53: # 42: CommandNotSupported, the storage engine doesn't support profiling.
-  - tests/jstests/core/evald.js
+  # - tests/jstests/core/evald.js # Hangs in GitHub Actions Debug eloqstore_s3 CI.
   - tests/jstests/core/evale.js
   - tests/jstests/core/evalg.js
   - tests/jstests/core/evalh.js
@@ -956,7 +956,7 @@ selector:
   - tests/jstests/core/where4.js
   - tests/jstests/core/where5.js
   - tests/jstests/core/write_commands_reject_unknown_fields.js
-  - tests/jstests/core/write_result.js
+  # - tests/jstests/core/write_result.js # Hangs in GitHub Actions rocks_s3 arm64 CI.
   # - tests/jstests/core_standalone/read_concern.js # expected majority readConcern to fail on standalone mongod
   - tests/jstests/core_standalone/write_concern.js
   # - Tests that would be excluded from suite core_eloq
