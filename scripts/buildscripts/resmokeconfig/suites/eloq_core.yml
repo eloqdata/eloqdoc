@@ -401,7 +401,7 @@ selector:
   - tests/jstests/core/geo_s2largewithin.js
   - tests/jstests/core/geo_s2meridian.js
   - tests/jstests/core/geo_s2multi.js
-  - tests/jstests/core/geo_s2near.js
+  # - tests/jstests/core/geo_s2near.js # Triggers SIGSEGV in GitHub Actions Debug RocksDB arm64 CI.
   - tests/jstests/core/geo_s2near_equator_opposite.js
   - tests/jstests/core/geo_s2nearComplex.js
   - tests/jstests/core/geo_s2nearcorrect.js
