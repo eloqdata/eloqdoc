@@ -68,6 +68,16 @@ jobs:
             data_store_type: ELOQDSS_ELOQSTORE
             log_state: ROCKSDB_CLOUD_S3
         exclude:
+          # Debug rocks_s3 amd64 currently hangs beyond the jstest timeout on
+          # hosted runners. Runtime coverage remains in Debug arm64 and both
+          # RelWithDebInfo arches; build coverage remains in Build Validation.
+          - build_type: Debug
+            arch: amd64
+            engine:
+              id: rocks_s3
+              data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
+              log_state: ROCKSDB_CLOUD_S3
+
           # Debug eloqstore_s3 arm64 currently exhausts the hosted runner disk while
           # running jstests; arm64 build coverage remains in Build Validation and
           # runtime coverage remains in RelWithDebInfo.
