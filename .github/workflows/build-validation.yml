@@ -97,17 +97,7 @@ jobs:
           arch: ${{ matrix.arch }}
           cache-scope: bare-ubuntu
 
-      - name: Restore SCons cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.scons-cache/bare-ubuntu/${{ matrix.arch }}/RelWithDebInfo
-          key: scons-bare-ubuntu-${{ matrix.arch }}-RelWithDebInfo-${{ github.event.pull_request.head.sha || github.sha }}
-          restore-keys: |
-            scons-bare-ubuntu-${{ matrix.arch }}-RelWithDebInfo-
-
       - name: Compile all variants
-        env:
-          SCONS_CACHE_DIR: ${{ github.workspace }}/.scons-cache/bare-ubuntu/${{ matrix.arch }}/RelWithDebInfo
         run: |
           git config --global --add safe.directory '*'
           bash .github/scripts/compile_all_variants.sh
