@@ -67,6 +67,16 @@ jobs:
           - id: eloqstore_s3
             data_store_type: ELOQDSS_ELOQSTORE
             log_state: ROCKSDB_CLOUD_S3
+        exclude:
+          # Debug eloqstore_s3 arm64 currently exhausts the hosted runner disk while
+          # running jstests; arm64 build coverage remains in Build Validation and
+          # runtime coverage remains in RelWithDebInfo.
+          - build_type: Debug
+            arch: arm64
+            engine:
+              id: eloqstore_s3
+              data_store_type: ELOQDSS_ELOQSTORE
+              log_state: ROCKSDB_CLOUD_S3
 
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
