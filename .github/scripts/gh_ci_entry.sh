@@ -34,7 +34,7 @@ fi
 
 RUN_DIR="${ELOQDOC_BASE_PATH}/.github/runtime/${BUILD_TYPE}-${ENGINE_ID}"
 BUCKET_ENGINE_ID="${ENGINE_ID//_/-}"
-BUCKET_NAME="eloqdoc-${CI_MODE}-${BUCKET_ENGINE_ID}-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
+BASE_BUCKET_NAME="eloqdoc-${CI_MODE}-${BUCKET_ENGINE_ID}-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
 BUCKET_PREFIX="gh-"
 
 write_runtime_configs \
@@ -45,7 +45,7 @@ write_runtime_configs \
   "${MINIO_ENDPOINT}" \
   "${MINIO_ACCESS_KEY}" \
   "${MINIO_SECRET_KEY}" \
-  "${BUCKET_NAME}" \
+  "${BASE_BUCKET_NAME}-jstests" \
   "${BUCKET_PREFIX}"
 
 build_eloqdoc "${BUILD_TYPE}" "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" "${ELOQDOC_INSTALL_PREFIX}"
@@ -62,6 +62,16 @@ wait_for_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
 run_jstests "${ELOQDOC_INSTALL_PREFIX}"
 
 shutdown_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
+write_runtime_configs \
+  "${DATA_STORE_TYPE}" \
+  "${WITH_LOG_STATE}" \
+  "${RUN_DIR}" \
+  "${ELOQDOC_INSTALL_PREFIX}" \
+  "${MINIO_ENDPOINT}" \
+  "${MINIO_ACCESS_KEY}" \
+  "${MINIO_SECRET_KEY}" \
+  "${BASE_BUCKET_NAME}-tpcc" \
+  "${BUCKET_PREFIX}"
 rm -rf "${ELOQDOC_INSTALL_PREFIX}/data"
 mkdir -p \
   "${ELOQDOC_INSTALL_PREFIX}/data/mongo" \
