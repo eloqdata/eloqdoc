@@ -372,7 +372,7 @@ selector:
   - tests/jstests/core/geo_multinest0.js
   - tests/jstests/core/geo_multinest1.js
   - tests/jstests/core/geo_near_random1.js
-  - tests/jstests/core/geo_near_random2.js
+  # - tests/jstests/core/geo_near_random2.js # Triggers an EloqDoc shutdown in GitHub Actions RocksDB arm64 Debug CI.
   - tests/jstests/core/geo_nearwithin.js
   - tests/jstests/core/geo_oob_sphere.js
   - tests/jstests/core/geo_operator_crs.js

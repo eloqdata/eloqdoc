@@ -111,6 +111,7 @@ jobs:
           cache-scope: ubuntu-dev
 
       - name: Restore SCons cache
+        if: matrix.build_type != 'Debug'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.scons-cache/ubuntu-dev/${{ matrix.arch }}/${{ matrix.build_type }}
@@ -130,6 +131,10 @@ jobs:
           SCONS_CACHE_DIR: ${{ github.workspace }}/.scons-cache/ubuntu-dev/${{ matrix.arch }}/${{ matrix.build_type }}
           SCONS_CACHE_SIZE_GB: 1
         run: |
+          if [ "$BUILD_TYPE" = "Debug" ]; then
+            unset SCONS_CACHE_DIR
+            echo "Debug build: SCons cache disabled to keep runner disk usage bounded."
+          fi
           NPROC=$(nproc)
           if [ "$BUILD_TYPE" = "Debug" ]; then
             export BUILD_JOBS=$NPROC
