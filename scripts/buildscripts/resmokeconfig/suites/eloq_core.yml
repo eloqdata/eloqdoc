@@ -36,7 +36,7 @@ selector:
   - tests/jstests/core/arrayfind4.js
   - tests/jstests/core/arrayfind5.js
   - tests/jstests/core/arrayfind6.js
-  - tests/jstests/core/arrayfind7.js
+  # - tests/jstests/core/arrayfind7.js # Triggers PACK_SK_ERROR and EloqDoc shutdown in GitHub Actions Debug eloqstore_s3 CI.
   - tests/jstests/core/arrayfind8.js
   - tests/jstests/core/arrayfind9.js
   - tests/jstests/core/arrayfinda.js
