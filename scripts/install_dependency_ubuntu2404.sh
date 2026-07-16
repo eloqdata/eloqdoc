@@ -53,6 +53,7 @@ apt_get_with_retry() {
 
     until run_privileged env DEBIAN_FRONTEND=noninteractive \
         apt-get \
+            -o APT::Update::Error-Mode=any \
             -o Acquire::Retries=5 \
             -o Acquire::http::Timeout=30 \
             -o Acquire::https::Timeout=30 \
