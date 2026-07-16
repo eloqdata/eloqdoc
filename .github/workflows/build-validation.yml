@@ -38,9 +38,31 @@ jobs:
       PYENV_ROOT: /opt/pyenv
     steps:
       - name: Bootstrap checkout tools
+        shell: bash
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends git ca-certificates sudo openssh-client tar zstd
+          set -euo pipefail
+          apt_with_retry() {
+            local attempt=1
+            local max_attempts=5
+            local delay=15
+
+            until apt-get \
+              -o Acquire::Retries=5 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              "$@"; do
+              if [ "${attempt}" -ge "${max_attempts}" ]; then
+                return 1
+              fi
+              echo "apt-get $* failed; retrying in ${delay}s (${attempt}/${max_attempts})"
+              sleep "${delay}"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
+
+          apt_with_retry update
+          apt_with_retry install -y --no-install-recommends git ca-certificates sudo openssh-client tar zstd
 
       - uses: actions/checkout@v4
         with:

@@ -46,10 +46,30 @@ run_privileged() {
     fi
 }
 
+apt_get_with_retry() {
+    local attempt=1
+    local max_attempts="${APT_RETRY_ATTEMPTS:-5}"
+    local delay="${APT_RETRY_DELAY_SECONDS:-15}"
+
+    until run_privileged env DEBIAN_FRONTEND=noninteractive \
+        apt-get \
+            -o Acquire::Retries=5 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            "$@"; do
+        if [ "${attempt}" -ge "${max_attempts}" ]; then
+            return 1
+        fi
+        log_warning "apt-get $* failed; retrying in ${delay}s (${attempt}/${max_attempts})"
+        sleep "${delay}"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+}
+
 apt_install() {
-    run_privileged apt-get update
-    run_privileged env DEBIAN_FRONTEND=noninteractive \
-        apt-get install -y --no-install-recommends "$@"
+    apt_get_with_retry update
+    apt_get_with_retry install -y --no-install-recommends "$@"
 }
 
 run_with_failure_log() {
