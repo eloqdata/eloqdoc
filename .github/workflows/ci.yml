@@ -124,6 +124,7 @@ jobs:
           MINIO_ACCESS_KEY: minioadmin
           MINIO_SECRET_KEY: minioadmin
           BUILD_TYPE: ${{ matrix.build_type }}
+          ENGINE_ID: ${{ matrix.engine.id }}
           CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
           NODE_MEMORY_LIMIT_MB: 2048
           SCONS_CACHE_DIR: ${{ github.workspace }}/.scons-cache/ubuntu-dev/${{ matrix.arch }}/${{ matrix.build_type }}
@@ -131,9 +132,11 @@ jobs:
           NPROC=$(nproc)
           if [ "$BUILD_TYPE" = "Debug" ]; then
             export BUILD_JOBS=$NPROC
-            export JSTEST_TIMEOUT_SECONDS=7200
           else
             export BUILD_JOBS=$(( (NPROC + 1) / 2 ))
+          fi
+          if [ "$BUILD_TYPE" = "Debug" ] || [ "$ENGINE_ID" = "eloqstore_s3" ]; then
+            export JSTEST_TIMEOUT_SECONDS=7200
           fi
           bash ./eloqdoc/.github/scripts/gh_ci_entry.sh \
             "$MINIO_ENDPOINT" \
