@@ -128,6 +128,7 @@ jobs:
           CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
           NODE_MEMORY_LIMIT_MB: 2048
           SCONS_CACHE_DIR: ${{ github.workspace }}/.scons-cache/ubuntu-dev/${{ matrix.arch }}/${{ matrix.build_type }}
+          SCONS_CACHE_SIZE_GB: 1
         run: |
           NPROC=$(nproc)
           if [ "$BUILD_TYPE" = "Debug" ]; then

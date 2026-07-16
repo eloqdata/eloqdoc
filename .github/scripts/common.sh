@@ -29,6 +29,12 @@ export ELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED:-ON}"
 export BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 [ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1
 
+log_disk_usage() {
+  local label="${1:-disk usage}"
+  echo "==> Disk usage (${label})"
+  df -h "${GITHUB_WORKSPACE:-.}" /tmp 2>/dev/null || df -h
+}
+
 run_with_heartbeat() {
   local label="$1"
   shift
@@ -239,6 +245,8 @@ build_eloqdoc() {
     -DELOQ_THIRD_PARTY_PREFIX="${ELOQ_THIRD_PARTY_PREFIX}" \
     -DELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED}"
 
+  log_disk_usage "before build"
+
   start_time=$(date +%s)
   echo "==> Build Eloq module (${build_type}, ${data_store_type}, ${log_state})"
   cmake --build "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build" -j"${BUILD_JOBS}"
@@ -316,12 +324,14 @@ build_eloqdoc() {
       --cache-size="${SCONS_CACHE_SIZE_GB:-2}" \
       --prune-ratio="${SCONS_CACHE_PRUNE_RATIO:-0.8}" || true
   fi
+  log_disk_usage "after build"
 }
 
 cleanup_build_outputs() {
   rm -rf \
     "${ELOQDOC_BASE_PATH}/build" \
     "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build"
+  log_disk_usage "after build cleanup"
 }
 
 start_minio() {
@@ -466,6 +476,7 @@ dump_ci_failure_logs() {
   local install_prefix="${ELOQDOC_INSTALL_PREFIX:-${ELOQDOC_BASE_PATH}/install}"
 
   echo "CI failed with rc=${rc}; command=${failed_command}"
+  log_disk_usage "failure"
   if [ -d "${install_prefix}/log" ]; then
     find "${install_prefix}/log" -maxdepth 1 -type f -print -exec sh -c \
       'echo "===== $1 ====="; tail -n 300 "$1" || true' sh {} \;
