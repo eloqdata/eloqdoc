@@ -131,6 +131,7 @@ jobs:
           NPROC=$(nproc)
           if [ "$BUILD_TYPE" = "Debug" ]; then
             export BUILD_JOBS=$NPROC
+            export JSTEST_TIMEOUT_SECONDS=7200
           else
             export BUILD_JOBS=$(( (NPROC + 1) / 2 ))
           fi
