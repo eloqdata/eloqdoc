@@ -562,7 +562,7 @@ selector:
   - tests/jstests/core/js_jit.js
   - tests/jstests/core/json1.js
   - tests/jstests/core/json_schema/additional_items.js
-  - tests/jstests/core/json_schema/additional_properties.js
+  # - tests/jstests/core/json_schema/additional_properties.js # Triggers an EloqDoc shutdown in GitHub Actions eloqstore_s3 arm64 Debug CI.
   - tests/jstests/core/json_schema/bsontype.js
   - tests/jstests/core/json_schema/dependencies.js
   - tests/jstests/core/json_schema/items.js
