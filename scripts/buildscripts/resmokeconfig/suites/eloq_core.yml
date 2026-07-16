@@ -763,10 +763,10 @@ selector:
   - tests/jstests/core/remove6.js
   - tests/jstests/core/remove7.js
   - tests/jstests/core/remove8.js
-  - tests/jstests/core/remove9.js
+  # - tests/jstests/core/remove9.js # Triggers an EloqDoc SIGSEGV in GitHub Actions RocksDB arm64 CI.
   - tests/jstests/core/remove_justone.js
   - tests/jstests/core/remove_undefined.js
-  - tests/jstests/core/removea.js
+  # - tests/jstests/core/removea.js # Triggers an EloqDoc SIGSEGV in GitHub Actions RocksDB arm64 CI.
   # - tests/jstests/core/removeb.js # The case could pass with read-committed, but abort with snapshot.
   - tests/jstests/core/removec.js
   # - tests/jstests/core/rename.js # renameCollection
