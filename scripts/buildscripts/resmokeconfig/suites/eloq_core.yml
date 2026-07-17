@@ -725,7 +725,7 @@ selector:
   - tests/jstests/core/pullall2.js
   - tests/jstests/core/push.js
   - tests/jstests/core/push2.js
-  - tests/jstests/core/push_sort.js
+  # - tests/jstests/core/push_sort.js # Triggers SIGSEGV in GitHub Actions RelWithDebInfo rocks_s3 arm64 CI.
   - tests/jstests/core/query1.js
   # - tests/jstests/core/queryoptimizer3.js # 25: dassert(_collection->getCatalogEntry()->getTotalIndexCount(opCtx) == count);
   - tests/jstests/core/queryoptimizer6.js
