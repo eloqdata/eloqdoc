@@ -100,7 +100,7 @@ selector:
   # - tests/jstests/core/collection_truncate.js # 10: no such command: 'emptycapped'
   - tests/jstests/core/collmod.js
   - tests/jstests/core/collmod_bad_spec.js
-  - tests/jstests/core/collmod_without_uuid.js
+  # - tests/jstests/core/collmod_without_uuid.js # Triggers SIGSEGV in GitHub Actions Debug rocks_s3 arm64 CI.
   # - tests/jstests/core/commands_namespace_parsing.js  # 164: no such command: 'godinsert'
   - tests/jstests/core/commands_that_do_not_write_do_not_accept_wc.js
   - tests/jstests/core/commands_with_uuid.js
