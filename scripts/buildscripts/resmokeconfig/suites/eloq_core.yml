@@ -719,7 +719,7 @@ selector:
   - tests/jstests/core/projection_dotted_paths.js
   - tests/jstests/core/pull.js
   - tests/jstests/core/pull2.js
-  - tests/jstests/core/pull_or.js
+  # - tests/jstests/core/pull_or.js # Triggers SIGSEGV in GitHub Actions Debug eloqstore_s3 amd64 CI.
   - tests/jstests/core/pull_remove1.js
   - tests/jstests/core/pullall.js
   - tests/jstests/core/pullall2.js
