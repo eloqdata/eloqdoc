@@ -277,7 +277,7 @@ selector:
   - tests/jstests/core/find_and_modify_server6865.js
   - tests/jstests/core/find_and_modify_server6909.js
   - tests/jstests/core/find_and_modify_server6993.js
-  - tests/jstests/core/find_and_modify_server7660.js
+  # - tests/jstests/core/find_and_modify_server7660.js # Triggers an EloqDoc SIGSEGV in GitHub Actions Debug RocksDB amd64 CI.
   - tests/jstests/core/find_and_modify_where.js
   - tests/jstests/core/find_dedup.js
   - tests/jstests/core/find_getmore_bsonsize.js
