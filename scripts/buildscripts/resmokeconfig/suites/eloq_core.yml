@@ -528,7 +528,7 @@ selector:
   - tests/jstests/core/indexc.js
   - tests/jstests/core/indexd.js
   - tests/jstests/core/indexe.js
-  - tests/jstests/core/indexes_multiple_commands.js
+  # - tests/jstests/core/indexes_multiple_commands.js # Triggers an EloqDoc SIGSEGV in GitHub Actions Debug rocks_s3 arm64 CI.
   - tests/jstests/core/indexes_on_indexes.js
   - tests/jstests/core/indexf.js
   - tests/jstests/core/indexg.js
