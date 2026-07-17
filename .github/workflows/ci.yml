@@ -89,6 +89,7 @@ jobs:
               log_state: ROCKSDB_CLOUD_S3
 
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 240
     container:
       image: eloqdata/ubuntu-dev:24.04
       options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
@@ -103,6 +104,9 @@ jobs:
       LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
       SCONS_CACHE_DIR: ${{ github.workspace }}/scons-cache
       SCONS_CACHE_SIZE_GB: 2
+      CMAKE_BUILD_TIMEOUT_SECONDS: 3600
+      SCONS_BUILD_TIMEOUT_SECONDS: 7200
+      TPCC_TIMEOUT_SECONDS: 1200
 
     steps:
       - uses: actions/checkout@v4

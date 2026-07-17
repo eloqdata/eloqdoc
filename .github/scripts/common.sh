@@ -28,6 +28,9 @@ fi
 export ELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED:-ON}"
 export BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 [ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1
+export CMAKE_BUILD_TIMEOUT_SECONDS="${CMAKE_BUILD_TIMEOUT_SECONDS:-3600}"
+export SCONS_BUILD_TIMEOUT_SECONDS="${SCONS_BUILD_TIMEOUT_SECONDS:-7200}"
+export TPCC_TIMEOUT_SECONDS="${TPCC_TIMEOUT_SECONDS:-1200}"
 
 log_disk_usage() {
   local label="${1:-disk usage}"
@@ -249,7 +252,8 @@ build_eloqdoc() {
 
   start_time=$(date +%s)
   echo "==> Build Eloq module (${build_type}, ${data_store_type}, ${log_state})"
-  cmake --build "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build" -j"${BUILD_JOBS}"
+  timeout --kill-after=60s "${CMAKE_BUILD_TIMEOUT_SECONDS}" \
+    cmake --build "${ELOQDOC_BASE_PATH}/src/mongo/db/modules/eloq/build" -j"${BUILD_JOBS}"
   echo "==> Eloq module build finished in $(( $(date +%s) - start_time ))s"
 
   start_time=$(date +%s)
@@ -291,6 +295,7 @@ build_eloqdoc() {
   start_time=$(date +%s)
   echo "==> Build EloqDoc with SCons (${build_type}, ${data_store_type}, ${log_state})"
   run_with_heartbeat "SCons build (${build_type}, ${data_store_type}, ${log_state})" \
+    timeout --kill-after=60s "${SCONS_BUILD_TIMEOUT_SECONDS}" \
     env FORK_HM_PROCESS="${FORK_HM_PROCESS}" \
       WITH_DATA_STORE="${WITH_DATA_STORE}" \
       WITH_LOG_STATE="${WITH_LOG_STATE}" \
@@ -449,6 +454,7 @@ run_tpcc() {
   local tpcc_venv="${install_prefix}/tpcc-venv"
   local tpcc_python="${tpcc_venv}/bin/python"
   local tpcc_duration="${TPCC_DURATION_SECONDS:-600}"
+  local tpcc_timeout="${TPCC_TIMEOUT_SECONDS:-1200}"
   local tpcc_status=0
 
   if [ ! -d "${PY_TPCC_PATH}/pytpcc" ]; then
@@ -463,7 +469,7 @@ run_tpcc() {
   ln -sfn "${ELOQDOC_BASE_PATH}/concourse/scripts/pytpcc.cfg" mongodb.config
   "${tpcc_python}" tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
   "${tpcc_python}" tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb
-  run_with_heartbeat "tpcc benchmark" bash -c \
+  run_with_heartbeat "tpcc benchmark" timeout --kill-after=60s "${tpcc_timeout}" bash -c \
     '"$1" tpcc.py --config=mongodb.config --no-load --warehouses 2 --clients 10 --duration "$2" mongodb >./tpcc-run.log 2>&1' \
     bash "${tpcc_python}" "${tpcc_duration}" || tpcc_status=$?
   tail -n 1000 ./tpcc-run.log || true
