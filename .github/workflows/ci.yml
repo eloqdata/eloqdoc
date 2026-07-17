@@ -101,6 +101,8 @@ jobs:
       CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
       CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
       LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
+      SCONS_CACHE_DIR: ${{ github.workspace }}/scons-cache
+      SCONS_CACHE_SIZE_GB: 2
 
     steps:
       - uses: actions/checkout@v4
@@ -129,6 +131,14 @@ jobs:
           source-dir: ${{ github.workspace }}/eloqdoc
           arch: ${{ matrix.arch }}
           cache-scope: ubuntu-dev
+
+      - name: Restore SCons cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/scons-cache
+          key: eloqdoc-scons-${{ matrix.arch }}-${{ matrix.build_type }}-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: |
+            eloqdoc-scons-${{ matrix.arch }}-${{ matrix.build_type }}-
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.engine.id }})
         env:

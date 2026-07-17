@@ -36,6 +36,8 @@ jobs:
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
       PYENV_ROOT: /opt/pyenv
+      SCONS_CACHE_DIR: ${{ github.workspace }}/scons-cache
+      SCONS_CACHE_SIZE_GB: 2
     steps:
       - name: Bootstrap checkout tools
         shell: bash
@@ -96,6 +98,14 @@ jobs:
           source-dir: ${{ github.workspace }}
           arch: ${{ matrix.arch }}
           cache-scope: bare-ubuntu
+
+      - name: Restore SCons cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/scons-cache
+          key: eloqdoc-scons-${{ matrix.arch }}-RelWithDebInfo-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: |
+            eloqdoc-scons-${{ matrix.arch }}-RelWithDebInfo-
 
       - name: Compile all variants
         run: |
