@@ -149,7 +149,7 @@ jobs:
           ENGINE_ID: ${{ matrix.engine.id }}
           ARCH: ${{ matrix.arch }}
           CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-          NODE_MEMORY_LIMIT_MB: 2048
+          NODE_MEMORY_LIMIT_MB: 4000
         run: |
           NPROC=$(nproc)
           if [ "$BUILD_TYPE" = "Debug" ]; then
