@@ -36,7 +36,7 @@ selector:
   - tests/jstests/core/arrayfind4.js
   - tests/jstests/core/arrayfind5.js
   - tests/jstests/core/arrayfind6.js
-  # - tests/jstests/core/arrayfind7.js # Triggers PACK_SK_ERROR and EloqDoc shutdown in GitHub Actions Debug eloqstore_s3 CI.
+  - tests/jstests/core/arrayfind7.js
   - tests/jstests/core/arrayfind8.js
   - tests/jstests/core/arrayfind9.js
   - tests/jstests/core/arrayfinda.js
@@ -60,9 +60,9 @@ selector:
   - tests/jstests/core/basica.js
   - tests/jstests/core/batch_size.js
   - tests/jstests/core/batch_write_collation_estsize.js
-  # - tests/jstests/core/batch_write_command_delete.js # Hangs in GitHub Actions EloqDoc CI.
-  # - tests/jstests/core/batch_write_command_insert.js # Hangs in GitHub Actions EloqDoc CI.
-  # - tests/jstests/core/batch_write_command_update.js # Hangs in GitHub Actions EloqDoc CI.
+  - tests/jstests/core/batch_write_command_delete.js
+  - tests/jstests/core/batch_write_command_insert.js
+  - tests/jstests/core/batch_write_command_update.js
   - tests/jstests/core/batch_write_command_wc.js
   - tests/jstests/core/bench_test1.js
   - tests/jstests/core/bench_test2.js
@@ -100,7 +100,7 @@ selector:
   # - tests/jstests/core/collection_truncate.js # 10: no such command: 'emptycapped'
   - tests/jstests/core/collmod.js
   - tests/jstests/core/collmod_bad_spec.js
-  # - tests/jstests/core/collmod_without_uuid.js # Triggers SIGSEGV in GitHub Actions Debug rocks_s3 arm64 CI.
+  - tests/jstests/core/collmod_without_uuid.js
   # - tests/jstests/core/commands_namespace_parsing.js  # 164: no such command: 'godinsert'
   - tests/jstests/core/commands_that_do_not_write_do_not_accept_wc.js
   - tests/jstests/core/commands_with_uuid.js
@@ -210,7 +210,7 @@ selector:
   - tests/jstests/core/eval_wait_for_read_write_concern.js
   - tests/jstests/core/evala.js
   # - tests/jstests/core/evalb.js 53: # 42: CommandNotSupported, the storage engine doesn't support profiling.
-  # - tests/jstests/core/evald.js # Hangs in GitHub Actions Debug eloqstore_s3 CI.
+  - tests/jstests/core/evald.js
   - tests/jstests/core/evale.js
   - tests/jstests/core/evalg.js
   - tests/jstests/core/evalh.js
@@ -277,7 +277,7 @@ selector:
   - tests/jstests/core/find_and_modify_server6865.js
   - tests/jstests/core/find_and_modify_server6909.js
   - tests/jstests/core/find_and_modify_server6993.js
-  # - tests/jstests/core/find_and_modify_server7660.js # Triggers an EloqDoc SIGSEGV in GitHub Actions Debug RocksDB amd64 CI.
+  - tests/jstests/core/find_and_modify_server7660.js
   - tests/jstests/core/find_and_modify_where.js
   - tests/jstests/core/find_dedup.js
   - tests/jstests/core/find_getmore_bsonsize.js
@@ -353,7 +353,7 @@ selector:
   - tests/jstests/core/geo_circle4.js
   - tests/jstests/core/geo_circle5.js
   - tests/jstests/core/geo_distinct.js
-  # - tests/jstests/core/geo_exactfetch.js # Triggers SIGSEGV in GitHub Actions RelWithDebInfo rocks_s3 arm64 CI.
+  - tests/jstests/core/geo_exactfetch.js
   - tests/jstests/core/geo_fiddly_box.js
   - tests/jstests/core/geo_fiddly_box2.js
   - tests/jstests/core/geo_group.js
@@ -372,7 +372,7 @@ selector:
   - tests/jstests/core/geo_multinest0.js
   - tests/jstests/core/geo_multinest1.js
   - tests/jstests/core/geo_near_random1.js
-  # - tests/jstests/core/geo_near_random2.js # Triggers an EloqDoc shutdown in GitHub Actions RocksDB arm64 Debug CI.
+  - tests/jstests/core/geo_near_random2.js
   - tests/jstests/core/geo_nearwithin.js
   - tests/jstests/core/geo_oob_sphere.js
   - tests/jstests/core/geo_operator_crs.js
@@ -382,7 +382,7 @@ selector:
   - tests/jstests/core/geo_polygon1.js
   - tests/jstests/core/geo_polygon1_noindex.js
   - tests/jstests/core/geo_polygon2.js
-  # - tests/jstests/core/geo_polygon3.js # Triggers an EloqDoc shutdown in GitHub Actions RelWithDebInfo eloqstore_s3 arm64 CI.
+  - tests/jstests/core/geo_polygon3.js
   - tests/jstests/core/geo_queryoptimizer.js
   - tests/jstests/core/geo_regex0.js
   # - tests/jstests/core/geo_s2cursorlimitskip.js # 61: Unsupported feature. Do not set the value of capped field to true.
@@ -401,7 +401,7 @@ selector:
   - tests/jstests/core/geo_s2largewithin.js
   - tests/jstests/core/geo_s2meridian.js
   - tests/jstests/core/geo_s2multi.js
-  # - tests/jstests/core/geo_s2near.js # Triggers SIGSEGV in GitHub Actions Debug RocksDB arm64 CI.
+  - tests/jstests/core/geo_s2near.js
   - tests/jstests/core/geo_s2near_equator_opposite.js
   - tests/jstests/core/geo_s2nearComplex.js
   - tests/jstests/core/geo_s2nearcorrect.js
@@ -528,7 +528,7 @@ selector:
   - tests/jstests/core/indexc.js
   - tests/jstests/core/indexd.js
   - tests/jstests/core/indexe.js
-  # - tests/jstests/core/indexes_multiple_commands.js # Triggers an EloqDoc SIGSEGV in GitHub Actions Debug rocks_s3 arm64 CI.
+  - tests/jstests/core/indexes_multiple_commands.js
   - tests/jstests/core/indexes_on_indexes.js
   - tests/jstests/core/indexf.js
   - tests/jstests/core/indexg.js
@@ -562,7 +562,7 @@ selector:
   - tests/jstests/core/js_jit.js
   - tests/jstests/core/json1.js
   - tests/jstests/core/json_schema/additional_items.js
-  # - tests/jstests/core/json_schema/additional_properties.js # Triggers an EloqDoc shutdown in GitHub Actions eloqstore_s3 arm64 Debug CI.
+  - tests/jstests/core/json_schema/additional_properties.js
   - tests/jstests/core/json_schema/bsontype.js
   - tests/jstests/core/json_schema/dependencies.js
   - tests/jstests/core/json_schema/items.js
@@ -575,7 +575,7 @@ selector:
   - tests/jstests/core/json_schema/required.js
   - tests/jstests/core/json_schema/unique_items.js
   - tests/jstests/core/jssymbol.js
-  # - tests/jstests/core/kill_cursors.js # Triggers an EloqDoc SIGSEGV in GitHub Actions RocksDB Cloud S3 Debug CI.
+  - tests/jstests/core/kill_cursors.js
   - tests/jstests/core/killop_drop_collection.js
   # - tests/jstests/core/list_all_local_cursors.js # 11: Unrecognized pipeline stage name: '$listLocalCursors'
   - tests/jstests/core/list_all_local_sessions.js
@@ -719,13 +719,13 @@ selector:
   - tests/jstests/core/projection_dotted_paths.js
   - tests/jstests/core/pull.js
   - tests/jstests/core/pull2.js
-  # - tests/jstests/core/pull_or.js # Triggers SIGSEGV in GitHub Actions Debug eloqstore_s3 amd64 CI.
+  - tests/jstests/core/pull_or.js
   - tests/jstests/core/pull_remove1.js
   - tests/jstests/core/pullall.js
   - tests/jstests/core/pullall2.js
   - tests/jstests/core/push.js
   - tests/jstests/core/push2.js
-  # - tests/jstests/core/push_sort.js # Triggers SIGSEGV in GitHub Actions RelWithDebInfo rocks_s3 arm64 CI.
+  - tests/jstests/core/push_sort.js
   - tests/jstests/core/query1.js
   # - tests/jstests/core/queryoptimizer3.js # 25: dassert(_collection->getCatalogEntry()->getTotalIndexCount(opCtx) == count);
   - tests/jstests/core/queryoptimizer6.js
@@ -760,13 +760,13 @@ selector:
   - tests/jstests/core/remove2.js
   - tests/jstests/core/remove3.js
   - tests/jstests/core/remove4.js
-  # - tests/jstests/core/remove6.js # Triggers an EloqDoc SIGSEGV in GitHub Actions Debug RocksDB amd64 CI.
+  - tests/jstests/core/remove6.js
   - tests/jstests/core/remove7.js
   - tests/jstests/core/remove8.js
-  # - tests/jstests/core/remove9.js # Triggers an EloqDoc SIGSEGV in GitHub Actions RocksDB arm64 CI.
+  - tests/jstests/core/remove9.js
   - tests/jstests/core/remove_justone.js
   - tests/jstests/core/remove_undefined.js
-  # - tests/jstests/core/removea.js # Triggers an EloqDoc SIGSEGV in GitHub Actions RocksDB arm64 CI.
+  - tests/jstests/core/removea.js
   # - tests/jstests/core/removeb.js # The case could pass with read-committed, but abort with snapshot.
   - tests/jstests/core/removec.js
   # - tests/jstests/core/rename.js # renameCollection
@@ -908,7 +908,7 @@ selector:
   - tests/jstests/core/update_modifier_pop.js
   - tests/jstests/core/update_mul_examples.js
   - tests/jstests/core/update_multi3.js
-  # - tests/jstests/core/update_multi4.js # Triggers SIGSEGV in GitHub Actions Debug RocksDB amd64 CI.
+  - tests/jstests/core/update_multi4.js
   - tests/jstests/core/update_multi5.js
   - tests/jstests/core/update_multi6.js
   - tests/jstests/core/update_server-12848.js
@@ -956,7 +956,7 @@ selector:
   - tests/jstests/core/where4.js
   - tests/jstests/core/where5.js
   - tests/jstests/core/write_commands_reject_unknown_fields.js
-  # - tests/jstests/core/write_result.js # Hangs in GitHub Actions rocks_s3 arm64 CI.
+  - tests/jstests/core/write_result.js
   # - tests/jstests/core_standalone/read_concern.js # expected majority readConcern to fail on standalone mongod
   - tests/jstests/core_standalone/write_concern.js
   # - Tests that would be excluded from suite core_eloq
