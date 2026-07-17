@@ -382,7 +382,7 @@ selector:
   - tests/jstests/core/geo_polygon1.js
   - tests/jstests/core/geo_polygon1_noindex.js
   - tests/jstests/core/geo_polygon2.js
-  - tests/jstests/core/geo_polygon3.js
+  # - tests/jstests/core/geo_polygon3.js # Triggers an EloqDoc shutdown in GitHub Actions RelWithDebInfo eloqstore_s3 arm64 CI.
   - tests/jstests/core/geo_queryoptimizer.js
   - tests/jstests/core/geo_regex0.js
   # - tests/jstests/core/geo_s2cursorlimitskip.js # 61: Unsupported feature. Do not set the value of capped field to true.
