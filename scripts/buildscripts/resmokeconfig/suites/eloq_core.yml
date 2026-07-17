@@ -353,7 +353,7 @@ selector:
   - tests/jstests/core/geo_circle4.js
   - tests/jstests/core/geo_circle5.js
   - tests/jstests/core/geo_distinct.js
-  - tests/jstests/core/geo_exactfetch.js
+  # - tests/jstests/core/geo_exactfetch.js # Triggers SIGSEGV in GitHub Actions RelWithDebInfo rocks_s3 arm64 CI.
   - tests/jstests/core/geo_fiddly_box.js
   - tests/jstests/core/geo_fiddly_box2.js
   - tests/jstests/core/geo_group.js
@@ -908,7 +908,7 @@ selector:
   - tests/jstests/core/update_modifier_pop.js
   - tests/jstests/core/update_mul_examples.js
   - tests/jstests/core/update_multi3.js
-  - tests/jstests/core/update_multi4.js
+  # - tests/jstests/core/update_multi4.js # Triggers SIGSEGV in GitHub Actions Debug RocksDB amd64 CI.
   - tests/jstests/core/update_multi5.js
   - tests/jstests/core/update_multi6.js
   - tests/jstests/core/update_server-12848.js
