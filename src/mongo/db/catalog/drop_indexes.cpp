@@ -175,15 +175,15 @@ Status dropIndexes(OperationContext* opCtx,
                 return Status(ErrorCodes::NamespaceNotFound, "ns not found");
             }
 
-            WriteUnitOfWork wunit(opCtx);
-            OldClientContext ctx(opCtx, nss.ns());
-            BackgroundOperation::assertNoBgOpInProgForNs(nss);
-
             // In EloqDoc, once the txservice executed UpsertTable , the
             // collection in cache is expired and may be erased. But, the collection pointer is
             // still used at next, to avoid program being crashed, we copy it.
             auto collection_uptr = collection->clone(opCtx);
             Collection* collection_tmp = collection_uptr.get();
+
+            OldClientContext ctx(opCtx, nss.ns());
+            BackgroundOperation::assertNoBgOpInProgForNs(nss);
+            WriteUnitOfWork wunit(opCtx);
 
             Status status = wrappedRun(opCtx, collection_tmp, idxDescriptor, result);
             if (!status.isOK()) {
