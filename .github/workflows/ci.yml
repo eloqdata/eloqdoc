@@ -137,6 +137,7 @@ jobs:
           MINIO_SECRET_KEY: minioadmin
           BUILD_TYPE: ${{ matrix.build_type }}
           ENGINE_ID: ${{ matrix.engine.id }}
+          ARCH: ${{ matrix.arch }}
           CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
           NODE_MEMORY_LIMIT_MB: 2048
         run: |
@@ -146,7 +147,7 @@ jobs:
           else
             export BUILD_JOBS=$(( (NPROC + 1) / 2 ))
           fi
-          if [ "$BUILD_TYPE" = "Debug" ] || [ "$ENGINE_ID" = "eloqstore_s3" ]; then
+          if [ "$BUILD_TYPE" = "Debug" ] || [ "$ENGINE_ID" = "eloqstore_s3" ] || { [ "$ENGINE_ID" = "rocks_s3" ] && [ "$ARCH" = "arm64" ]; }; then
             export JSTEST_TIMEOUT_SECONDS=7200
           fi
           bash ./eloqdoc/.github/scripts/gh_ci_entry.sh \

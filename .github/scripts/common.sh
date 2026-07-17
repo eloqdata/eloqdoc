@@ -434,7 +434,7 @@ run_jstests() {
 
   cd "${ELOQDOC_BASE_PATH}"
   run_with_heartbeat "jstests" \
-    timeout "${timeout_seconds}" \
+    timeout --kill-after=60s "${timeout_seconds}" \
       env LD_LIBRARY_PATH="${install_prefix}/lib:${LD_LIBRARY_PATH:-}" \
         PATH="${install_prefix}/bin:${PATH}" \
       python2 scripts/buildscripts/resmoke.py \
