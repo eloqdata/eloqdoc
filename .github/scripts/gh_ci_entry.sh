@@ -42,9 +42,11 @@ RUN_DIR="${ELOQDOC_BASE_PATH}/.github/runtime/${BUILD_TYPE}-${ENGINE_ID}"
 BUCKET_ENGINE_ID="${ENGINE_ID//_/-}"
 BASE_BUCKET_NAME="eloqdoc-${CI_MODE}-${BUCKET_ENGINE_ID}-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
 BUCKET_PREFIX="gh-"
+CURRENT_BUCKET_NAME=""
 
 configure_runtime() {
   local bucket_suffix="$1"
+  CURRENT_BUCKET_NAME="${BASE_BUCKET_NAME}-${bucket_suffix}"
   write_runtime_configs \
     "${DATA_STORE_TYPE}" \
     "${WITH_LOG_STATE}" \
@@ -75,7 +77,9 @@ run_build_phase() {
 run_jstests_phase() {
   configure_runtime jstests
   reset_runtime_data
-  launch_eloqdoc "${RUN_DIR}" "${ELOQDOC_INSTALL_PREFIX}"
+  launch_eloqdoc "${RUN_DIR}" "${ELOQDOC_INSTALL_PREFIX}" \
+    "${CURRENT_BUCKET_NAME}" \
+    "${BUCKET_PREFIX}"
   wait_for_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
   run_jstests "${ELOQDOC_INSTALL_PREFIX}"
   shutdown_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
@@ -84,7 +88,9 @@ run_jstests_phase() {
 run_tpcc_phase() {
   configure_runtime tpcc
   reset_runtime_data
-  launch_eloqdoc "${RUN_DIR}" "${ELOQDOC_INSTALL_PREFIX}"
+  launch_eloqdoc "${RUN_DIR}" "${ELOQDOC_INSTALL_PREFIX}" \
+    "${CURRENT_BUCKET_NAME}" \
+    "${BUCKET_PREFIX}"
   wait_for_eloqdoc "${ELOQDOC_INSTALL_PREFIX}"
   run_tpcc "${ELOQDOC_INSTALL_PREFIX}"
 }

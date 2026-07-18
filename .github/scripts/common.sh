@@ -172,7 +172,7 @@ EOF
 
   cat >> "${run_dir}/data_substrate.cnf" <<EOF
 [cluster]
-tx_ip_port_list=127.0.0.1:16379
+ip_port_list=127.0.0.1:16379
 
 [store]
 eloq_store_open_files_limit=40960
@@ -387,6 +387,25 @@ stop_minio() {
 launch_eloqdoc() {
   local run_dir="$1"
   local install_prefix="$2"
+  local bucket_name="${3:-}"
+  local bucket_prefix="${4:-}"
+  local -a cloud_flags=()
+
+  if needs_minio "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" && [ -n "${bucket_name}" ] && [ -n "${bucket_prefix}" ]; then
+    cloud_flags=(
+      "--txlog_rocksdb_cloud_object_store_service_url=${MINIO_ENDPOINT}/${bucket_prefix}${bucket_name}/txlog"
+      "--aws_access_key_id=${MINIO_ACCESS_KEY}"
+      "--aws_secret_key=${MINIO_SECRET_KEY}"
+    )
+    if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
+      cloud_flags+=(
+        "--eloq_store_cloud_endpoint=${MINIO_ENDPOINT}"
+        "--eloq_store_cloud_store_path=${bucket_prefix}${bucket_name}/eloqstore"
+        "--eloq_store_cloud_access_key=${MINIO_ACCESS_KEY}"
+        "--eloq_store_cloud_secret_key=${MINIO_SECRET_KEY}"
+      )
+    fi
+  fi
 
   runtime_env
   export LD_LIBRARY_PATH="${install_prefix}/lib:${LD_LIBRARY_PATH:-}"
@@ -400,6 +419,7 @@ launch_eloqdoc() {
   nohup "${install_prefix}/bin/eloqdoc" \
     --config="${run_dir}/eloqdoc.yaml" \
     --data_substrate_config="${run_dir}/data_substrate.cnf" \
+    "${cloud_flags[@]}" \
     >"${install_prefix}/log/eloqdoc.out" 2>&1 &
   ELOQDOC_PID=$!
   export ELOQDOC_PID
