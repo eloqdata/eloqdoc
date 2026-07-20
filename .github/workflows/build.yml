@@ -71,6 +71,11 @@ jobs:
             data_store: ELOQDSS_ELOQSTORE
             log_state: ROCKSDB_CLOUD_GCS
     name: ${{ inputs.tag_name }}-${{ inputs.arch }}-${{ matrix.id }}
+    # In the container the default run shell is `sh` (dash); force bash so
+    # `set -o pipefail` and the packaging script's bash-isms work.
+    defaults:
+      run:
+        shell: bash
     container:
       image: ubuntu:24.04
       options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
