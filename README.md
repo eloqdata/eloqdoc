@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://github.com/eloqdata/eloqdoc/blob/readme/LICENSE)
 [![Language](https://img.shields.io/badge/language-C++-orange)](https://isocpp.org/)
 [![GitHub issues](https://img.shields.io/github/issues/eloqdata/eloqdoc)](https://github.com/eloqdata/eloqdoc/issues)
-[![Release](https://img.shields.io/badge/release-latest-blue)](https://www.eloqdata.com/download)
+[![Release](https://img.shields.io/github/v/release/eloqdata/eloqdoc)](https://github.com/eloqdata/eloqdoc/releases)
 <a href="https://discord.com/invite/nmYjBkfak6">
   <img alt="EloqDoc" src="https://img.shields.io/badge/discord-blue.svg?logo=discord&logoColor=white">
 </a>
