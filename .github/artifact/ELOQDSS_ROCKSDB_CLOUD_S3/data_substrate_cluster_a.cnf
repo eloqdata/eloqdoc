@@ -14,8 +14,10 @@ logserver_snapshot_interval=60
 txlog_rocksdb_cloud_bucket_prefix=rocksdb-cloud-
 txlog_rocksdb_cloud_bucket_name=eloqdoc-storage
 txlog_rocksdb_cloud_object_path=eloqdoc_txlog
-txlog_rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9900
+txlog_rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9000
 txlog_rocksdb_cloud_sst_file_cache_size=10GB
+aws_access_key_id=CHANGEME_ACCESS_KEY_ID
+aws_secret_key=CHANGEME_SECRET_KEY
 
 [cluster]
 tx_ip_port_list=127.0.0.1:9200,127.0.0.1:9210,127.0.0.1:9220

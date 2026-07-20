@@ -12,7 +12,7 @@ logserver_snapshot_interval=60
 txlog_rocksdb_cloud_bucket_prefix=eloq-
 txlog_rocksdb_cloud_bucket_name=test
 txlog_rocksdb_cloud_object_path=txlog
-txlog_rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9900
+txlog_rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9000
 
 [cluster]
 ip_port_list=127.0.0.1:16379
@@ -24,6 +24,6 @@ ip_port_list=127.0.0.1:16379
 rocksdb_cloud_bucket_prefix=eloq-
 rocksdb_cloud_bucket_name=test
 rocksdb_cloud_object_path=dss
-rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9900
+rocksdb_cloud_s3_endpoint_url=http://127.0.0.1:9000
 aws_access_key_id=CHANGEME
 aws_secret_key=CHANGEME

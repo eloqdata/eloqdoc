@@ -56,26 +56,31 @@ mkdir -p $HOME/eloqdoc-cloud-b/db $HOME/eloqdoc-cloud-b/etc $HOME/eloqdoc-cloud-
 mkdir -p $HOME/eloqdoc-cloud-c/db $HOME/eloqdoc-cloud-c/etc $HOME/eloqdoc-cloud-c/logs
 ```
 
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_a.conf` to `$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf`.
+Each node needs two files: `eloqdoc.conf` for the MongoDB-facing server and
+`data_substrate.cnf` for the cluster and transaction-log settings.
 
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_b.conf` to `$HOME/eloqdoc-cloud-b/etc/eloqdoc.conf`.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_a.conf` to `$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf`, and `data_substrate_cluster_a.cnf` from the same directory to `$HOME/eloqdoc-cloud-a/etc/data_substrate.cnf`.
 
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_c.conf` to `$HOME/eloqdoc-cloud-c/etc/eloqdoc.conf`.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_b.conf` to `$HOME/eloqdoc-cloud-b/etc/eloqdoc.conf`, and `data_substrate_cluster_b.cnf` to `$HOME/eloqdoc-cloud-b/etc/data_substrate.cnf`.
 
-Edit data path, log path, and S3 configuration in each file according to your environment.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_c.conf` to `$HOME/eloqdoc-cloud-c/etc/eloqdoc.conf`, and `data_substrate_cluster_c.cnf` to `$HOME/eloqdoc-cloud-c/etc/data_substrate.cnf`.
+
+Edit data path, log path, and S3 configuration in each file according to your environment. The three `data_substrate_cluster_*.cnf` files differ only in `tx_port` (9200/9210/9220); they all list the same three nodes in `tx_ip_port_list`, so that section must stay identical across nodes.
+
+In each `data_substrate.cnf`, set `aws_access_key_id` and `aws_secret_key` under `[local]` to the credentials for the bucket named by `txlog_rocksdb_cloud_bucket_*`. The compute nodes write transaction logs to S3 themselves, so they need credentials even though the data store is reached through `dss_server`.
 
 ## 4. Bootstrap
 
 ```bash
-eloqdoc --eloqBootstrap 1 --config $HOME/eloqdoc-cloud-a/etc/eloqdoc.conf
+eloqdoc --eloqBootstrap 1 --config $HOME/eloqdoc-cloud-a/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-a/etc/data_substrate.cnf
 ```
 
 ## 5. Launch EloqDoc compute nodes
 
 ```bash
-nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-a/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-a/etc/eloqdoc.conf &> $HOME/eloqdoc-cloud-a/logs/eloqdoc.out &
-nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-b/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-b/etc/eloqdoc.conf &> $HOME/eloqdoc-cloud-b/logs/eloqdoc.out &
-nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-c/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-c/etc/eloqdoc.conf &> $HOME/eloqdoc-cloud-c/logs/eloqdoc.out &
+nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-a/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-a/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-a/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-a/logs/eloqdoc.out &
+nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-b/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-b/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-b/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-b/logs/eloqdoc.out &
+nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-c/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-c/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-c/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-c/logs/eloqdoc.out &
 ```
 
 ## 6. Configure an L4 proxy
