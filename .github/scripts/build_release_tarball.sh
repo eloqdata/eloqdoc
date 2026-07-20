@@ -93,6 +93,11 @@ artifact_config_dir() {
 
 echo "::group::Build EloqDoc ${VARIANT_ID} (${DATA_STORE_TYPE}/${WITH_LOG_STATE}, ${ARCH})"
 build_eloqdoc "${BUILD_TYPE}" "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" "${DEST_DIR}"
+
+# The SCons tree alone is ~11 GB and the runner only starts with ~12 GB free.
+# Everything needed is already installed into DEST_DIR, so drop the build trees
+# before packaging; otherwise tar runs out of disk.
+cleanup_build_outputs
 echo "::endgroup::"
 
 echo "::group::Package EloqDoc ${VARIANT_ID}"
@@ -117,6 +122,7 @@ if [[ "${DATA_STORE_TYPE}" == ELOQDSS_* ]]; then
   cmake --build "${DSS_SRC_DIR}/build" -j"${BUILD_JOBS}"
   copy_libraries "${DSS_SRC_DIR}/build/dss_server" "${DEST_DIR}/lib"
   cp "${DSS_SRC_DIR}/build/dss_server" "${DEST_DIR}/bin/"
+  rm -rf "${DSS_SRC_DIR}/build"
 fi
 
 copy_libraries "${DEST_DIR}/bin/eloqdoc-cli" "${DEST_DIR}/lib"
@@ -144,6 +150,9 @@ fi
 DOC_TARBALL="eloqdoc-${TAGGED}-${VARIANT_ID}-${OS_ID}-${ARCH}.tar.gz"
 tar -czf "${OUTPUT_DIR}/${DOC_TARBALL}" -C "${DEST_DIR}" .
 echo "packaged ${DOC_TARBALL}"
+# Nothing after this point reads DEST_DIR; free it before the LogServer build.
+rm -rf "${DEST_DIR}"
+log_disk_usage "after packaging EloqDoc"
 echo "::endgroup::"
 
 echo "::group::Build and package LogServer ${VARIANT_ID}"
@@ -170,9 +179,8 @@ tar -czf "${OUTPUT_DIR}/${LOG_TARBALL}" -C "${LOG_SRC_DIR}" LogServer
 echo "packaged ${LOG_TARBALL}"
 echo "::endgroup::"
 
-# The runner disk cannot hold build trees for the next variant otherwise.
-rm -rf "${DEST_DIR}" "${LOG_PKG_DIR}" "${LOG_SRC_DIR}/build" "${DSS_SRC_DIR}/build"
-cleanup_build_outputs
+rm -rf "${LOG_PKG_DIR}" "${LOG_SRC_DIR}/build"
+log_disk_usage "after packaging LogServer"
 
 {
   echo "## ${VARIANT_ID} (${ARCH})"
