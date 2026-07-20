@@ -1,10 +1,8 @@
 name: Build
 
-# Reusable release/nightly build. One job per architecture and shipped variant,
-# mirroring the variant list Concourse builds in
-# concourse/pipeline/build_release_tarball.yml (plus the cloud-GCS RocksDB and
-# local EloqStore combinations). Each job packages an EloqDoc tarball and the
-# LogServer tarball built against the same log state.
+# Reusable release/nightly build. One job per architecture and shipped variant.
+# Each job packages an EloqDoc tarball and the LogServer tarball built against
+# the same log state.
 #
 # Fanning out per variant spends more total runner time than building all six
 # serially, but release wall-clock time becomes the slowest single variant

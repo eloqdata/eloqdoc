@@ -33,7 +33,7 @@ EloqDoc-Cluster consists of multiple compute nodes and a single storage node cal
 mkdir -p $HOME/eloqdoc-dss/data $HOME/eloqdoc-dss/etc $HOME/eloqdoc-dss/logs
 ```
 
-Copy `concourse/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdss.conf` to `$HOME/eloqdoc-dss/etc/eloqdss.conf`, and edit it as needed.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdss.conf` to `$HOME/eloqdoc-dss/etc/eloqdss.conf`, and edit it as needed.
 
 * Set `local.data_path` to the absolute data directory path, for example `/home/eloq/eloqdoc-dss/data`.
 * Set `aws_access_key_id`, `aws_secret_key`, and `rocksdb_cloud_bucket_.*` according to your S3 resources.
@@ -56,11 +56,11 @@ mkdir -p $HOME/eloqdoc-cloud-b/db $HOME/eloqdoc-cloud-b/etc $HOME/eloqdoc-cloud-
 mkdir -p $HOME/eloqdoc-cloud-c/db $HOME/eloqdoc-cloud-c/etc $HOME/eloqdoc-cloud-c/logs
 ```
 
-Copy `concourse/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_a.conf` to `$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf`.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_a.conf` to `$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf`.
 
-Copy `concourse/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_b.conf` to `$HOME/eloqdoc-cloud-b/etc/eloqdoc.conf`.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_b.conf` to `$HOME/eloqdoc-cloud-b/etc/eloqdoc.conf`.
 
-Copy `concourse/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_c.conf` to `$HOME/eloqdoc-cloud-c/etc/eloqdoc.conf`.
+Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_c.conf` to `$HOME/eloqdoc-cloud-c/etc/eloqdoc.conf`.
 
 Edit data path, log path, and S3 configuration in each file according to your environment.
 

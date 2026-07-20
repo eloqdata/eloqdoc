@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Build and package one shipped EloqDoc variant, plus its matching LogServer.
 #
-# Port of concourse/scripts/build_tarball.bash to GitHub Actions. The engine
-# build itself is delegated to build_eloqdoc() in common.sh so release and CI
-# stay on one code path; this script only adds the release-only steps:
+# The engine build itself is delegated to build_eloqdoc() in common.sh so release
+# and CI stay on one code path; this script only adds the release-only steps:
 # dss_server, runtime library bundling, rpath fixups, config files, tarballs.
 #
-# Unlike the Concourse task, the tarballs are left in ${OUTPUT_DIR} for the
-# workflow to attach to a GitHub release instead of being pushed to S3.
+# Tarballs are left in ${OUTPUT_DIR} for the workflow to attach to a GitHub
+# release.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,10 +79,10 @@ the law lies entirely with you.
 EOF
 }
 
-# concourse/artifact only ships configs for the three data stores Concourse
-# builds. The cloud-GCS data store reuses the cloud-S3 templates.
+# .github/artifact only ships configs for three data stores; the cloud-GCS data
+# store reuses the cloud-S3 templates.
 artifact_config_dir() {
-  local base="${ELOQDOC_BASE_PATH}/concourse/artifact"
+  local base="${ELOQDOC_BASE_PATH}/.github/artifact"
   if [ -d "${base}/${DATA_STORE_TYPE}" ]; then
     echo "${base}/${DATA_STORE_TYPE}"
   elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ] && [ -d "${base}/ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
@@ -144,7 +143,7 @@ config_dir="$(artifact_config_dir)"
 if [ -n "${config_dir}" ]; then
   cp "${config_dir}"/* "${DEST_DIR}/etc/"
 else
-  echo "WARNING: no concourse/artifact config directory for ${DATA_STORE_TYPE}; shipping without etc/ templates" >&2
+  echo "WARNING: no .github/artifact config directory for ${DATA_STORE_TYPE}; shipping without etc/ templates" >&2
 fi
 
 DOC_TARBALL="eloqdoc-${TAGGED}-${VARIANT_ID}-${OS_ID}-${ARCH}.tar.gz"

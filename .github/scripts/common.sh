@@ -486,7 +486,7 @@ run_tpcc() {
   "${tpcc_python}" -m pip install --disable-pip-version-check --no-cache-dir pymongo==4.13.2
 
   cd "${PY_TPCC_PATH}/pytpcc"
-  ln -sfn "${ELOQDOC_BASE_PATH}/concourse/scripts/pytpcc.cfg" mongodb.config
+  ln -sfn "${ELOQDOC_BASE_PATH}/.github/scripts/pytpcc.cfg" mongodb.config
   "${tpcc_python}" tpcc.py --config=mongodb.config --reset --no-execute --no-load mongodb
   "${tpcc_python}" tpcc.py --config=mongodb.config --no-execute --warehouses 2 --clients 2 mongodb
   run_with_heartbeat "tpcc benchmark" timeout --kill-after=60s "${tpcc_timeout}" bash -c \
