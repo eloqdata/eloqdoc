@@ -134,18 +134,20 @@ We will publish more detailed benchmarks in future.
 
 ### Try EloqDoc-RocksDB Using Official Package
 
-**Step-1**, download the official package for EloqDoc-RocksDB. Please select the package that matches your operating system.
+**Step-1**, download the official package for EloqDoc-RocksDB from the
+[releases page](https://github.com/eloqdata/eloqdoc/releases). Assets are named
+`eloqdoc-<version>-<variant>-<os>-<arch>.tar.gz`; pick the `rocksdb` variant for
+your platform. Set `VERSION` to the release you want:
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/eloqdss_rocksdb/eloqdoc-0.2.7-ubuntu24-amd64.tar.gz
+VERSION=0.2.7
+wget -c https://github.com/eloqdata/eloqdoc/releases/download/$VERSION/eloqdoc-$VERSION-rocksdb-ubuntu24-amd64.tar.gz
 ```
-
-All released package can be found at [download](https://www.eloqdata.com/download) page.
 
 **Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
-mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-0.2.7-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdb
+mkdir $HOME/eloqdoc-rocksdb && tar -xf eloqdoc-$VERSION-rocksdb-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdb
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
@@ -189,18 +191,19 @@ Implicit session: session { "id" : UUID("288393c1-aff6-4a84-ad46-dee6691b361d") 
 
 ### Try EloqDoc-RocksDBCloud Using Official Package
 
-**Step-1**, download the official package for EloqDoc-RocksDBCloud. Please select the package that matches your operating system.
+**Step-1**, download the official package for EloqDoc-RocksDBCloud from the
+[releases page](https://github.com/eloqdata/eloqdoc/releases). Pick the
+`rocks_s3` variant for your platform, and set `VERSION` to the release you want:
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-0.2.7-ubuntu24-amd64.tar.gz
+VERSION=0.2.7
+wget -c https://github.com/eloqdata/eloqdoc/releases/download/$VERSION/eloqdoc-$VERSION-rocks_s3-ubuntu24-amd64.tar.gz
 ```
-
-All released package can be found at [download](https://www.eloqdata.com/download) page.
 
 **Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
-mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-0.2.7-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdbcloud
+mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-$VERSION-rocks_s3-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdbcloud
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.

@@ -9,8 +9,9 @@ In this document, you will launch three `EloqDoc-RockDBCloud` servers, one `dss_
 Run the following commands in your home directory (`$HOME`):
 
 ```bash
-wget -c https://download.eloqdata.com/eloqdoc/rocks_s3/eloqdoc-v0.2.1-ubuntu24-amd64.tar.gz
-mkdir -p $HOME/eloqdoc && tar -zxf eloqdoc-v0.2.1-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc
+VERSION=0.2.7
+wget -c https://github.com/eloqdata/eloqdoc/releases/download/$VERSION/eloqdoc-$VERSION-rocks_s3-ubuntu24-amd64.tar.gz
+mkdir -p $HOME/eloqdoc && tar -zxf eloqdoc-$VERSION-rocks_s3-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc
 export PATH=$HOME/eloqdoc/bin:$PATH
 ```
 
@@ -33,7 +34,7 @@ EloqDoc-Cluster consists of multiple compute nodes and a single storage node cal
 mkdir -p $HOME/eloqdoc-dss/data $HOME/eloqdoc-dss/etc $HOME/eloqdoc-dss/logs
 ```
 
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdss.conf` to `$HOME/eloqdoc-dss/etc/eloqdss.conf`, and edit it as needed.
+The tarball ships these templates in `$HOME/eloqdoc/etc`. Copy `$HOME/eloqdoc/etc/eloqdss.conf` to `$HOME/eloqdoc-dss/etc/eloqdss.conf`, and edit it as needed.
 
 * Set `local.data_path` to the absolute data directory path, for example `/home/eloq/eloqdoc-dss/data`.
 * Set `aws_access_key_id`, `aws_secret_key`, and `rocksdb_cloud_bucket_.*` according to your S3 resources.
@@ -59,11 +60,14 @@ mkdir -p $HOME/eloqdoc-cloud-c/db $HOME/eloqdoc-cloud-c/etc $HOME/eloqdoc-cloud-
 Each node needs two files: `eloqdoc.conf` for the MongoDB-facing server and
 `data_substrate.cnf` for the cluster and transaction-log settings.
 
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_a.conf` to `$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf`, and `data_substrate_cluster_a.cnf` from the same directory to `$HOME/eloqdoc-cloud-a/etc/data_substrate.cnf`.
+They also ship in `$HOME/eloqdoc/etc`:
 
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_b.conf` to `$HOME/eloqdoc-cloud-b/etc/eloqdoc.conf`, and `data_substrate_cluster_b.cnf` to `$HOME/eloqdoc-cloud-b/etc/data_substrate.cnf`.
-
-Copy `.github/artifact/ELOQDSS_ROCKSDB_CLOUD_S3/eloqdoc_cluster_c.conf` to `$HOME/eloqdoc-cloud-c/etc/eloqdoc.conf`, and `data_substrate_cluster_c.cnf` to `$HOME/eloqdoc-cloud-c/etc/data_substrate.cnf`.
+```bash
+for n in a b c; do
+  cp $HOME/eloqdoc/etc/eloqdoc_cluster_$n.conf $HOME/eloqdoc-cloud-$n/etc/eloqdoc.conf
+  cp $HOME/eloqdoc/etc/data_substrate_cluster_$n.cnf $HOME/eloqdoc-cloud-$n/etc/data_substrate.cnf
+done
+```
 
 Edit data path, log path, and S3 configuration in each file according to your environment. The three `data_substrate_cluster_*.cnf` files differ only in `tx_port` (9200/9210/9220); they all list the same three nodes in `tx_ip_port_list`, so that section must stay identical across nodes.
 
