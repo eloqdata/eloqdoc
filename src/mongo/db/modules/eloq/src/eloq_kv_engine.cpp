@@ -85,8 +85,6 @@
 #elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
 #include "store_handler/eloq_data_store_service/rocksdb_config.h"
 #include "store_handler/eloq_data_store_service/rocksdb_data_store_factory.h"
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-#include "store_handler/eloq_data_store_service/eloq_store_data_store_factory.h"
 #endif
 #else
 #endif

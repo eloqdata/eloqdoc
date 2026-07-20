@@ -81,6 +81,13 @@ jobs:
       options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      # The log service CMakeLists uses bare find_path/find_library and does not
+      # know about ELOQ_THIRD_PARTY_PREFIX, so the third-party prefix has to be
+      # visible through CMake's own search variables too.
+      CMAKE_PREFIX_PATH: /opt/eloq/third_party
+      CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
+      CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
+      LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
       PYENV_ROOT: /opt/pyenv
       TAGGED: ${{ inputs.tag_name }}
       OS_ID: ${{ inputs.os_id }}
