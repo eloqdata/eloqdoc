@@ -1,0 +1,182 @@
+name: Build
+
+# Reusable release/nightly build. One job per architecture and shipped variant,
+# mirroring the variant list Concourse builds in
+# concourse/pipeline/build_release_tarball.yml (plus the cloud-GCS RocksDB and
+# local EloqStore combinations). Each job packages an EloqDoc tarball and the
+# LogServer tarball built against the same log state.
+#
+# Fanning out per variant spends more total runner time than building all six
+# serially, but release wall-clock time becomes the slowest single variant
+# instead of the sum of all of them.
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        type: string
+        required: true
+        description: 'version stamped into asset names'
+      release_tag_name:
+        type: string
+        default: ''
+        description: 'release tag to upload assets to; defaults to tag_name'
+      release_draft:
+        type: boolean
+        default: false
+        description: 'upload assets to a draft release'
+      prerelease:
+        type: boolean
+        default: false
+        description: 'mark the release as a prerelease (used by nightly)'
+      os_id:
+        type: string
+        default: ubuntu24
+      arch:
+        type: string
+        default: amd64
+        description: 'amd64 or arm64'
+      upload_release_assets:
+        type: boolean
+        default: true
+        description: 'upload packaged assets to a GitHub release'
+      upload_workflow_artifacts:
+        type: boolean
+        default: false
+        description: 'upload packaged assets as workflow artifacts'
+
+jobs:
+  build:
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: rocksdb
+            data_store: ELOQDSS_ROCKSDB
+            log_state: ROCKSDB
+          - id: rocks_s3
+            data_store: ELOQDSS_ROCKSDB_CLOUD_S3
+            log_state: ROCKSDB_CLOUD_S3
+          - id: rocks_gcs
+            data_store: ELOQDSS_ROCKSDB_CLOUD_GCS
+            log_state: ROCKSDB_CLOUD_GCS
+          - id: eloqstore_local
+            data_store: ELOQDSS_ELOQSTORE
+            log_state: ROCKSDB
+          - id: eloqstore_s3
+            data_store: ELOQDSS_ELOQSTORE
+            log_state: ROCKSDB_CLOUD_S3
+          - id: eloqstore_gcs
+            data_store: ELOQDSS_ELOQSTORE
+            log_state: ROCKSDB_CLOUD_GCS
+    name: ${{ inputs.tag_name }}-${{ inputs.arch }}-${{ matrix.id }}
+    container:
+      image: ubuntu:24.04
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+    env:
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      PYENV_ROOT: /opt/pyenv
+      TAGGED: ${{ inputs.tag_name }}
+      OS_ID: ${{ inputs.os_id }}
+      BUILD_TYPE: RelWithDebInfo
+      VARIANT_ID: ${{ matrix.id }}
+      DATA_STORE_TYPE: ${{ matrix.data_store }}
+      WITH_LOG_STATE: ${{ matrix.log_state }}
+
+    steps:
+      - name: Bootstrap checkout tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt_with_retry() {
+            local attempt=1
+            local max_attempts=5
+            local delay=15
+
+            until apt-get \
+              -o APT::Update::Error-Mode=any \
+              -o Acquire::Retries=5 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              "$@"; do
+              if [ "${attempt}" -ge "${max_attempts}" ]; then
+                return 1
+              fi
+              echo "apt-get $* failed; retrying in ${delay}s (${attempt}/${max_attempts})"
+              sleep "${delay}"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
+
+          apt_with_retry update
+          apt_with_retry install -y --no-install-recommends \
+            git ca-certificates sudo openssh-client tar zstd
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout product submodules
+        run: |
+          git config --global --add safe.directory '*'
+          bash scripts/checkout_product_submodules.sh
+
+      - name: Restore Python 2.7 cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/pyenv
+          key: pyenv-2.7.18-${{ inputs.arch }}-${{ hashFiles('scripts/install_dependency_ubuntu2404.sh', 'scripts/buildscripts/requirements.txt', 'scripts/buildscripts/resmokelib/requirements.txt') }}
+          restore-keys: |
+            pyenv-2.7.18-${{ inputs.arch }}-
+
+      - name: Install system and Python dependencies
+        run: |
+          git config --global --add safe.directory '*'
+          ELOQ_SKIP_THIRD_PARTY=1 \
+            bash scripts/install_dependency_ubuntu2404.sh "${GITHUB_WORKSPACE}/release-deps"
+
+      - name: Install packaging dependencies
+        run: |
+          set -euo pipefail
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            rsync patchelf postgresql-client
+
+      - name: Setup third-party (cached)
+        uses: ./.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}
+          arch: ${{ inputs.arch }}
+          cache-scope: bare-ubuntu
+
+      - name: Build and package variant
+        run: |
+          git config --global --add safe.directory '*'
+          bash .github/scripts/build_release_tarball.sh
+
+      - name: Upload assets to release
+        if: ${{ inputs.upload_release_assets }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag_name || inputs.tag_name }}
+          name: ${{ inputs.release_tag_name || inputs.tag_name }}
+          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.release_draft }}
+          files: |
+            eloqdoc-*-${{ matrix.id }}-*-${{ inputs.arch }}.tar.gz
+            log-service-*-${{ matrix.id }}-*-${{ inputs.arch }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload packaged assets as workflow artifact
+        if: ${{ inputs.upload_workflow_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ inputs.tag_name }}-${{ inputs.arch }}-${{ matrix.id }}
+          path: |
+            eloqdoc-*-${{ matrix.id }}-*-${{ inputs.arch }}.tar.gz
+            log-service-*-${{ matrix.id }}-*-${{ inputs.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
