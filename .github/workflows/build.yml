@@ -45,6 +45,12 @@ on:
         default: false
         description: 'upload packaged assets as workflow artifacts'
 
+# Needs write, not read: the packaging step uploads assets to a release. A
+# reusable workflow cannot widen what its caller grants, so release.yml and
+# nightly.yml must keep granting contents: write.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
