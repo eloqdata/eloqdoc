@@ -172,7 +172,7 @@ EOF
 
   cat >> "${run_dir}/data_substrate.cnf" <<EOF
 [cluster]
-ip_port_list=127.0.0.1:16379
+tx_ip_port_list=127.0.0.1:16379
 
 [store]
 eloq_store_open_files_limit=40960
