@@ -178,6 +178,8 @@ tx_ip_port_list=127.0.0.1:16379
 eloq_store_open_files_limit=40960
 eloq_store_buffer_pool_size=500MB
 eloq_store_local_space_limit=2GB
+eloq_store_manifest_limit=1048576
+eloq_store_pages_per_file_shift=8
 EOF
 
   if [ "${log_state}" = "ROCKSDB_CLOUD_S3" ]; then
