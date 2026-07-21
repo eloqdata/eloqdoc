@@ -5,11 +5,14 @@ name: Build Validation
 # scripts/install_dependency_ubuntu2404.sh, restore or build the shared
 # Data Substrate third-party prefix from cache, then compile each shipped engine
 # combination. Functional tests stay in ci.yml.
+#
+# Runs on main rather than per pull request. What it covers beyond ci.yml is the
+# from-scratch dependency install, which only breaks when the install script,
+# the third-party manifest or a submodule pin changes; at roughly two hours of
+# runner time per run that is not worth paying on every push. Use
+# workflow_dispatch when a change does touch those.
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
   push:
     branches: [main]
   workflow_dispatch:
