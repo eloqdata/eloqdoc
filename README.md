@@ -157,24 +157,20 @@ After uncompress the package, you should see three directories: `bin`, `lib`, an
 cd $HOME/eloqdoc-rocksdb && ls
 ```
 
-**Step-3**, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdb`.
+**Step-3**, create the data and log directories the config expects.
 
 ```bash
-mkdir db logs
+mkdir db logs data
 ```
 
-**Step-4**, modify  `etc/eloqdoc.conf`. Assume your `$HOME` is `/home/eloq`, then
-
-* Set `systemLog.path` to `/home/eloq/eloqdoc-rocksdb/logs/eloqdoc.log`.
-* Set `storage.dbPath` to `/home/eloq/eloqdoc-rocksdb/db`.
-
-**Step-5**, start the server with:
+**Step-4**, start the server from the package directory. The shipped configs use
+paths relative to it, so no editing is needed to try it out:
 
 ```bash
-./bin/eloqdoc --config ./etc/eloqdoc.conf
+./bin/eloqdoc --config=./etc/eloqdoc.conf --data_substrate_config=./etc/data_substrate.cnf
 ```
 
-**Step-6**, open another terminal and run mongo client.
+**Step-5**, open another terminal and run mongo client.
 
 ```bash
 ./bin/eloqdoc-cli --eval "db.t1.save({k: 1}); db.t1.find();"
@@ -213,10 +209,10 @@ After uncompress the package, you should see three directories: `bin`, `lib`, an
 cd $HOME/eloqdoc-rocksdbcloud && ls
 ```
 
-**Step-3**, create a data directory and a log directory. Simply place them under `$HOME/eloqdoc-rocksdbcloud`.
+**Step-3**, create the data and log directories the config expects.
 
 ```bash
-mkdir db logs
+mkdir db logs data
 ```
 
 **Step-4**, start a S3 emulator, takes `minio` as an exmaple.
@@ -231,23 +227,16 @@ chmod +x minio
 
 By default, `minio` listens on `http://127.0.0.1:9000`, whose default credentials is `minioadmin:minioadmin`,.
 
-**Step-5**, go back to `$HOME/eloqdoc-rocksdbcloud` and modify `etc/eloqdoc.conf`. Assume your `$HOME` is `/home/eloq`.
+**Step-5**, go back to the package directory and start the server. The shipped
+configs already point at the local minio and use paths relative to the package
+directory, so no editing is needed to try it out:
 
 ```bash
 cd $HOME/eloqdoc-rocksdbcloud
+./bin/eloqdoc --config=./etc/eloqdoc.conf --data_substrate_config=./etc/data_substrate.cnf
 ```
 
-* Set `systemLog.path` to `/home/eloq/eloqdoc-rocksdbcloud/logs/eloqdoc.log`.
-* Set `storage.dbPath` to `/home/eloq/eloqdoc-rocksdbcloud/db`.
-* `etc/eloqdoc.conf` has configured minio as its cloud storage, and needs no modification.
-
-**Step-6**, start the server with:
-
-```bash
-./bin/eloqdoc --config ./etc/eloqdoc.conf
-```
-
-**Step-7**, open another terminal and run mongo client.
+**Step-6**, open another terminal and run mongo client.
 
 ```bash
 ./bin/eloqdoc-cli --eval "db.t1.save({k: 1}); db.t1.find();"

@@ -76,15 +76,15 @@ In each `data_substrate.cnf`, set `aws_access_key_id` and `aws_secret_key` under
 ## 4. Bootstrap
 
 ```bash
-eloqdoc --eloqBootstrap 1 --config $HOME/eloqdoc-cloud-a/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-a/etc/data_substrate.cnf
+eloqdoc --eloqBootstrap 1 --config=$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf --data_substrate_config=$HOME/eloqdoc-cloud-a/etc/data_substrate.cnf
 ```
 
 ## 5. Launch EloqDoc compute nodes
 
 ```bash
-nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-a/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-a/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-a/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-a/logs/eloqdoc.out &
-nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-b/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-b/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-b/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-b/logs/eloqdoc.out &
-nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-c/db/eloqdoc.pid --config $HOME/eloqdoc-cloud-c/etc/eloqdoc.conf --data_substrate_config $HOME/eloqdoc-cloud-c/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-c/logs/eloqdoc.out &
+nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-a/db/eloqdoc.pid --config=$HOME/eloqdoc-cloud-a/etc/eloqdoc.conf --data_substrate_config=$HOME/eloqdoc-cloud-a/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-a/logs/eloqdoc.out &
+nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-b/db/eloqdoc.pid --config=$HOME/eloqdoc-cloud-b/etc/eloqdoc.conf --data_substrate_config=$HOME/eloqdoc-cloud-b/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-b/logs/eloqdoc.out &
+nohup eloqdoc --pidfilepath $HOME/eloqdoc-cloud-c/db/eloqdoc.pid --config=$HOME/eloqdoc-cloud-c/etc/eloqdoc.conf --data_substrate_config=$HOME/eloqdoc-cloud-c/etc/data_substrate.cnf &> $HOME/eloqdoc-cloud-c/logs/eloqdoc.out &
 ```
 
 ## 6. Configure an L4 proxy
