@@ -26,7 +26,8 @@ trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump
 ulimit -n 1000000 || true
 ulimit -l || true
 ulimit -c unlimited || true
-echo '/tmp/core.%e.%p.%t' >/proc/sys/kernel/core_pattern 2>/dev/null || true
+echo '/tmp/core.%e.%p.%t' | tee /proc/sys/kernel/core_pattern >/dev/null 2>&1 \
+  || echo "warning: could not set core_pattern (need privileged); cores may be intercepted by apport"
 
 git config --global --add safe.directory '*'
 cd "${ELOQDOC_BASE_PATH}"
