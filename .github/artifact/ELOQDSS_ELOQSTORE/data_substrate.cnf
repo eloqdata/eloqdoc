@@ -18,6 +18,5 @@ tx_ip_port_list=127.0.0.1:16379
 
 [store]
 # Local EloqStore, reached through dss_server.
-eloq_store_open_files_limit=40960
 eloq_store_buffer_pool_size=500MB
 eloq_store_pages_per_file_shift=11
