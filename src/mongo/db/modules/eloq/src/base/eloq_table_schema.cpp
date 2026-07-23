@@ -332,10 +332,12 @@ void MongoTableSchema::IndexesSetMultiKeyAttr(const std::vector<txservice::Multi
     for (const txservice::MultiKeyAttr& index : indexes) {
         uint16_t kid = IndexOffset(*index.index_name_);
 
-        const auto& multikey_paths = static_cast<const MongoMultiKeyPaths&>(*index.multikey_paths_);
-
         md_.indexes[kid].multikey = index.multikey_;
-        md_.indexes[kid].multikeyPaths = multikey_paths.multikey_paths_;
+        if (index.multikey_paths_ != nullptr) {
+            const auto& multikey_paths =
+                static_cast<const MongoMultiKeyPaths&>(*index.multikey_paths_);
+            md_.indexes[kid].multikeyPaths = multikey_paths.multikey_paths_;
+        }
         txservice::SecondaryKeySchema& index_schema = indexes_.at(kid).second;
         std::string_view ns{md_.ns};
 
