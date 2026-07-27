@@ -27,4 +27,16 @@
     col.createIndex({b: 1});
     assert.eq(2, col.count({a: {$gte: 3}}), "A");
     assert.eq(2, col.count({b: {$gte: 'c'}}), "B");
+
+    col.drop();
+    assert.commandWorked(col.insert({a: [1, 2, 3], b: 1}));
+    assert.commandWorked(db.runCommand({
+        createIndexes: col.getName(),
+        indexes: [
+            {key: {a: 1}, name: "a_1"},
+            {key: {b: 1}, name: "b_1"}
+        ]
+    }));
+    assert.eq(1, col.find({a: 3}).hint("a_1").itcount(), "E");
+    assert.eq(1, col.find({b: 1}).hint("b_1").itcount(), "F");
 })();
