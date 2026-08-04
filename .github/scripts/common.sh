@@ -153,6 +153,7 @@ checkpoint_interval=10
 node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-4000}
 enable_data_store=true
 enable_wal=true
+enable_io_uring=true
 eloq_data_path=${install_prefix}/data/eloq
 event_dispatcher_num=1
 enable_mvcc=true
