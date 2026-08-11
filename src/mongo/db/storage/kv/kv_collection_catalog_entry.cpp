@@ -38,6 +38,7 @@
 #include "mongo/db/storage/kv/kv_catalog.h"
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
 #include "mongo/db/storage/kv/kv_engine.h"
+#include "mongo/util/scopeguard.h"
 
 namespace mongo {
 
@@ -203,6 +204,21 @@ Status KVCollectionCatalogEntry::prepareForIndexBuild(OperationContext* opCtx,
             RecoveryUnit* newRU = opCtx->getServiceContext()->getStorageEngine()->newRecoveryUnit();
             WriteUnitOfWork::RecoveryUnitState oldState =
                 opCtx->setRecoveryUnit(newRU, WriteUnitOfWork::kNotInUnitOfWork);
+            // Everything below has to unwind cleanly. Marking the feature in use writes the
+            // catalog, and a catalog write conflict leaves as a WriteConflictException, so the
+            // loop can be exited by an exception at any point.
+            //
+            // Two things must happen on that path. The borrowed RecoveryUnit's unit of work has
+            // to be closed, or destroying it trips ~EloqRecoveryUnit's invariant(!_inUnitOfWork).
+            // And oldRU has to be reinstated, or it leaks and the caller's still-live toplevel
+            // WriteUnitOfWork finds _ruState == kNotInUnitOfWork and aborts the process.
+            bool newRuInUnitOfWork = false;
+            const auto restoreRecoveryUnit = MakeGuard([&] {
+                if (newRuInUnitOfWork) {
+                    newRU->abortUnitOfWork();
+                }
+                opCtx->setRecoveryUnit(oldRU, oldState);
+            });
 
             int retryCount = 0;
             const int maxRetry = 1000;
@@ -210,24 +226,33 @@ Status KVCollectionCatalogEntry::prepareForIndexBuild(OperationContext* opCtx,
 
             while (retryCount++ < maxRetry) {
                 newRU->beginUnitOfWork(opCtx);
+                newRuInUnitOfWork = true;
                 if (!_catalog->getFeatureTracker()->isRepairableFeatureInUse(opCtx, feature)) {
                     tmp_st =
                         _catalog->getFeatureTracker()->markRepairableFeatureAsInUse(opCtx, feature);
                     if (tmp_st.isOK()) {
+                        // Cleared before the call, not after: commitUnitOfWork() clears
+                        // _inUnitOfWork before doing the work that can throw, so on a
+                        // throwing commit the unit of work is already closed and the
+                        // guard must not try to abort it again.
+                        newRuInUnitOfWork = false;
                         newRU->commitUnitOfWork();
                         break;
                     } else {
+                        // Cleared before the call; see the commit path above.
+                        newRuInUnitOfWork = false;
                         newRU->abortUnitOfWork();
                         opCtx->sleepForRandomMilliseconds();
                     }
                 } else {
                     tmp_st = Status::OK();
+                    // Cleared before the call; see the commit path above.
+                    newRuInUnitOfWork = false;
                     newRU->commitUnitOfWork();
                     break;
                 }
             }
-            // Must restore the old recovery unit state before leaving the scope.
-            opCtx->setRecoveryUnit(oldRU, oldState);
+            // Restored by restoreRecoveryUnit above.
             if (!tmp_st.isOK()) {
                 return tmp_st;
             }
@@ -245,30 +270,54 @@ Status KVCollectionCatalogEntry::prepareForIndexBuild(OperationContext* opCtx,
             RecoveryUnit* newRU = opCtx->getServiceContext()->getStorageEngine()->newRecoveryUnit();
             WriteUnitOfWork::RecoveryUnitState oldState =
                 opCtx->setRecoveryUnit(newRU, WriteUnitOfWork::kNotInUnitOfWork);
+            // Everything below has to unwind cleanly. Marking the feature in use writes the
+            // catalog, and a catalog write conflict leaves as a WriteConflictException, so the
+            // loop can be exited by an exception at any point.
+            //
+            // Two things must happen on that path. The borrowed RecoveryUnit's unit of work has
+            // to be closed, or destroying it trips ~EloqRecoveryUnit's invariant(!_inUnitOfWork).
+            // And oldRU has to be reinstated, or it leaks and the caller's still-live toplevel
+            // WriteUnitOfWork finds _ruState == kNotInUnitOfWork and aborts the process.
+            bool newRuInUnitOfWork = false;
+            const auto restoreRecoveryUnit = MakeGuard([&] {
+                if (newRuInUnitOfWork) {
+                    newRU->abortUnitOfWork();
+                }
+                opCtx->setRecoveryUnit(oldRU, oldState);
+            });
 
             int retryCount = 0;
             const int maxRetry = 1000;
             Status tmp_st = Status::OK();
             while (retryCount++ < maxRetry) {
                 newRU->beginUnitOfWork(opCtx);
+                newRuInUnitOfWork = true;
                 if (!_catalog->getFeatureTracker()->isNonRepairableFeatureInUse(opCtx, feature)) {
                     tmp_st = _catalog->getFeatureTracker()->markNonRepairableFeatureAsInUse(
                         opCtx, feature);
                     if (tmp_st.isOK()) {
+                        // Cleared before the call, not after: commitUnitOfWork() clears
+                        // _inUnitOfWork before doing the work that can throw, so on a
+                        // throwing commit the unit of work is already closed and the
+                        // guard must not try to abort it again.
+                        newRuInUnitOfWork = false;
                         newRU->commitUnitOfWork();
                         break;
                     } else {
+                        // Cleared before the call; see the commit path above.
+                        newRuInUnitOfWork = false;
                         newRU->abortUnitOfWork();
                         opCtx->sleepForRandomMilliseconds();
                     }
                 } else {
                     tmp_st = Status::OK();
+                    // Cleared before the call; see the commit path above.
+                    newRuInUnitOfWork = false;
                     newRU->commitUnitOfWork();
                     break;
                 }
             }
-            // Must restore the old recovery unit state before leaving the scope.
-            opCtx->setRecoveryUnit(oldRU, oldState);
+            // Restored by restoreRecoveryUnit above.
             if (!tmp_st.isOK()) {
                 return tmp_st;
             }

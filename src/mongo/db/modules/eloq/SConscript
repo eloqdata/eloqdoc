@@ -388,6 +388,16 @@ env.Library(
     SYSLIBDEPS=eloq_dependencies,
 )
 
+env.CppUnitTest(
+    target="eloq_util_test",
+    source=[
+        "src/base/eloq_util_test.cpp",
+    ],
+    LIBDEPS=[
+        "storage_eloq_core",
+    ],
+)
+
 env.Library(
     target="storage_eloq",
     source=[

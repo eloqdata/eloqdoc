@@ -8,11 +8,30 @@
 
 
 namespace mongo {
+void ThrowIfWriteConflict(txservice::TxErrorCode txErr) {
+    switch (txErr) {
+        case txservice::TxErrorCode::WRITE_WRITE_CONFLICT:
+        case txservice::TxErrorCode::OCC_BREAK_REPEATABLE_READ:
+        case txservice::TxErrorCode::DEAD_LOCK_ABORT:
+        case txservice::TxErrorCode::GET_RANGE_ID_ERROR:
+        case txservice::TxErrorCode::SI_R4W_ERR_KEY_WAS_UPDATED:
+        case txservice::TxErrorCode::UPSERT_TABLE_ACQUIRE_WRITE_INTENT_FAIL:
+            // Like wtRCToStatus_slow.
+            throw WriteConflictException();
+        default:
+            return;
+    }
+}
+
 Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr) {
     if (MONGO_likely(txErr == txservice::TxErrorCode::NO_ERROR))
         return Status::OK();
 
     log() << "Eloq engine error report: " << txservice::TxErrorMessage(txErr);
+
+    // Conflicts leave through an exception rather than a Status; see the header
+    // for why the distinction is load-bearing.
+    ThrowIfWriteConflict(txErr);
 
     ErrorCodes::Error err;
     switch (txErr) {
@@ -32,15 +51,8 @@ Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr) {
         case txservice::TxErrorCode::READ_WRITE_CONFLICT:
             err = ErrorCodes::SnapshotUnavailable;
             break;
-        case txservice::TxErrorCode::WRITE_WRITE_CONFLICT:
-        case txservice::TxErrorCode::OCC_BREAK_REPEATABLE_READ:
-        case txservice::TxErrorCode::DEAD_LOCK_ABORT:
-        case txservice::TxErrorCode::GET_RANGE_ID_ERROR:
-        case txservice::TxErrorCode::SI_R4W_ERR_KEY_WAS_UPDATED:
-        case txservice::TxErrorCode::UPSERT_TABLE_ACQUIRE_WRITE_INTENT_FAIL:
-            // Like wtRCToStatus_slow.
-            throw WriteConflictException();
-            break;
+        // The conflict group is handled by the ThrowIfWriteConflict() call
+        // above and never reaches this switch.
         case txservice::TxErrorCode::OUT_OF_MEMORY:
             err = ErrorCodes::ExceededMemoryLimit;
             break;

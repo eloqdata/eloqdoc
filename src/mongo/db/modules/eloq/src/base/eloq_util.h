@@ -150,6 +150,30 @@ inline std::pair<std::string, std::set<txservice::TableName>> ExtractReadyIndexe
 
 
 namespace mongo {
+/**
+ * Throws mongo::WriteConflictException if txErr belongs to the group of tx
+ * service errors that mean "another transaction got there first"; returns
+ * normally for every other code, including NO_ERROR.
+ *
+ * The group is wider than its name suggests: besides WRITE_WRITE_CONFLICT it
+ * covers OCC_BREAK_REPEATABLE_READ, DEAD_LOCK_ABORT, GET_RANGE_ID_ERROR,
+ * SI_R4W_ERR_KEY_WAS_UPDATED and UPSERT_TABLE_ACQUIRE_WRITE_INTENT_FAIL. All of
+ * them are resolved the same way -- abort the transaction and let the command
+ * layer re-run it -- which is what WriteConflictException means to mongo.
+ *
+ * This exists for call sites that must surface a conflict immediately while
+ * keeping their own retry loop for transient errors, so they cannot simply run
+ * TxErrorCodeToMongoStatus through uassertStatusOK. TxErrorCodeToMongoStatus
+ * calls this first, so the two can never drift apart.
+ *
+ * The thrown type matters: writeConflictRetry catches only
+ * WriteConflictException, which is `final : public DBException` and has no
+ * inheritance relationship with ExceptionFor<ErrorCodes::WriteConflict>.
+ * Returning a Status carrying ErrorCodes::WriteConflict would sail straight
+ * through every writeConflictRetry boundary.
+ */
+void ThrowIfWriteConflict(txservice::TxErrorCode txErr);
+
 Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr);
 
 inline constexpr std::string_view kMongoCatalogTableNameSV{"_mdb_catalog"};

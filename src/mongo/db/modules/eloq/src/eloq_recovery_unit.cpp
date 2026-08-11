@@ -67,6 +67,36 @@ namespace {
 
 std::atomic<uint64_t> nextSnapshotId{1};
 
+/**
+ * Restores an entry erased from _unreadyTableMap when the enclosing
+ * WriteUnitOfWork rolls back.
+ *
+ * The staged unready-index metadata lives only in that map: updateRecord takes
+ * an early return for a catalog object carrying a not-yet-ready index, so the
+ * catalog record itself never gets the index. An erase that is not undone on
+ * abort therefore destroys the only copy, and the in-process retry falls back
+ * to the pre-build metadata, which has neither the unready nor the ready index.
+ */
+class RestoreUnreadyTableChange : public RecoveryUnit::Change {
+public:
+    RestoreUnreadyTableChange(std::unordered_map<txservice::TableName, BSONObj>* map,
+                              txservice::TableName tableName,
+                              BSONObj obj)
+        : _map(map), _tableName(std::move(tableName)), _obj(std::move(obj)) {}
+
+    void commit(boost::optional<Timestamp>) override {}
+
+    void rollback() override {
+        _map->insert_or_assign(_tableName, _obj);
+    }
+
+private:
+    std::unordered_map<txservice::TableName, BSONObj>* const _map;
+    const txservice::TableName _tableName;
+    // Owned; getOwned() was called before the entry went into the map.
+    const BSONObj _obj;
+};
+
 }  // namespace
 
 txservice::AlterTableInfo getAlterTableInfo(std::string_view oldMetadata,
@@ -156,6 +186,9 @@ void EloqRecoveryUnit::reset() {
     _changes.clear();
     _discoveredTableMap.clear();
     _unreadyTableMap.clear();
+    // Last: evicted Collections pinned by the previous operation may be destroyed here, and
+    // nothing torn down above may touch them afterwards.
+    clearPinnedResources();
 }
 
 EloqRecoveryUnit::~EloqRecoveryUnit() {
@@ -628,6 +661,11 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
         case txservice::UpsertResult::Failed:
             MONGO_LOG(1) << "UpsertTableTxRequest error. UpsertTableOp on multiple nodes at the "
                             "same time may conflict and then backoff.";
+            // A lock conflict has to leave as a WriteConflictException, not as a Status: a
+            // Status carrying ErrorCodes::WriteConflict becomes ExceptionFor<WriteConflict>
+            // at the first uassertStatusOK, which no writeConflictRetry catches. See
+            // ThrowIfWriteConflict in eloq_util.h.
+            ThrowIfWriteConflict(upsertTableTxReq.ErrorCode());
             return {ErrorCodes::Error::WriteConflict, upsertTableTxReq.ErrorMsg()};
             break;
         case txservice::UpsertResult::Unverified:
@@ -672,6 +710,9 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
         case txservice::UpsertResult::Failed:
             MONGO_LOG(1) << "UpsertTableTxRequest error. Drop temporary table "
                          << tableName.StringView() << " failed at launch.";
+            // See createTable: a conflict must be raised as WriteConflictException so the
+            // command layer retries it, rather than surfacing as InternalError.
+            ThrowIfWriteConflict(dropTableTxReq.ErrorCode());
             return {ErrorCodes::Error::InternalError, dropTableTxReq.ErrorMsg()};
             break;
         case txservice::UpsertResult::Unverified:
@@ -812,6 +853,11 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
                     MONGO_LOG(1)
                         << "UpsertTableTxRequest error. UpsertTableOp on multiple nodes at the "
                            "same time may conflict and then backoff.";
+                    // A conflict here reaches ~MultiIndexBlockImpl's cleanup loop, which
+                    // retries only WriteConflictException and hits a fatal assertion on
+                    // anything else (index_create_impl.cpp:194). Reporting a lock conflict as
+                    // InternalError therefore kills the node. See ThrowIfWriteConflict.
+                    ThrowIfWriteConflict(txErr);
                     return {ErrorCodes::Error::InternalError, upsertTableTxReq.ErrorMsg()};
                 }
                 break;
@@ -830,7 +876,25 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
     }
 }
 void EloqRecoveryUnit::eraseUnreadyTable(const txservice::TableName& tableName) {
-    _unreadyTableMap.erase(tableName);
+    auto iter = _unreadyTableMap.find(tableName);
+    if (iter == _unreadyTableMap.end()) {
+        return;
+    }
+
+    // The erase must be undone if the enclosing WriteUnitOfWork aborts; see
+    // RestoreUnreadyTableChange. The reachable case -- indexer.commit() inside
+    // the writeConflictRetry of createIndexes -- always runs in one. If there
+    // is no unit of work there is also no rollback path that could run the
+    // change, so the plain erase is all that can be done.
+    if (_inUnitOfWork) {
+        registerChange(new RestoreUnreadyTableChange{&_unreadyTableMap, tableName, iter->second});
+    } else {
+        MONGO_LOG(1) << "eraseUnreadyTable outside a unit of work; the erase cannot be rolled "
+                        "back. tableName: "
+                     << tableName.StringView();
+    }
+
+    _unreadyTableMap.erase(iter);
 }
 BSONObj EloqRecoveryUnit::getUnreadyTable(const txservice::TableName& tableName) {
     auto iter = _unreadyTableMap.find(tableName);
