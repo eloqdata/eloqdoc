@@ -40,6 +40,8 @@
 
 namespace mongo {
 
+class CursorManager;
+
 /**
  * Constructs and returns Documents from the BSONObj objects produced by a supplied PlanExecutor.
  */
@@ -196,6 +198,25 @@ private:
     boost::optional<ParsedDeps> _dependencies;
     boost::intrusive_ptr<DocumentSourceLimit> _limit;
     long long _docsAddedToBatches;  // for _limit enforcement
+
+    // EloqDoc: the CursorManager '_exec' registered with, captured at construction from the same
+    // Collection instance the executor embeds. cleanupExecutor() deregisters from it instead of
+    // re-resolving the namespace (EloqDoc's Database::getCollection() performs a transactional
+    // catalog read that can throw on the no-throw disposal path, and re-resolution can return a
+    // rebuilt Collection whose CursorManager never saw '_exec'). Non-null whenever the executor
+    // was built over a collection, shared-owned or not; if the collection has since been
+    // destroyed, '_exec' was killed by its invalidateAll() first and killed executors never
+    // dereference the manager argument.
+    CursorManager* _cursorManager = nullptr;
+
+    // EloqDoc: shared ownership of the Collection '_exec''s stages reference, keeping
+    // '_cursorManager' alive. Pipelines embed cursor sources over the top-level *and* foreign
+    // ($lookup/$graphLookup makePipeline) collections, and both can outlive the operation that
+    // resolved them inside a globally-managed aggregation cursor; per-operation RecoveryUnit
+    // pins do not cover them. Null for uniquely-owned Collection instances, whose lifetime is
+    // their owner's problem exactly as upstream assumed. Declared before '_exec' so the executor
+    // is destroyed first.
+    std::shared_ptr<Collection> _collectionPin;
 
     // The underlying query plan which feeds this pipeline. Must be destroyed while holding the
     // collection lock.

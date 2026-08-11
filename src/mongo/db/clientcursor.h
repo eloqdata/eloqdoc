@@ -91,6 +91,15 @@ struct ClientCursorParams {
     const repl::ReadConcernLevel readConcernLevel;
     int queryOptions = 0;
     BSONObj originatingCommandObj;
+
+    // EloqDoc: shared ownership of the Collection the executor's stages reference, for cursors
+    // whose getMore path never re-resolves the collection (globally-managed aggregation cursors,
+    // getmore_cmd.cpp's lock-free branch). Per-operation RecoveryUnit pins only cover the
+    // operation that resolved the collection; a stashed executor outlives it, and a catalog
+    // version bump would otherwise destroy the object under the cursor. Null for cursors whose
+    // getMore re-resolves and re-pins (collection-managed cursors), where eviction kills the
+    // cursor before any dereference.
+    std::shared_ptr<const void> collectionPin;
 };
 
 /**
@@ -309,6 +318,11 @@ private:
 
     // Unused maxTime budget for this cursor.
     Microseconds _leftoverMaxTimeMicros = Microseconds::max();
+
+    // Keeps the Collection referenced by '_exec' alive for the cursor's whole life; see
+    // ClientCursorParams::collectionPin. Declared before '_exec' so the executor is destroyed
+    // first.
+    std::shared_ptr<const void> _collectionPin;
 
     // The underlying query execution machinery. Must be non-null.
     std::unique_ptr<PlanExecutor, PlanExecutor::Deleter> _exec;

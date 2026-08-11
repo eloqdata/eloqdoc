@@ -194,6 +194,14 @@ public:
 
     void save() override {
         MONGO_LOG(1) << "EloqIndexCursor::save " << _indexName->StringView();
+        // Close the scan while the transaction that opened it is still live, like
+        // saveUnpositioned() and EloqRecordStoreCursor::save(). A positioned index cursor
+        // stashed across wire operations otherwise keeps an EloqCursor bound to the opening
+        // operation's txm; that transaction commits, the pooled txm is recycled, and the next
+        // getMore's batch request lands on a foreign transaction's queue.
+        // restore() already re-seeks exclusively after '_key', which for non-unique indexes
+        // carries the RecordId suffix, so nothing is duplicated or skipped at the boundary.
+        _cursor.reset();
     }
 
     void saveUnpositioned() override {

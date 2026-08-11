@@ -89,6 +89,7 @@ ClientCursor::ClientCursor(ClientCursorParams params,
       _cursorManager(cursorManager),
       _originatingCommand(params.originatingCommandObj),
       _queryOptions(params.queryOptions),
+      _collectionPin(std::move(params.collectionPin)),
       _exec(std::move(params.exec)),
       _operationUsingCursor(operationUsingCursor),
       _lastUseDate(now) {

@@ -252,19 +252,24 @@ void DocumentSourceCursor::doDispose() {
 void DocumentSourceCursor::cleanupExecutor() {
     invariant(_exec);
     auto* opCtx = pExpCtx->opCtx;
-    // We need to be careful to not use AutoGetCollection here, since we only need the lock to
-    // protect potential access to the Collection's CursorManager, and AutoGetCollection may throw
-    // if this namespace has since turned into a view. Using Database::getCollection() will simply
-    // return nullptr if the collection has since turned into a view. In this case, '_exec' will
-    // already have been marked as killed when the collection was dropped, and we won't need to
-    // access the CursorManager to properly dispose of it.
+    // Keep upstream's lock discipline: PlanExecutor::dispose()'s deregistration path asserts a
+    // MODE_IS collection lock and non-Eloq engines rely on it for exclusion against concurrent
+    // invalidation. What upstream additionally did -- re-resolving the namespace via
+    // Database::getCollection() to find the CursorManager, chosen because upstream's version
+    // cannot throw -- is gone: EloqDoc's getCollection performs a transactional catalog read
+    // that can throw under concurrent DDL (Pipeline::dispose() turns that into std::terminate),
+    // and re-resolution can return a rebuilt Collection whose CursorManager never saw '_exec'.
+    //
+    // '_cursorManager' was captured from the instance '_exec' registered with;
+    // '_collectionPin' keeps it alive in the shared-ownership case. If the collection was
+    // destroyed or evicted instead, its invalidateAll() killed '_exec' first and killed
+    // executors never dereference the manager argument. Lock::DBLock (not AutoGetDb) so the
+    // whole path stays free of catalog and database-holder access.
     UninterruptibleLockGuard noInterrupt(opCtx->lockState());
     auto lockMode = getLockModeForQuery(opCtx);
-    AutoGetDb dbLock(opCtx, _exec->nss().db(), lockMode);
+    Lock::DBLock dbLock(opCtx, _exec->nss().db(), lockMode);
     Lock::CollectionLock collLock(opCtx->lockState(), _exec->nss().ns(), lockMode);
-    auto collection = dbLock.getDb() ? dbLock.getDb()->getCollection(opCtx, _exec->nss()) : nullptr;
-    auto cursorManager = collection ? collection->getCursorManager() : nullptr;
-    _exec->dispose(opCtx, cursorManager);
+    _exec->dispose(opCtx, _cursorManager);
 
     // Not freeing _exec if we're in explain mode since it will be used in serialize() to gather
     // execution stats.
@@ -300,6 +305,8 @@ DocumentSourceCursor::DocumentSourceCursor(
     const intrusive_ptr<ExpressionContext>& pCtx)
     : DocumentSource(pCtx),
       _docsAddedToBatches(0),
+      _cursorManager(collection ? collection->getCursorManager() : nullptr),
+      _collectionPin(collection ? collection->sharedFromThisIfShared() : nullptr),
       _exec(std::move(exec)),
       _outputSorts(_exec->getOutputSorts()) {
 

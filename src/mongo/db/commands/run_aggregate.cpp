@@ -325,6 +325,9 @@ Status runAggregate(OperationContext* opCtx,
     unique_ptr<PlanExecutor, PlanExecutor::Deleter> exec;
     boost::intrusive_ptr<ExpressionContext> expCtx;
     Pipeline* unownedPipeline;
+    // EloqDoc: shared ownership of the collection the pipeline's input executor references,
+    // transferred to the globally-managed cursor below; see ClientCursorParams::collectionPin.
+    Collection::Sptr collectionPin;
     auto curOp = CurOp::get(opCtx);
     {
         const LiteParsedPipeline liteParsedPipeline(request);
@@ -391,6 +394,7 @@ Status runAggregate(OperationContext* opCtx,
         }
 
         Collection* collection = ctx ? ctx->getCollection() : nullptr;
+        collectionPin = collection ? collection->sharedFromThisIfShared() : nullptr;
 
         // For change streams, the UUID will already have been set for the original namespace.
         if (!liteParsedPipeline.hasChangeStream()) {
@@ -537,6 +541,7 @@ Status runAggregate(OperationContext* opCtx,
         AuthorizationSession::get(opCtx->getClient())->getAuthenticatedUserNames(),
         repl::ReadConcernArgs::get(opCtx).getLevel(),
         cmdObj);
+    cursorParams.collectionPin = std::move(collectionPin);
     if (expCtx->tailableMode == TailableModeEnum::kTailableAndAwaitData) {
         cursorParams.setTailable(true);
         cursorParams.setAwaitData(true);
