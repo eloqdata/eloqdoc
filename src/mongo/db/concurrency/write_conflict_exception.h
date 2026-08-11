@@ -91,9 +91,14 @@ auto writeConflictRetry(OperationContext* opCtx, StringData opStr, StringData ns
             return f();
         } catch (WriteConflictException const&) {
             CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
+            // Abandon the snapshot before backing off, not after: under Eloq the snapshot is a
+            // transaction whose accumulated catalog/key intents are exactly what the conflict
+            // winner is waiting to drain. Sleeping first parks this loser on top of its locks
+            // for the whole backoff window, starving the winner it is about to retry against;
+            // abandoning first hands the winner the backoff window to finish.
+            opCtx->recoveryUnit()->abandonSnapshot();
             WriteConflictException::logAndBackoff(attempts, opStr, ns);
             ++attempts;
-            opCtx->recoveryUnit()->abandonSnapshot();
         }
     }
 }
