@@ -156,9 +156,26 @@ private:
  * this is NOT safe through a yield right now.
  * not sure if it will be, or what yet.
  */
-class Collection final : CappedCallback, UpdateNotifier {
+class Collection final : CappedCallback,
+                         UpdateNotifier,
+                         public std::enable_shared_from_this<Collection> {
 public:
     using Uptr = std::unique_ptr<Collection>;
+    // Shared ownership is required for the Database collection caches: getCollection() rebuilds
+    // cached entries in place on catalog version changes while operations still hold raw pointers
+    // (pinned on their RecoveryUnit), so eviction must not destroy eagerly.
+    using Sptr = std::shared_ptr<Collection>;
+
+    /**
+     * Shared ownership of this object when it is owned by a shared collection cache
+     * (DatabaseImpl::_collections, UUIDCatalog); null for uniquely-owned instances. Used by
+     * holders that outlive the operation that resolved the collection -- e.g. globally-managed
+     * aggregation cursors, whose getMore path never re-resolves through getCollection() and so
+     * never takes a RecoveryUnit pin.
+     */
+    Sptr sharedFromThisIfShared() {
+        return weak_from_this().lock();
+    }
 
     enum ValidationAction { WARN, ERROR_V };
     enum ValidationLevel { OFF, MODERATE, STRICT_V };

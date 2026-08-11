@@ -33,6 +33,7 @@
 #include <memory>
 #include <stdlib.h>
 #include <string>
+#include <vector>
 
 #include "mongo/base/disallow_copying.h"
 #include "mongo/base/status.h"
@@ -65,6 +66,33 @@ public:
     }
 
     virtual void setOperationContext(OperationContext* opCtx) {}
+
+    /**
+     * Keeps 'resource' alive until this recovery unit is reset for reuse (or destroyed).
+     *
+     * EloqDoc: DatabaseImpl::getCollection() rebuilds the cached Collection in place whenever the
+     * catalog version moves, which happens constantly under concurrent DDL. Operations hold raw
+     * Collection* across coroutine yields and into RecoveryUnit onCommit callbacks, and
+     * EloqLockerNoop provides none of the lock-manager exclusion upstream relies on to make the
+     * eviction safe. Pinning the shared_ptr here defers destruction of the evicted object until
+     * the pooled OperationContext is recycled for its next operation
+     * (StorageClientObserver::onCreateOperationContext -> resetRecoveryUnit -> reset()), which is
+     * strictly after every use the pinning operation can make of the raw pointer. Multi-statement
+     * transactions stash and restore the RecoveryUnit between statements, so pins follow the
+     * transaction, not the wire operation.
+     */
+    void pinResource(std::shared_ptr<void> resource) {
+        // Deduplicate against the full live pin set so growth is bounded by distinct resources,
+        // not acquisition count (an operation alternating between two collections would otherwise
+        // grow the vector per call). Linear scan: the set is a handful of collections plus their
+        // superseded versions per operation/transaction.
+        for (const auto& pinned : _pinnedResources) {
+            if (pinned == resource) {
+                return;
+            }
+        }
+        _pinnedResources.push_back(std::move(resource));
+    }
 
     /**
      * These should be called through WriteUnitOfWork rather than directly.
@@ -389,6 +417,17 @@ public:
 
 protected:
     RecoveryUnit() {}
+
+    /**
+     * Drops all resources pinned with pinResource(). Engines whose reset() supports pooled reuse
+     * (EloqRecoveryUnit) must call this from reset(); destruction handles the non-pooled case.
+     */
+    void clearPinnedResources() {
+        _pinnedResources.clear();
+    }
+
+private:
+    std::vector<std::shared_ptr<void>> _pinnedResources;
 };
 
 }  // namespace mongo

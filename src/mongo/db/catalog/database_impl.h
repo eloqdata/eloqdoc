@@ -41,6 +41,7 @@
 #include "mongo/db/storage/storage_options.h"
 #include "mongo/db/views/view.h"
 #include "mongo/db/views/view_catalog.h"
+#include "mongo/stdx/mutex.h"
 #include "mongo/util/mongoutils/str.h"
 #include "mongo/util/string_map.h"
 
@@ -233,7 +234,7 @@ public:
     StatusWith<NamespaceString> makeUniqueCollectionNamespace(OperationContext* opCtx,
                                                               StringData collectionNameModel) final;
 
-    CollectionMapView& collections(OperationContext* opCtx) override;
+    CollectionMapView collections(OperationContext* opCtx) override;
 
     // const CollectionMap& collections() const override;
     // CollectionMap::const_iterator begin() const override;
@@ -261,8 +262,19 @@ private:
     Collection* _createCollectionHandler(OperationContext* opCtx,
                                          const NamespaceString& nss,
                                          bool createIdIndex,
-                                         const BSONObj& idIndexSpec = BSONObj{},
-                                         bool forView = false);
+                                         const BSONObj& idIndexSpec = BSONObj{});
+
+    /**
+     * Builds a Collection instance for 'nss' from the storage catalog without touching the
+     * shared _collections cache. Returns null if the collection does not exist. Yields during
+     * the catalog read. 'optionsOut', when non-null, receives the collection options that were
+     * read. (Options, not the full CollectionCatalogEntry::MetaData: that type would pull
+     * kv-layer headers into this one and an undefined KVPrefix reference into every library
+     * that includes it.)
+     */
+    Collection::Sptr _buildCollectionInstance(OperationContext* opCtx,
+                                              const NamespaceString& nss,
+                                              CollectionOptions* optionsOut);
 
     /**
      * Throws if there is a reason 'ns' cannot be created as a user collection.
@@ -275,11 +287,15 @@ private:
      * Deregisters and invalidates all cursors on collection 'fullns'.  Callers must specify
      * 'reason' for why the cache is being cleared. If 'collectionGoingAway' is false,
      * unpinned cursors will not be killed.
+     *
+     * When 'onlyIfIs' is non-null, the entry is only evicted if it still holds that object; a
+     * concurrent accessor may already have refreshed the entry, and its rebuild must stay.
      */
     void _clearCollectionCache(OperationContext* opCtx,
                                StringData fullns,
                                const std::string& reason,
-                               bool collectionGoingAway);
+                               bool collectionGoingAway,
+                               const Collection* onlyIfIs = nullptr);
 
     /**
      * Completes a collection drop by removing all the indexes and removing the collection itself
@@ -316,9 +332,22 @@ private:
     // This variable may only be read/written while the database is locked in MODE_X.
     std::unique_ptr<PseudoRandom> _uniqueCollectionNamespacePseudoRandom;
 
-    CollectionMap _collections;  // owner
-    CollectionMapView _collectionsView;
-    // mutable std::mutex _collectionsMutex;
+    CollectionMap _collections;  // shared owner; entries evicted on catalog version change
+
+    // Collection lifetime: getCollection() refreshes the cached Collection whenever the catalog
+    // version moves, which happens constantly under concurrent DDL, and callers hold raw
+    // Collection* across coroutine yields and into RecoveryUnit onCommit callbacks
+    // (EloqLockerNoop provides none of the exclusion upstream's lock manager gave this code).
+    // Entries are therefore shared_ptr: every getCollection() pins the shared_ptr on the caller's
+    // RecoveryUnit until its operation fully ends, so eviction is a plain map erase and the old
+    // object is destroyed only after the last operation using it completes.
+    //
+    // _collectionsMutex serialises the pure in-memory map operations only -- request-thread
+    // coroutines interleave at yields, while background threads (e.g. the TTLMonitor) mutate the
+    // maps concurrently for real. It must never be held across a call that can yield the
+    // coroutine (readCatalog/getMetaData); holding a mutex across a yield can deadlock the
+    // shared worker thread.
+    mutable stdx::mutex _collectionsMutex;
 
     DurableViewCatalogImpl _durableViews;  // interface for system.views operations
     ViewCatalog _views;                    // in-memory representation of _durableViews

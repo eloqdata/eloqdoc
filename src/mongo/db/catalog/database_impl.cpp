@@ -158,9 +158,10 @@ void uassertNamespaceNotIndex(StringData ns, StringData caller) {
 // };
 
 DatabaseImpl::~DatabaseImpl() {
+    // Entries may be kept alive past this point by RecoveryUnit pins and cursor pins; clearing
+    // under the mutex only synchronises the map structure itself against background accessors.
+    stdx::lock_guard<stdx::mutex> lk(_collectionsMutex);
     _collections.clear();
-    // for (CollectionMap::const_iterator i = _collections.begin(); i != _collections.end(); ++i)
-    //     delete i->second;
 }
 
 void DatabaseImpl::close(OperationContext* opCtx, const std::string& reason) {
@@ -169,8 +170,17 @@ void DatabaseImpl::close(OperationContext* opCtx, const std::string& reason) {
     // Clear cache of oplog Collection pointer.
     repl::oplogCheckCloseDatabase(opCtx, this->_this);
 
-    for (const auto& [name, coll] : _collections) {
-        // auto coll = pair.second;
+    // Snapshot under the mutex, invalidate outside it; skip null entries (the map can hold them).
+    std::vector<Collection::Sptr> colls;
+    {
+        stdx::lock_guard<stdx::mutex> lk(_collectionsMutex);
+        for (const auto& [name, coll] : _collections) {
+            if (coll) {
+                colls.push_back(coll);
+            }
+        }
+    }
+    for (const auto& coll : colls) {
         coll->getCursorManager()->invalidateAll(opCtx, true, reason);
     }
 }
@@ -249,32 +259,53 @@ Collection* DatabaseImpl::_getOrCreateCollectionInstance(OperationContext* opCtx
     return coll;
 }
 
-Collection* DatabaseImpl::_createCollectionHandler(OperationContext* opCtx,
-                                                   const NamespaceString& nss,
-                                                   bool createIdIndex,
-                                                   const BSONObj& idIndexSpec,
-                                                   bool forView) {
-    MONGO_LOG(1) << "DatabaseImpl::_createCollectionHandler";
-    if (!forView) {
-        if (auto iter = _collections.find(nss.toString()); iter != _collections.end()) {
-            return iter->second.get();
-        }
-    }
+Collection::Sptr DatabaseImpl::_buildCollectionInstance(OperationContext* opCtx,
+                                                        const NamespaceString& nss,
+                                                        CollectionOptions* optionsOut) {
     auto cce = _dbEntry->getCollectionCatalogEntry(opCtx, nss.toStringData());
     if (!cce) {
         // The collection not exists in the Eloq
         return nullptr;
     }
-    CollectionCatalogEntry::MetaData metadata = cce->getMetaData(opCtx);
-    auto uuid = metadata.options.uuid;
+    CollectionCatalogEntry::MetaData metadata = cce->getMetaData(opCtx);  // yields
     auto rs = cce->getRecordStore();
-    auto collection =
-        std::make_unique<Collection>(opCtx, nss.toStringData(), uuid, cce, rs, _dbEntry);
+    auto collection = std::make_shared<Collection>(
+        opCtx, nss.toStringData(), metadata.options.uuid, cce, rs, _dbEntry);
+    if (optionsOut) {
+        *optionsOut = std::move(metadata.options);
+    }
+    return collection;
+}
 
-    if (forView) {
-        _collectionsView.try_emplace(nss.toString(), std::move(collection));
+Collection* DatabaseImpl::_createCollectionHandler(OperationContext* opCtx,
+                                                   const NamespaceString& nss,
+                                                   bool createIdIndex,
+                                                   const BSONObj& idIndexSpec) {
+    MONGO_LOG(1) << "DatabaseImpl::_createCollectionHandler";
+    {
+        bool hasEntry = false;
+        Collection::Sptr existing;
+        {
+            stdx::lock_guard<stdx::mutex> lk(_collectionsMutex);
+            if (auto iter = _collections.find(nss.toString()); iter != _collections.end()) {
+                hasEntry = true;
+                existing = iter->second;
+            }
+        }
+        if (hasEntry) {
+            // The map can hold null entries; return whatever the entry holds.
+            if (existing && opCtx->recoveryUnit()) {
+                opCtx->recoveryUnit()->pinResource(existing);
+            }
+            return existing.get();
+        }
+    }
+    CollectionOptions options;
+    Collection::Sptr collection = _buildCollectionInstance(opCtx, nss, &options);
+    if (!collection) {
         return nullptr;
     }
+    auto uuid = options.uuid;
 
     if (uuid) {
         // We are not in a WUOW only when we are called from Database::init(). There is no need
@@ -290,8 +321,8 @@ Collection* DatabaseImpl::_createCollectionHandler(OperationContext* opCtx,
     BSONObj fullIdIndexSpec;
     if (createIdIndex) {
         if (collection->requiresIdIndex()) {
-            if (metadata.options.autoIndexId == CollectionOptions::YES ||
-                metadata.options.autoIndexId == CollectionOptions::DEFAULT) {
+            if (options.autoIndexId == CollectionOptions::YES ||
+                options.autoIndexId == CollectionOptions::DEFAULT) {
                 // createCollection() may be called before the in-memory fCV parameter is
                 // initialized, so use the unsafe fCV getter here.
 
@@ -338,12 +369,23 @@ Collection* DatabaseImpl::_createCollectionHandler(OperationContext* opCtx,
         // createSystemIndexes(opCtx, collection.get());
     }
 
-    auto [iter, _] = _collections.try_emplace(nss.toString(), std::move(collection));
-
+    // The catalog read in _buildCollectionInstance can yield the coroutine, so another accessor
+    // may have rebuilt this entry meanwhile; try_emplace keeps the winner and our redundant
+    // instance is discarded.
+    {
+        stdx::lock_guard<stdx::mutex> lk(_collectionsMutex);
+        auto [iter, inserted] = _collections.try_emplace(nss.toString(), collection);
+        if (!inserted) {
+            collection = iter->second;
+        }
+    }
+    if (collection && opCtx->recoveryUnit()) {
+        opCtx->recoveryUnit()->pinResource(collection);
+    }
 
     MONGO_LOG(1) << "[opID]=" << opCtx->getOpID() << "DatabaseImpl::createCollection"
                  << ". create done and handler to collection is available";
-    return iter->second.get();
+    return collection.get();
 }
 
 DatabaseImpl::DatabaseImpl(Database* const this_,
@@ -769,19 +811,38 @@ Status DatabaseImpl::_finishDropCollection(OperationContext* opCtx,
 void DatabaseImpl::_clearCollectionCache(OperationContext* opCtx,
                                          StringData fullns,
                                          const std::string& reason,
-                                         bool collectionGoingAway) {
+                                         bool collectionGoingAway,
+                                         const Collection* onlyIfIs) {
     invariant(_name == nsToDatabaseSubstring(fullns));
-    auto it = _collections.find(fullns);
+    Collection::Sptr evicted;
+    {
+        stdx::lock_guard<stdx::mutex> lk(_collectionsMutex);
+        auto it = _collections.find(fullns);
+        if (it == _collections.end()) {
+            return;
+        }
+        if (onlyIfIs && it->second.get() != onlyIfIs) {
+            // A concurrent accessor already refreshed this entry; keep its rebuild.
+            return;
+        }
+        evicted = std::move(it->second);
+        _collections.erase(it);
+    }
 
-    if (it == _collections.end()) {
+    // The map can hold null entries -- getCollection() checks `it->second` before using it.
+    if (!evicted) {
         return;
     }
 
-    // Takes ownership of the collection
-    // opCtx->recoveryUnit()->registerChange(new RemoveCollectionChange(this, it->second));
+    evicted->getCursorManager()->invalidateAll(opCtx, collectionGoingAway, reason);
 
-    it->second->getCursorManager()->invalidateAll(opCtx, collectionGoingAway, reason);
-    _collections.erase(it);
+    // Destruction is deferred, not immediate: every operation that obtained this Collection via
+    // getCollection() holds its own pin, and pinning here also covers raw pointers this operation
+    // received down a call chain (e.g. _finishDropCollection's argument). The object dies when
+    // the last pinning operation's RecoveryUnit is reset.
+    if (auto* ru = opCtx->recoveryUnit()) {
+        ru->pinResource(std::move(evicted));
+    }
 }
 
 Collection* DatabaseImpl::getCollection(OperationContext* opCtx, StringData ns, bool isForWrite) {
@@ -804,25 +865,41 @@ Collection* DatabaseImpl::getCollection(OperationContext* opCtx,
                  << " exists: " << exists << ", isForWrite: " << isForWrite;
     uassertStatusOK(status);
     if (!exists) {
+        // The table is gone from the transactional catalog (dropped in this transaction or on
+        // another node). Evict any stale cached entry so a later re-create of the same namespace
+        // cannot be served the old object; destruction is deferred via pinResource.
+        _clearCollectionCache(opCtx, nss.ns(), "collection no longer exists", true);
         return nullptr;
     }
 
-    if (auto it = _collections.find(nss.ns()); it != _collections.end() && it->second) {
-        auto found = it->second.get();
-
+    Collection::Sptr found;
+    {
+        stdx::lock_guard<stdx::mutex> lk(_collectionsMutex);
+        if (auto it = _collections.find(nss.ns()); it != _collections.end() && it->second) {
+            found = it->second;
+        }
+    }
+    if (found) {
         if (found->catalogVersion() == version) {
             NamespaceUUIDCache& cache = NamespaceUUIDCache::get(opCtx);
             if (auto uuid = found->uuid()) {
                 cache.ensureNamespaceInCache(nss, uuid.get());
             }
-            return found;
+            // A null RecoveryUnit only occurs on early-boot OperationContexts that never reach
+            // collection code; a future RU-less path reaching here would return an unpinned raw
+            // pointer, losing the lifetime protection.
+            if (auto* ru = opCtx->recoveryUnit()) {
+                ru->pinResource(found);
+            }
+            return found.get();
         } else {
             MONGO_LOG(1) << "nss: " << nss.toStringData()
                          << " version changed. old: " << found->catalogVersion()
                          << ", new: " << version;
             auto& uuidCatalog = UUIDCatalog::get(opCtx);
             uuidCatalog.removeUUIDCatalogEntry(found->uuid().get());
-            _clearCollectionCache(opCtx, nss.ns(), "collection version changed", true);
+            _clearCollectionCache(
+                opCtx, nss.ns(), "collection version changed", true, found.get());
             return _createCollectionHandler(opCtx, nss, false);
         }
     } else {
@@ -1516,21 +1593,23 @@ StatusWith<NamespaceString> DatabaseImpl::makeUniqueCollectionNamespace(
                       << " attempts due to namespace conflicts with existing collections.");
 }
 
-DatabaseImpl::CollectionMapView& DatabaseImpl::collections(OperationContext* opCtx) {
+DatabaseImpl::CollectionMapView DatabaseImpl::collections(OperationContext* opCtx) {
     MONGO_LOG(1) << "DatabaseImpl::collections";
 
     std::vector<std::string> collectionInStorageEngine;
     _dbEntry->getCollectionNamespaces(collectionInStorageEngine);
 
-    _collectionsView.clear();
-
+    // Operation-owned snapshot; no shared state, so no lock. A shared member map here would be
+    // cleared and rebuilt under earlier callers' iterators.
+    CollectionMapView view;
     for (auto& collectionName : collectionInStorageEngine) {
         NamespaceString nss{std::move(collectionName)};
         MONGO_LOG(1) << "nss: " << nss;
-        _createCollectionHandler(opCtx, nss, false, BSONObj{}, true);
+        if (auto coll = _buildCollectionInstance(opCtx, nss, nullptr)) {
+            view.try_emplace(nss.toString(), std::move(coll));
+        }
     }
-
-    return _collectionsView;
+    return view;
 }
 
 

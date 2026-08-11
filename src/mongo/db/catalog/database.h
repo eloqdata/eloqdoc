@@ -59,8 +59,8 @@ namespace mongo {
 class Database : public Decorable<Database> {
 public:
     // Used for range-based loop only
-    using CollectionMapView = std::map<std::string, Collection::Uptr>;
-    using CollectionMap = std::map<std::string, Collection::Uptr, std::less<void>>;
+    using CollectionMapView = std::map<std::string, Collection::Sptr>;
+    using CollectionMap = std::map<std::string, Collection::Sptr, std::less<void>>;
 
     class Impl {
     public:
@@ -130,7 +130,10 @@ public:
         virtual StatusWith<NamespaceString> makeUniqueCollectionNamespace(
             OperationContext* opCtx, StringData collectionNameModel) = 0;
 
-        virtual CollectionMapView& collections(OperationContext* opCtx) = 0;
+        // Returned by value: an operation-owned snapshot. A shared member map would be cleared
+        // and rebuilt while earlier callers iterate it (map-iterator invalidation that shared_ptr
+        // entries do not cure).
+        virtual CollectionMapView collections(OperationContext* opCtx) = 0;
         // virtual CollectionMap& collections() = 0;
         // virtual const CollectionMap& collections() const = 0;
         // virtual CollectionMap::const_iterator begin() const = 0;
@@ -219,7 +222,7 @@ public:
     inline Database(Database&&) = delete;
     inline Database& operator=(Database&&) = delete;
 
-    CollectionMapView& collections(OperationContext* opCtx) {
+    CollectionMapView collections(OperationContext* opCtx) {
         return this->_impl().collections(opCtx);
     }
     // inline iterator begin() const {

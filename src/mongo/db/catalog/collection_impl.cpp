@@ -335,7 +335,23 @@ Status CollectionImpl::insertDocumentsForOplog(OperationContext* opCtx,
         return status;
 
     opCtx->recoveryUnit()->onCommit(
-        [this](boost::optional<Timestamp>) { notifyCappedWaitersIfNeeded(); });
+        [notifier = _cappedNotifier](boost::optional<Timestamp>) {
+            // Capture the notifier, not the Collection. Eloq refreshes the cached Collection
+            // while committing catalog metadata, before RecoveryUnit callbacks run, so a
+            // captured `this` can already be freed here -- the same hazard the eloq guard in
+            // IndexCatalogEntryImpl::setMultikey was added for. Holding a shared_ptr copy keeps
+            // the notifier alive independently of the Collection.
+            //
+            // The haveCappedWaiters() short-circuit is dropped along with `this`: its use_count
+            // test cannot be expressed once the Collection may be gone, and it was only an
+            // optimisation. notifyAll() on a notifier nobody waits on takes one uncontended
+            // mutex and bumps a version that no waiter reads; on a killed notifier it is
+            // likewise harmless, because waiters exit on the _dead flag. Non-capped collections
+            // have a null notifier and do nothing at all.
+            if (notifier) {
+                notifier->notifyAll();
+            }
+        });
 
     return status;
 }
@@ -388,7 +404,23 @@ Status CollectionImpl::insertDocuments(OperationContext* opCtx,
         opCtx, ns(), uuid(), begin, end, fromMigrate);
 
     opCtx->recoveryUnit()->onCommit(
-        [this](boost::optional<Timestamp>) { notifyCappedWaitersIfNeeded(); });
+        [notifier = _cappedNotifier](boost::optional<Timestamp>) {
+            // Capture the notifier, not the Collection. Eloq refreshes the cached Collection
+            // while committing catalog metadata, before RecoveryUnit callbacks run, so a
+            // captured `this` can already be freed here -- the same hazard the eloq guard in
+            // IndexCatalogEntryImpl::setMultikey was added for. Holding a shared_ptr copy keeps
+            // the notifier alive independently of the Collection.
+            //
+            // The haveCappedWaiters() short-circuit is dropped along with `this`: its use_count
+            // test cannot be expressed once the Collection may be gone, and it was only an
+            // optimisation. notifyAll() on a notifier nobody waits on takes one uncontended
+            // mutex and bumps a version that no waiter reads; on a killed notifier it is
+            // likewise harmless, because waiters exit on the _dead flag. Non-capped collections
+            // have a null notifier and do nothing at all.
+            if (notifier) {
+                notifier->notifyAll();
+            }
+        });
 
     MONGO_FAIL_POINT_BLOCK(hangAfterCollectionInserts, extraData) {
         const BSONObj& data = extraData.getData();
@@ -472,7 +504,23 @@ Status CollectionImpl::insertDocument(OperationContext* opCtx,
         opCtx, ns(), uuid(), inserts.begin(), inserts.end(), false);
 
     opCtx->recoveryUnit()->onCommit(
-        [this](boost::optional<Timestamp>) { notifyCappedWaitersIfNeeded(); });
+        [notifier = _cappedNotifier](boost::optional<Timestamp>) {
+            // Capture the notifier, not the Collection. Eloq refreshes the cached Collection
+            // while committing catalog metadata, before RecoveryUnit callbacks run, so a
+            // captured `this` can already be freed here -- the same hazard the eloq guard in
+            // IndexCatalogEntryImpl::setMultikey was added for. Holding a shared_ptr copy keeps
+            // the notifier alive independently of the Collection.
+            //
+            // The haveCappedWaiters() short-circuit is dropped along with `this`: its use_count
+            // test cannot be expressed once the Collection may be gone, and it was only an
+            // optimisation. notifyAll() on a notifier nobody waits on takes one uncontended
+            // mutex and bumps a version that no waiter reads; on a killed notifier it is
+            // likewise harmless, because waiters exit on the _dead flag. Non-capped collections
+            // have a null notifier and do nothing at all.
+            if (notifier) {
+                notifier->notifyAll();
+            }
+        });
 
     return loc.getStatus();
 }
