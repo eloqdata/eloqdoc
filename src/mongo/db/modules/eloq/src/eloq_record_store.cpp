@@ -535,13 +535,6 @@ public:
         if (!_eof && _cursor && _cursor->currentBatchTuple() != nullptr) {
             _lastMongoKey.emplace(*_cursor->currentBatchTuple()->key_.GetKey<Eloq::MongoKey>());
         }
-        // Close the scan now, while the transaction that opened it is still live, like
-        // saveUnpositioned() and EloqIndexCursor::save(). A stashed cursor (getMore across wire
-        // operations) otherwise keeps an EloqCursor bound to the original operation's txm; that
-        // transaction commits and the txm is recycled to another transaction, and the next batch
-        // request would be enqueued onto the recycled txm's request queue from a foreign thread.
-        // next() lazily re-seeks from _lastMongoKey on the current txm.
-        _cursor.reset();
     }
 
     bool restore() override {
@@ -554,6 +547,14 @@ public:
     void detachFromOperationContext() override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::detachFromOperationContext";
         assert(_opCtx);
+        // Close the scan here rather than in save(): detach is the point where the cursor
+        // leaves its operation, so this is the last moment the transaction that opened the
+        // scan is still live. A stashed cursor would otherwise keep an EloqCursor bound to
+        // that txm, which is recycled once the transaction commits, and its next batch
+        // request would land on a foreign transaction's queue. save() must not do this --
+        // DeleteStage saves state once per deleted document, so closing there costs one
+        // scan close and re-seek per document. next() re-seeks from _lastMongoKey.
+        _cursor.reset();
         _opCtx = nullptr;
         _ru = nullptr;
     }
