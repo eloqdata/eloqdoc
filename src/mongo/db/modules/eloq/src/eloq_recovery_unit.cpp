@@ -97,6 +97,44 @@ private:
     const BSONObj _obj;
 };
 
+/**
+ * Restores the value that putUnreadyTable() replaced when the enclosing
+ * WriteUnitOfWork rolls back. If the entry did not exist before the write, the
+ * rollback removes the newly staged value instead.
+ *
+ * createIndexes retries the complete catalog attempt after a write conflict.
+ * Keeping metadata staged by the failed attempt would make the next attempt
+ * rebuild its Collection from a stale index set rather than from the catalog
+ * committed by the conflict winner.
+ */
+class RestoreUnreadyTablePutChange : public RecoveryUnit::Change {
+public:
+    RestoreUnreadyTablePutChange(std::unordered_map<txservice::TableName, BSONObj>* map,
+                                 txservice::TableName tableName,
+                                 bool hadPreviousValue,
+                                 BSONObj previousValue)
+        : _map(map),
+          _tableName(std::move(tableName)),
+          _hadPreviousValue(hadPreviousValue),
+          _previousValue(std::move(previousValue)) {}
+
+    void commit(boost::optional<Timestamp>) override {}
+
+    void rollback() override {
+        if (_hadPreviousValue) {
+            _map->insert_or_assign(_tableName, _previousValue);
+        } else {
+            _map->erase(_tableName);
+        }
+    }
+
+private:
+    std::unordered_map<txservice::TableName, BSONObj>* const _map;
+    const txservice::TableName _tableName;
+    const bool _hadPreviousValue;
+    const BSONObj _previousValue;
+};
+
 }  // namespace
 
 txservice::AlterTableInfo getAlterTableInfo(std::string_view oldMetadata,
@@ -905,7 +943,16 @@ BSONObj EloqRecoveryUnit::getUnreadyTable(const txservice::TableName& tableName)
     return {};
 }
 void EloqRecoveryUnit::putUnreadyTable(const txservice::TableName& tableName, const BSONObj& obj) {
+    auto iter = _unreadyTableMap.find(tableName);
+    const bool hadPreviousValue = iter != _unreadyTableMap.end();
 
+    if (_inUnitOfWork) {
+        registerChange(
+            new RestoreUnreadyTablePutChange{&_unreadyTableMap,
+                                             tableName,
+                                             hadPreviousValue,
+                                             hadPreviousValue ? iter->second : BSONObj{}});
+    }
     _unreadyTableMap.insert_or_assign(tableName, obj.getOwned());
 }
 
