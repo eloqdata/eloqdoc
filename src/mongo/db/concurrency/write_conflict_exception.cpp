@@ -31,6 +31,7 @@
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kWrite
 
 #include "mongo/db/concurrency/write_conflict_exception.h"
+#include "mongo/db/operation_context.h"
 #include "mongo/db/server_parameters.h"
 #include "mongo/util/log.h"
 #include "mongo/util/stacktrace.h"
@@ -59,6 +60,26 @@ void WriteConflictException::logAndBackoff(int attempt, StringData operation, St
         sleepmillis(5);
     } else {
         sleepmillis(10);
+    }
+}
+
+void WriteConflictException::logAndBackoff(OperationContext* opCtx,
+                                         int attempt,
+                                         StringData operation,
+                                         StringData ns) {
+    invariant(opCtx);
+    LOG(1) << "Caught WriteConflictException doing " << operation << " on " << ns
+           << ", attempt: " << attempt << " retrying";
+
+    // Match the existing backoff schedule without blocking a shared coroutine worker.
+    if (attempt < 4) {
+        return;
+    } else if (attempt < 10) {
+        opCtx->sleepFor(Milliseconds(1));
+    } else if (attempt < 100) {
+        opCtx->sleepFor(Milliseconds(5));
+    } else {
+        opCtx->sleepFor(Milliseconds(10));
     }
 }
 

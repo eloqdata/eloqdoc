@@ -38,6 +38,8 @@
 
 namespace mongo {
 
+class OperationContext;
+
 /**
  * This is thrown if during a write, two or more operations conflict with each other.
  * For example if two operations get the same version of a document, and then both try to
@@ -54,6 +56,15 @@ public:
      * @param operation - e.g. "update"
      */
     static void logAndBackoff(int attempt, StringData operation, StringData ns);
+
+    /**
+     * Uses the operation context to keep backoff interruptible and let coroutine workers yield.
+     * Keeps the same delay tiers as the three-argument overload. opCtx must not be null.
+     */
+    static void logAndBackoff(OperationContext* opCtx,
+                             int attempt,
+                             StringData operation,
+                             StringData ns);
 
     /**
      * If true, will call printStackTrace on every WriteConflictException created.
