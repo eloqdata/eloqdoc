@@ -36,7 +36,7 @@
         //            res.getWriteError().errmsg.indexOf("Expected a single top-level field name"),
         //            "update failed for a reason other than failing to parse array filters");
         assert.neq(-1,
-                   res.errmsg.indexOf("Expected a single top-level field name"),
+                   res.getWriteError().errmsg.indexOf("Expected a single top-level field name"),
                    "update failed for a reason other than failing to parse array filters");
 
         // Multiple array filters with the same id fails to parse.
@@ -50,7 +50,7 @@
         //     "update failed for a reason other than multiple array filters with the same top-level field name");
         assert.neq(
             -1,
-            res.errmsg.indexOf(
+            res.getWriteError().errmsg.indexOf(
                 "Found multiple array filters with the same top-level field name"),
             "update failed for a reason other than multiple array filters with the same top-level field name");
 
@@ -64,7 +64,7 @@
         //     "update failed for a reason other than unused array filter");
         assert.neq(
             -1,
-            res.errmsg.indexOf(
+            res.getWriteError().errmsg.indexOf(
                 "The array filter for identifier 'j' was not used in the update { $set: { a.$[i]: 5.0 } }"),
             "update failed for a reason other than unused array filter");
 
@@ -78,7 +78,7 @@
         //     "update failed for a reason other than missing a top-level field name in arrayFilter");
         assert.neq(
             -1,
-            res.errmsg.indexOf(
+            res.getWriteError().errmsg.indexOf(
                 "Cannot use an expression without a top-level field name in arrayFilters"),
             "update failed for a reason other than missing a top-level field name in arrayFilter");
 
@@ -352,7 +352,7 @@
         //                "The source field for $rename may not be dynamic: a.$[i]"),
         //            "update failed for a reason other than using $[] syntax in $rename path");
         assert.neq(-1,
-                   res.errmsg.indexOf(
+                   res.getWriteError().errmsg.indexOf(
                        "The source field for $rename may not be dynamic: a.$[i]"),
                    "update failed for a reason other than using $[] syntax in $rename path");
         res = coll.update({id: 0}, {$rename: {"a": "b"}}, {arrayFilters: [{i: 0}]});
@@ -364,7 +364,7 @@
         //     "updated failed for reason other than unused array filter");
         assert.neq(
             -1,
-            res.errmsg.indexOf(
+            res.getWriteError().errmsg.indexOf(
                 "The array filter for identifier 'i' was not used in the update { $rename: { a: \"b\" } }"),
             "updated failed for reason other than unused array filter");
     }
@@ -377,7 +377,7 @@
     //                "The source field for $rename may not be dynamic: a.$[]"),
     //            "update failed for a reason other than using array updates with $rename");
     assert.neq(-1,
-               res.errmsg.indexOf(
+               res.getWriteError().errmsg.indexOf(
                    "The source field for $rename may not be dynamic: a.$[]"),
                "update failed for a reason other than using array updates with $rename");
     res = coll.update({_id: 0}, {$rename: {"a": "b.$[]"}});
@@ -387,7 +387,7 @@
     //                "The destination field for $rename may not be dynamic: b.$[]"),
     //            "update failed for a reason other than using array updates with $rename");
     assert.neq(-1,
-               res.errmsg.indexOf(
+               res.getWriteError().errmsg.indexOf(
                    "The destination field for $rename may not be dynamic: b.$[]"),
                "update failed for a reason other than using array updates with $rename");
     assert.writeOK(coll.update({_id: 0}, {$rename: {"a": "b"}}));
@@ -626,7 +626,7 @@
     //                "No array filter found for identifier 'i' in path 'a.$[i]'"),
     //            "update failed for a reason other than missing array filter");
     assert.neq(-1,
-               res.errmsg.indexOf(
+               res.getWriteError().errmsg.indexOf(
                    "No array filter found for identifier 'i' in path 'a.$[i]'"),
                "update failed for a reason other than missing array filter");
 
@@ -643,7 +643,7 @@
         //     "update failed for a reason other than conflicting array update and positional operator");
         assert.neq(
             -1,
-            res.errmsg.indexOf(
+            res.getWriteError().errmsg.indexOf(
                 "Updating the path 'a.$' would create a conflict at 'a'"),
             "update failed for a reason other than conflicting array update and positional operator");
 
@@ -656,7 +656,7 @@
         //     "update failed for a reason other than conflicting array update and integer field name");
         assert.neq(
             -1,
-            res.errmsg.indexOf(
+            res.getWriteError().errmsg.indexOf(
                 "Updating the path 'a.0' would create a conflict at 'a'"),
             "update failed for a reason other than conflicting array update and integer field name");
 
@@ -667,7 +667,7 @@
         //                "Updating the path 'a.b' would create a conflict at 'a'"),
         //            "update failed for a reason other than conflicting array update and field name");
         assert.neq(-1,
-                   res.errmsg.indexOf(
+                   res.getWriteError().errmsg.indexOf(
                        "Updating the path 'a.b' would create a conflict at 'a'"),
                    "update failed for a reason other than conflicting array update and field name");
     }
@@ -682,7 +682,7 @@
     //                "Cannot create field 'b' in element {a: [ { b: 0.0 } ]}"),
     //            "update failed for a reason other than implicit array traversal");
     assert.neq(-1,
-               res.errmsg.indexOf(
+               res.getWriteError().errmsg.indexOf(
                    "Cannot create field 'b' in element {a: [ { b: 0.0 } ]}"),
                "update failed for a reason other than implicit array traversal");
 
@@ -696,7 +696,7 @@
         //            res.getWriteError().errmsg.indexOf("unknown top level operator: $i"),
         //            "update failed for a reason other than bad array filter identifier");
         assert.neq(-1,
-                   res.errmsg.indexOf("unknown top level operator: $i"),
+                   res.getWriteError().errmsg.indexOf("unknown top level operator: $i"),
                    "update failed for a reason other than bad array filter identifier");
 
         res = coll.update({_id: 0}, {$set: {"a.$[I]": 1}}, {arrayFilters: [{"I": 0}]});
@@ -707,8 +707,8 @@
         //                "string beginning with a lowercase letter, found 'I'"),
         //        "update failed for a reason other than bad array filter identifier: " +
         //            tojson(res.getWriteError()));
-        assert(res.errmsg.startsWith("Error parsing array filter") &&
-                   res.errmsg.endsWith(
+        assert(res.getWriteError().errmsg.startsWith("Error parsing array filter") &&
+                   res.getWriteError().errmsg.endsWith(
                        "The top-level field name must be an alphanumeric " +
                        "string beginning with a lowercase letter, found 'I'"),
                "update failed for a reason other than bad array filter identifier: " +
@@ -724,7 +724,7 @@
         //     "update failed for a reason other than bad array filter identifier");
         assert.neq(
             -1,
-            res.errmsg.indexOf("Cannot create field '$[i' in element {a: [ 0.0 ]}"),
+            res.getWriteError().errmsg.indexOf("Cannot create field '$[i' in element {a: [ 0.0 ]}"),
             "update failed for a reason other than bad array filter identifier");
     }
 
@@ -757,7 +757,7 @@
         //     "update failed for a reason other than conflicting array updates");
         assert.neq(
             -1,
-            res.errmsg.indexOf("Update created a conflict at 'a.0.b.$[k].c'"),
+            res.getWriteError().errmsg.indexOf("Update created a conflict at 'a.0.b.$[k].c'"),
             "update failed for a reason other than conflicting array updates");
 
         assert.writeOK(coll.update({_id: 0},
@@ -780,7 +780,7 @@
         //            res.getWriteError().errmsg.indexOf("Update created a conflict at 'a.0.b.0.c'"),
         //            "update failed for a reason other than conflicting array updates");
         assert.neq(-1,
-                   res.errmsg.indexOf("Update created a conflict at 'a.0.b.0.c'"),
+                   res.getWriteError().errmsg.indexOf("Update created a conflict at 'a.0.b.0.c'"),
                    "update failed for a reason other than conflicting array updates");
 
         assert.writeOK(coll.update({_id: 0}, {$set: {"a.$[i].b.$[k].c": 1, "a.$[j].b.$[m].c": 2}}, {

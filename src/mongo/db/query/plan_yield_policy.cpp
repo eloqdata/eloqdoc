@@ -176,7 +176,7 @@ Status PlanYieldPolicy::yield(stdx::function<void()> beforeYieldingFn,
         } catch (const WriteConflictException&) {
             CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
             WriteConflictException::logAndBackoff(
-                attempt, "plan execution restoreState", _planYielding->nss().ns());
+                opCtx, attempt, "plan execution restoreState", _planYielding->nss().ns());
             // retry
         }
     }

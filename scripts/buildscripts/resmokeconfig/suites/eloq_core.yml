@@ -904,6 +904,8 @@ selector:
   - tests/jstests/core/update_dbref.js
   - tests/jstests/core/update_find_and_modify_id.js
   - tests/jstests/core/update_invalid1.js
+  - tests/jstests/core/update_many_commit_boundaries.js
+  - tests/jstests/core/update_many_large_write_set.js
   - tests/jstests/core/update_min_max_examples.js
   - tests/jstests/core/update_modifier_pop.js
   - tests/jstests/core/update_mul_examples.js

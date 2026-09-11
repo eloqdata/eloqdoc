@@ -734,7 +734,11 @@ void execCommandDatabase(OperationContext* opCtx,
         // EloqDoc enables command level transaction.
         const bool whitelistCmd =
             sessionCheckoutWhitelist.find(command->getName()) != sessionCheckoutWhitelist.cend();
-        const bool atomicCmd = whitelistCmd && command->getName() != "applyOps";
+        // UpdateStage commits one document at a time outside a session transaction. Keep both
+        // the command-wide write set and whole-command retries out of this path: a retry must
+        // not replay documents that an earlier per-document unit of work already committed.
+        const bool atomicCmd = whitelistCmd && command->getName() != "applyOps" &&
+            command->getName() != "update";
         const bool shouldCheckoutSession = static_cast<bool>(opCtx->getTxnNumber()) && whitelistCmd;
 
         // Parse the arguments specific to multi-statement transactions.
@@ -1260,30 +1264,8 @@ void receivedUpdate(OperationContext* opCtx, const NamespaceString& nsString, co
                                status.code());
     uassertStatusOK(status);
 
-    // EloqDoc enables command level transaction.
-    int retry = 0;
-    while (true) {
-        try {
-            WriteUnitOfWork wuow(opCtx);
-            performUpdates(opCtx, updateOp);
-            if (opCtx->getRecoveryUnitState() == WriteUnitOfWork::kActiveUnitOfWork) {
-                wuow.commit();
-            }
-            break;
-        } catch (const DBException& ex) {
-            if ((ex.code() == ErrorCodes::WriteConflict ||
-                 ex.code() == ErrorCodes::ExceededMemoryLimit) &&
-                opCtx->getRemainingMaxTimeMillis().count() > 0 && retry++ < RETRY_NUM) {
-                LOG(1) << "performUpdates throw DBException " << ex.what() << " retrying " << retry
-                       << "/" << RETRY_NUM;
-                opCtx->sleepFor(Milliseconds(1));
-                continue;
-            } else {
-                LOG(1) << "performUpdates throw DBException " << ex.what();
-                break;
-            }
-        }
-    }
+    // Use the same per-document commit and retry boundaries as the update command.
+    performUpdates(opCtx, updateOp);
 }
 
 void receivedDelete(OperationContext* opCtx, const NamespaceString& nsString, const Message& m) {

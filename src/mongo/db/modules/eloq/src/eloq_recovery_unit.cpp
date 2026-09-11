@@ -950,6 +950,15 @@ const EloqRecoveryUnit::DiscoveredTable& EloqRecoveryUnit::discoveredTable(
     return _discoveredTableMap.at(tableName);
 }
 
+void EloqRecoveryUnit::restoreTable(const txservice::TableName& tableName,
+                                    uint64_t expectedVersion) {
+    auto [table, errorCode] = discoverTable(tableName, _opCtx->isUpsert());
+    uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
+    uassert(ErrorCodes::QueryPlanKilled,
+            "Collection schema changed while restoring an Eloq cursor",
+            table && table->_schema->Version() == expectedVersion);
+}
+
 const Eloq::MongoKeySchema* EloqRecoveryUnit::getIndexSchema(
     const txservice::TableName& tableName) const {
     invariant(tableName.Type() == txservice::TableType::Primary);

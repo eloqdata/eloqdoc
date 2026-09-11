@@ -427,7 +427,8 @@ public:
         : _opCtx{opCtx},
           _ru{EloqRecoveryUnit::get(opCtx)},
           _tableName{rs->tableName()},
-          _keySchema(_ru->getIndexSchema(*rs->tableName())),
+          _keySchema(_ru->getIndexSchema(*rs->tableName())->SchemaTs()),
+          _tableVersion(_ru->discoveredTable(*rs->tableName())._schema->Version()),
           _forward{forward} {
         MONGO_LOG(1) << "EloqRecordStoreCursor::EloqRecordStoreCursor";
     }
@@ -445,7 +446,8 @@ public:
         _opCtx = opCtx;
         _ru = EloqRecoveryUnit::get(opCtx);
         _tableName = rs->tableName();
-        _keySchema = _ru->getIndexSchema(*rs->tableName());
+        _keySchema = _ru->getIndexSchema(*rs->tableName())->SchemaTs();
+        _tableVersion = _ru->discoveredTable(*rs->tableName())._schema->Version();
         _forward = forward;
         _eof = false;
         _lastMongoKey.reset();
@@ -488,6 +490,7 @@ public:
     }
 
     boost::optional<Record> seekExact(const RecordId& id) override {
+        _ru->restoreTable(*_tableName, _tableVersion);
         MONGO_LOG(1) << "EloqRecordStoreCursor::seekExact. table: " << _tableName->StringView()
                      << ", txn: " << _ru->getTxm()->TxNumber() << ", id: " << id;
 
@@ -499,8 +502,8 @@ public:
 
         Eloq::MongoKey pkey(id);
         bool isForWrite = _opCtx->isUpsert();
-        auto [exists, err] = _ru->getKV(
-            _opCtx, *_tableName, _keySchema->SchemaTs(), &pkey, &_idReadRecord, isForWrite);
+        auto [exists, err] =
+            _ru->getKV(_opCtx, *_tableName, _keySchema, &pkey, &_idReadRecord, isForWrite);
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
         if (!exists) {
             MONGO_LOG(1) << "no found. id: " << id << ". Txservice error code: " << err;
@@ -539,6 +542,7 @@ public:
 
     bool restore() override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::restore " << _tableName->StringView();
+        _ru->restoreTable(*_tableName, _tableVersion);
         // Don't open scan here.
         // Mongo may call seekExact which don't need a scan in TxService
         return true;
@@ -570,6 +574,7 @@ private:
     void _seekCursor(bool startInclusive = false) {
         MONGO_LOG(1) << "EloqRecordStoreCursor::_seekIter";
 
+        _ru->restoreTable(*_tableName, _tableVersion);
         _cursor.emplace(_opCtx);
         if (_lastMongoKey) {
             _startKey = txservice::TxKey(&_lastMongoKey.get());
@@ -590,7 +595,7 @@ private:
         bool isForWrite = _opCtx->isUpsert();
         bool endSpecified = false;
         _cursor->indexScanOpen(_tableName,
-                               _keySchema->SchemaTs(),
+                               _keySchema,
                                txservice::ScanIndexType::Primary,
                                &_startKey,
                                startInclusive,
@@ -605,7 +610,9 @@ private:
     OperationContext* _opCtx;                         // not owned
     EloqRecoveryUnit* _ru;                            // not owned
     const txservice::TableName* _tableName{nullptr};  // not owned
-    const txservice::KeySchema* _keySchema{nullptr};  // not owned
+    // Schema objects belong to a transaction; retain values across cursor save/restore.
+    uint64_t _keySchema;
+    uint64_t _tableVersion;
 
     bool _forward;
     bool _eof{false};

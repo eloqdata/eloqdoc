@@ -158,6 +158,10 @@ public:
 
     const DiscoveredTable& discoveredTable(const txservice::TableName& tableName) const;
 
+    // Reacquire transactional catalog state when a saved cursor crosses a commit or yield.
+    // A cursor cannot continue using its original plan after the table schema changes.
+    void restoreTable(const txservice::TableName& tableName, uint64_t expectedVersion);
+
     const Eloq::MongoKeySchema* getIndexSchema(const txservice::TableName& tableName) const;
     const Eloq::MongoKeySchema* getIndexSchema(const txservice::TableName& tableName,
                                                const txservice::TableName& indexName) const;

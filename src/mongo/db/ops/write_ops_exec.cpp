@@ -693,13 +693,11 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
     request.setMulti(op.getMulti());
     request.setUpsert(op.getUpsert());
 
-    // EloqDoc enables command level transaction. Set yield policy to INTERRUPT_ONLY.
-    // auto readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-    // request.setYieldPolicy(readConcernArgs.getLevel() ==
-    //                                repl::ReadConcernLevel::kSnapshotReadConcern
-    //                            ? PlanExecutor::INTERRUPT_ONLY
-    //                            : PlanExecutor::YIELD_AUTO);
-    request.setYieldPolicy(PlanExecutor::INTERRUPT_ONLY);
+    // A standalone update must retry a conflicting document without restarting the whole
+    // multi-update. Explicit transactions and nested writes retain their outer unit of work.
+    request.setYieldPolicy(opCtx->lockState()->inAWriteUnitOfWork()
+                               ? PlanExecutor::INTERRUPT_ONLY
+                               : PlanExecutor::YIELD_AUTO);
 
     ParsedUpdate parsedUpdate(opCtx, &request);
     uassertStatusOK(parsedUpdate.parseRequest());
@@ -800,13 +798,8 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
 }
 
 WriteResult performUpdates(OperationContext* opCtx, const write_ops::Update& wholeOp) {
-    // EloqDoc enables command level transaction.
-    //
-    // Update performs its own retries, so we should not be in a WriteUnitOfWork unless run in a
-    // transaction.
-    // auto session = OperationContextSession::get(opCtx);
-    // invariant(!opCtx->lockState()->inAWriteUnitOfWork() ||
-    //           (session && session->inActiveOrKilledMultiDocumentTransaction()));
+    // Standalone updates own their per-document units of work and retries. Explicit
+    // transactions and nested direct-client writes may already have an enclosing unit of work.
     uassertStatusOK(userAllowedWriteNS(wholeOp.getNamespace()));
 
     DisableDocumentValidationIfTrue docValidationDisabler(

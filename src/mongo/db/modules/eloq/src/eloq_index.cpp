@@ -59,7 +59,8 @@ public:
           _ru{EloqRecoveryUnit::get(opCtx)},
           _idx{idx},
           _indexName{&_idx->getIndexName()},
-          _indexSchema{_ru->getIndexSchema(idx->getTableName(), idx->getIndexName())},
+          _indexSchema{_ru->getIndexSchema(idx->getTableName(), idx->getIndexName())->SchemaTs()},
+          _tableVersion{_ru->discoveredTable(idx->getTableName())._schema->Version()},
           _indexType{cursorType},
           _scanType{_indexType == IndexCursorType::ID ? txservice::ScanIndexType::Primary
                                                       : txservice::ScanIndexType::Secondary},
@@ -84,7 +85,8 @@ public:
         _ru = EloqRecoveryUnit::get(opCtx);
         _idx = idx;
         _indexName = &_idx->getIndexName();
-        _indexSchema = _ru->getIndexSchema(idx->getTableName(), idx->getIndexName());
+        _indexSchema = _ru->getIndexSchema(idx->getTableName(), idx->getIndexName())->SchemaTs();
+        _tableVersion = _ru->discoveredTable(idx->getTableName())._schema->Version();
         _indexType = cursorType;
         _scanType = (_indexType == IndexCursorType::ID) ? txservice::ScanIndexType::Primary
                                                         : txservice::ScanIndexType::Secondary;
@@ -205,6 +207,7 @@ public:
     void restore() override {
         MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView()
                      << ", _eof: " << _eof;
+        _ru->restoreTable(_idx->getTableName(), _tableVersion);
         if (_eof) {
             return;
         }
@@ -242,6 +245,7 @@ private:
         MONGO_LOG(1) << "EloqIndexCursor::_idRead " << _indexName->StringView()
                      << ". key: " << key.jsonString();
 
+        _ru->restoreTable(_idx->getTableName(), _tableVersion);
         _eof = false;
 
         const BSONObj finalKey = stripFieldNames(key);
@@ -249,12 +253,8 @@ private:
 
         _key.resetToKey(finalKey, _idx->ordering());
         Eloq::MongoKey mongoKey(_key);
-        auto [exists, err] = _ru->getKV(_opCtx,
-                                        *_indexName,
-                                        _indexSchema->SchemaTs(),
-                                        &mongoKey,
-                                        &_idReadRecord,
-                                        _opCtx->isUpsert());
+        auto [exists, err] = _ru->getKV(
+            _opCtx, *_indexName, _indexSchema, &mongoKey, &_idReadRecord, _opCtx->isUpsert());
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
         if (exists) {
             // valid
@@ -273,6 +273,7 @@ private:
     bool _seekCursor(const KeyString& query, bool startInclusive) {
         MONGO_LOG(1) << "EloqIndexCursor::_seekCursor " << _indexName->StringView();
 
+        _ru->restoreTable(_idx->getTableName(), _tableVersion);
         _cursor.emplace(_opCtx);
 
         txservice::ScanDirection direction =
@@ -296,7 +297,7 @@ private:
         bool isForWrite = _opCtx->isUpsert() && _indexName->IsBase();
         // end_inclusive semantics has been handled by _endPosition
         _cursor->indexScanOpen(_indexName,
-                               _indexSchema->SchemaTs(),
+                               _indexSchema,
                                _scanType,
                                &_startKey,
                                startInclusive,
@@ -675,11 +676,13 @@ private:
     }
 
 private:
-    OperationContext* _opCtx;                  // not owned
-    EloqRecoveryUnit* _ru;                     // not owned
-    const EloqIndex* _idx;                     // not owned
-    const txservice::TableName* _indexName;    // not owned
-    const txservice::KeySchema* _indexSchema;  // not owned
+    OperationContext* _opCtx;                // not owned
+    EloqRecoveryUnit* _ru;                   // not owned
+    const EloqIndex* _idx;                   // not owned
+    const txservice::TableName* _indexName;  // not owned
+    // Schema objects belong to a transaction; retain values across cursor save/restore.
+    uint64_t _indexSchema;
+    uint64_t _tableVersion;
     IndexCursorType _indexType;
     txservice::ScanIndexType _scanType;
     bool _forward;

@@ -671,8 +671,10 @@ PlanExecutor::ExecState PlanExecutor::getNextImpl(Snapshotted<BSONObj>* objOut, 
                     throw WriteConflictException();
                 CurOp::get(_opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
                 writeConflictsInARow++;
+                // Eloq commands share coroutine worker threads. Back off through the operation
+                // context so another command on this worker can finish and release its locks.
                 WriteConflictException::logAndBackoff(
-                    writeConflictsInARow, "plan execution", _nss.ns());
+                    _opCtx, writeConflictsInARow, "plan execution", _nss.ns());
 
             } else {
                 WorkingSetMember* member = _workingSet->get(id);
