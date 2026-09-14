@@ -59,7 +59,8 @@ public:
           _ru{EloqRecoveryUnit::get(opCtx)},
           _idx{idx},
           _indexName{&_idx->getIndexName()},
-          _indexSchema{_ru->getIndexSchema(idx->getTableName(), idx->getIndexName())},
+          _indexSchema{_ru->getIndexSchema(idx->getTableName(), idx->getIndexName())->SchemaTs()},
+          _tableVersion{_ru->discoveredTable(idx->getTableName())._schema->Version()},
           _indexType{cursorType},
           _scanType{_indexType == IndexCursorType::ID ? txservice::ScanIndexType::Primary
                                                       : txservice::ScanIndexType::Secondary},
@@ -84,7 +85,8 @@ public:
         _ru = EloqRecoveryUnit::get(opCtx);
         _idx = idx;
         _indexName = &_idx->getIndexName();
-        _indexSchema = _ru->getIndexSchema(idx->getTableName(), idx->getIndexName());
+        _indexSchema = _ru->getIndexSchema(idx->getTableName(), idx->getIndexName())->SchemaTs();
+        _tableVersion = _ru->discoveredTable(idx->getTableName())._schema->Version();
         _indexType = cursorType;
         _scanType = (_indexType == IndexCursorType::ID) ? txservice::ScanIndexType::Primary
                                                         : txservice::ScanIndexType::Secondary;
@@ -205,6 +207,7 @@ public:
     void restore() override {
         MONGO_LOG(1) << "EloqIndexCursor::restore " << _indexName->StringView()
                      << ", _eof: " << _eof;
+        _ru->restoreTable(_idx->getTableName(), _tableVersion);
         if (_eof) {
             return;
         }
@@ -242,6 +245,7 @@ private:
         MONGO_LOG(1) << "EloqIndexCursor::_idRead " << _indexName->StringView()
                      << ". key: " << key.jsonString();
 
+        _ru->restoreTable(_idx->getTableName(), _tableVersion);
         _eof = false;
 
         const BSONObj finalKey = stripFieldNames(key);
@@ -249,12 +253,8 @@ private:
 
         _key.resetToKey(finalKey, _idx->ordering());
         Eloq::MongoKey mongoKey(_key);
-        auto [exists, err] = _ru->getKV(_opCtx,
-                                        *_indexName,
-                                        _indexSchema->SchemaTs(),
-                                        &mongoKey,
-                                        &_idReadRecord,
-                                        _opCtx->isUpsert());
+        auto [exists, err] = _ru->getKV(
+            _opCtx, *_indexName, _indexSchema, &mongoKey, &_idReadRecord, _opCtx->isUpsert());
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
         if (exists) {
             // valid
@@ -273,6 +273,7 @@ private:
     bool _seekCursor(const KeyString& query, bool startInclusive) {
         MONGO_LOG(1) << "EloqIndexCursor::_seekCursor " << _indexName->StringView();
 
+        _ru->restoreTable(_idx->getTableName(), _tableVersion);
         _cursor.emplace(_opCtx);
 
         txservice::ScanDirection direction =
@@ -296,7 +297,7 @@ private:
         bool isForWrite = _opCtx->isUpsert() && _indexName->IsBase();
         // end_inclusive semantics has been handled by _endPosition
         _cursor->indexScanOpen(_indexName,
-                               _indexSchema->SchemaTs(),
+                               _indexSchema,
                                _scanType,
                                &_startKey,
                                startInclusive,
@@ -675,11 +676,13 @@ private:
     }
 
 private:
-    OperationContext* _opCtx;                  // not owned
-    EloqRecoveryUnit* _ru;                     // not owned
-    const EloqIndex* _idx;                     // not owned
-    const txservice::TableName* _indexName;    // not owned
-    const txservice::KeySchema* _indexSchema;  // not owned
+    OperationContext* _opCtx;                // not owned
+    EloqRecoveryUnit* _ru;                   // not owned
+    const EloqIndex* _idx;                   // not owned
+    const txservice::TableName* _indexName;  // not owned
+    // Schema objects belong to a transaction; retain values across cursor save/restore.
+    uint64_t _indexSchema;
+    uint64_t _tableVersion;
     IndexCursorType _indexType;
     txservice::ScanIndexType _scanType;
     bool _forward;
@@ -967,6 +970,81 @@ Status EloqIndex::checkDuplicateKeysForUpdate(OperationContext* opCtx,
     return _checkDuplicateKeysInternal(opCtx, addedKeys, currentRecordId);
 }
 
+StatusWith<size_t> EloqIndex::calculateWriteBytes(OperationContext* opCtx,
+                                                  const BSONObj& key,
+                                                  const RecordId& id,
+                                                  bool inserting) {
+    return _processIndexWrite(opCtx, key, id, inserting, false);
+}
+
+StatusWith<size_t> EloqIndex::_processIndexWrite(
+    OperationContext* opCtx, const BSONObj& key, const RecordId& id, bool inserting, bool write) {
+    if (inserting) {
+        auto status = checkKeySize(key, _indexName.StringView());
+        if (!status.isOK()) {
+            return status;
+        }
+    }
+    // The primary record store owns the _id table; there is no second index write.
+    if (isIdIndex()) {
+        return size_t{0};
+    }
+
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    const auto* schema = ru->getIndexSchema(_tableName, _indexName);
+    KeyString encoded(keyStringVersion());
+    if (unique()) {
+        encoded.resetToKey(key, _ordering);
+    } else {
+        encoded.resetToKey(key, _ordering, id);
+    }
+    auto mongoKey = std::make_unique<Eloq::MongoKey>(encoded.getBuffer(), encoded.getSize());
+
+    if (!inserting && unique() && schema->IndexDescriptor()->isPartial()) {
+        // Partial unique removal only deletes an entry owned by this record. Perform the same
+        // read-for-write in admission and execution so its result stays stable in this batch.
+        Eloq::MongoRecord oldRecord;
+        auto [exists, err] =
+            ru->getKV(opCtx, _indexName, schema->SchemaTs(), mongoKey.get(), &oldRecord, true);
+        auto status = TxErrorCodeToMongoStatus(err);
+        if (!status.isOK()) {
+            return status;
+        }
+        if (!exists ||
+            std::string_view(oldRecord.EncodedBlobData(), oldRecord.EncodedBlobSize()) !=
+                id.getStringView()) {
+            return size_t{0};
+        }
+    }
+
+    std::unique_ptr<Eloq::MongoRecord> record;
+    if (inserting) {
+        record = std::make_unique<Eloq::MongoRecord>();
+        if (unique()) {
+            record->SetEncodedBlob(id.getStringView());
+        }
+        if (const auto& bits = encoded.getTypeBits(); !bits.isAllZeros()) {
+            record->SetUnpackInfo(bits.getBuffer(), bits.getSize());
+        }
+    }
+    const size_t bytes =
+        txservice::ReadWriteSet::WriteBytes(txservice::TxKey(mongoKey.get()), record.get());
+    if (write) {
+        auto err = ru->setKV(_indexName,
+                             schema->SchemaTs(),
+                             std::move(mongoKey),
+                             std::move(record),
+                             inserting ? txservice::OperationType::Insert
+                                       : txservice::OperationType::Delete,
+                             inserting && unique());
+        auto status = TxErrorCodeToMongoStatus(err);
+        if (!status.isOK()) {
+            return status;
+        }
+    }
+    return bytes;
+}
+
 // EloqIdIndex
 std::unique_ptr<SortedDataInterface::Cursor> EloqIdIndex::newCursor(OperationContext* opCtx,
                                                                     bool isForward) const {
@@ -994,30 +1072,16 @@ Status EloqIdIndex::insert(OperationContext* opCtx,
                            const BSONObj& key,
                            const RecordId& id,
                            bool dupsAllowed) {
-    MONGO_LOG(1) << "EloqIdIndex::insert" << ". key:" << key << ". id:" << id;
     assert(!dupsAllowed);
-    Status s = checkKeySize(key, _indexName.StringView());
-    if (!s.isOK()) {
-        return s;
-    }
-    return Status::OK();
-    MONGO_UNREACHABLE;
-    // IdIndex refers to the same table in TxService as its corresponding RecordStore.
-    // So we do nothing here and in _unindex.
+    return _processIndexWrite(opCtx, key, id, true, true).getStatus();
 }
 
 void EloqIdIndex::unindex(OperationContext* opCtx,
                           const BSONObj& key,
                           const RecordId& id,
                           bool dupsAllowed) {
-    MONGO_LOG(1) << "EloqIdIndex::_unindex";
-    MONGO_LOG(1) << "key: " << key << ". recordid: " << id;
     assert(!dupsAllowed);
-
-    return;
-    // do delete in EloqRecordStore::deleteRecord
-
-    MONGO_UNREACHABLE;
+    uassertStatusOK(_processIndexWrite(opCtx, key, id, false, true).getStatus());
 }
 
 // EloqUniqueIndex
@@ -1046,45 +1110,7 @@ Status EloqUniqueIndex::insert(OperationContext* opCtx,
                                bool dupsAllowed) {
     MONGO_LOG(1) << "EloqUniqueIndex::insert";
     assert(!dupsAllowed);
-    Status s = checkKeySize(key, _indexName.StringView());
-    if (!s.isOK()) {
-        return s;
-    }
-
-    auto ru = EloqRecoveryUnit::get(opCtx);
-
-    // key as MongoKey
-    KeyString keyString{keyStringVersion(), key, _ordering};
-    auto valueItem = id.getStringView();
-
-    auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-    auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
-
-    /*
-    auto [exists, err] =
-        ru->getKV(opCtx, _indexName, keySchemaVersion, mongoKey.get(), mongoRecord.get(), true);
-    if (err != txservice::TxErrorCode::NO_ERROR) {
-        return TxErrorCodeToMongoStatus(err);
-    }
-
-    if (exists) {
-        return {ErrorCodes::Error::DuplicateKey, "Duplicate Key: " + _indexName.String()};
-    }
-    */
-
-    mongoRecord->SetEncodedBlob(valueItem);
-    if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
-        mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
-    }
-    auto err = ru->setKV(_indexName,
-                         keySchemaVersion,
-                         std::move(mongoKey),
-                         std::move(mongoRecord),
-                         txservice::OperationType::Insert,
-                         true);
-
-    return TxErrorCodeToMongoStatus(err);
+    return _processIndexWrite(opCtx, key, id, true, true).getStatus();
 }
 
 void EloqUniqueIndex::unindex(OperationContext* opCtx,
@@ -1093,42 +1119,7 @@ void EloqUniqueIndex::unindex(OperationContext* opCtx,
                               bool dupsAllowed) {
     MONGO_LOG(1) << "EloqUniqueIndex::unindex";
     assert(!dupsAllowed);
-
-    auto ru = EloqRecoveryUnit::get(opCtx);
-
-    const Eloq::MongoKeySchema* keySchema = ru->getIndexSchema(_tableName, _indexName);
-    uint64_t keySchemaVersion = keySchema->SchemaTs();
-
-    // key as MongoKey. Unlike WiredTiger, whose unique key encodes(key, id), Eloq puts id in
-    // MongoRecord.
-    KeyString keyString{keyStringVersion(), key, _ordering};
-    auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-
-    if (keySchema->IndexDescriptor()->isPartial()) {
-        Eloq::MongoRecord mongoRecord;
-        auto [exists, err] =
-            ru->getKV(opCtx, _indexName, keySchemaVersion, mongoKey.get(), &mongoRecord, true);
-        if (err != txservice::TxErrorCode::NO_ERROR) {
-            uassertStatusOK(TxErrorCodeToMongoStatus(err));
-        }
-        if (exists) {
-            std::string_view encodedBlob(mongoRecord.EncodedBlobData(),
-                                         mongoRecord.EncodedBlobSize());
-            if (encodedBlob != id.getStringView()) {
-                return;
-            }
-        } else {
-            return;
-        }
-    }
-
-    txservice::TxErrorCode err = ru->setKV(_indexName,
-                                           keySchemaVersion,
-                                           std::move(mongoKey),
-                                           nullptr,
-                                           txservice::OperationType::Delete,
-                                           false);
-    uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    uassertStatusOK(_processIndexWrite(opCtx, key, id, false, true).getStatus());
 }
 
 std::unique_ptr<SortedDataInterface::Cursor> EloqStandardIndex::newCursor(OperationContext* opCtx,
@@ -1159,29 +1150,7 @@ Status EloqStandardIndex::insert(OperationContext* opCtx,
                                  bool dupsAllowed) {
     MONGO_LOG(1) << "EloqStandardIndex::insert" << ". key: " << key << ". RecordId: " << id;
     assert(dupsAllowed);
-    Status s = checkKeySize(key, _indexName.StringView());
-    if (!s.isOK()) {
-        return s;
-    }
-
-    auto ru = EloqRecoveryUnit::get(opCtx);
-
-    KeyString keyString{keyStringVersion(), key, _ordering, id};
-
-    auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-    auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-    if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
-        mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
-    }
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
-
-    txservice::TxErrorCode err = ru->setKV(_indexName,
-                                           keySchemaVersion,
-                                           std::move(mongoKey),
-                                           std::move(mongoRecord),
-                                           txservice::OperationType::Insert,
-                                           false);
-    return TxErrorCodeToMongoStatus(err);
+    return _processIndexWrite(opCtx, key, id, true, true).getStatus();
 }
 
 void EloqStandardIndex::unindex(OperationContext* opCtx,
@@ -1189,21 +1158,7 @@ void EloqStandardIndex::unindex(OperationContext* opCtx,
                                 const RecordId& id,
                                 bool dupsAllowed) {
     MONGO_LOG(1) << "EloqStandardIndex::_unindex";
-
-    auto ru = EloqRecoveryUnit::get(opCtx);
-
-    KeyString keyString{keyStringVersion(), key, _ordering, id};
-
-    auto mongoKey = std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName, _indexName)->SchemaTs();
-
-    txservice::TxErrorCode err = ru->setKV(_indexName,
-                                           keySchemaVersion,
-                                           std::move(mongoKey),
-                                           nullptr,
-                                           txservice::OperationType::Delete,
-                                           false);
-    uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    uassertStatusOK(_processIndexWrite(opCtx, key, id, false, true).getStatus());
 }
 
 }  // namespace mongo

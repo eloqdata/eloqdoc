@@ -176,7 +176,8 @@ public:
                             bool enforceQuota,
                             bool indexesAffected,
                             OpDebug* opDebug,
-                            OplogUpdateEntryArgs* args) {
+                            OplogUpdateEntryArgs* args,
+                            bool allowBatchCommit = false) {
         std::abort();
     }
 

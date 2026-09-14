@@ -698,7 +698,8 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
                                         bool enforceQuota,
                                         bool indexesAffected,
                                         OpDebug* opDebug,
-                                        OplogUpdateEntryArgs* args) {
+                                        OplogUpdateEntryArgs* args,
+                                        bool allowBatchCommit) {
     {
         auto status = checkValidation(opCtx, newDoc);
         if (!status.isOK()) {
@@ -789,6 +790,30 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
         }
     }
 
+    size_t neededBytes = 0;
+    const size_t previousBytes = opCtx->recoveryUnit()->getWriteSetBytes();
+    if (allowBatchCommit) {
+        const size_t limit = opCtx->recoveryUnit()->getWriteSetLimitBytes();
+        invariant(limit > 0 && previousBytes <= limit);
+        neededBytes = _recordStore->calculateUpdateWriteBytes(
+            opCtx, oldLocation, newDoc.objdata(), newDoc.objsize());
+        if (indexesAffected) {
+            auto ii = _indexCatalog.getIndexIterator(opCtx, true);
+            while (ii.more()) {
+                auto descriptor = ii.next();
+                neededBytes +=
+                    ii.accessMethod(descriptor)
+                        ->calculateUpdateWriteBytes(opCtx, *updateTickets.mutableMap()[descriptor]);
+            }
+        }
+        uassert(ErrorCodes::TransactionTooLarge,
+                "A single document and its index writes exceed the transaction write-set limit",
+                neededBytes <= limit);
+        if (neededBytes > limit - previousBytes) {
+            return RecordId();
+        }
+    }
+
     args->preImageDoc = oldDoc.value().getOwned();
 
     Status updateStatus = _recordStore->updateRecord(
@@ -823,6 +848,11 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
 
     getGlobalServiceContext()->getOpObserver()->onUpdate(opCtx, *args);
 
+    // Admission and actual writes must use identical serialized-byte accounting. Catalog
+    // multikey metadata is tracked separately by TxService, outside this data-write budget.
+    if (allowBatchCommit) {
+        invariant(opCtx->recoveryUnit()->getWriteSetBytes() - previousBytes == neededBytes);
+    }
     return {oldLocation};
 }
 

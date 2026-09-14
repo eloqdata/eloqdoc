@@ -185,6 +185,7 @@ void EloqRecoveryUnit::reset() {
     _lastTimestampSet.reset();
     _changes.clear();
     _discoveredTableMap.clear();
+    _committedSchemas.clear();
     _unreadyTableMap.clear();
     // Last: evicted Collections pinned by the previous operation may be destroyed here, and
     // nothing torn down above may touch them afterwards.
@@ -950,6 +951,23 @@ const EloqRecoveryUnit::DiscoveredTable& EloqRecoveryUnit::discoveredTable(
     return _discoveredTableMap.at(tableName);
 }
 
+void EloqRecoveryUnit::restoreTable(const txservice::TableName& tableName,
+                                    uint64_t expectedVersion) {
+    auto [table, errorCode] = discoverTable(tableName, _opCtx->isUpsert());
+    uassertStatusOK(TxErrorCodeToMongoStatus(errorCode));
+    bool compatible = table &&
+        (table->_schema->Version() == expectedVersion ||
+         table->_ownSchemaVersions.count(expectedVersion));
+    if (!compatible && table) {
+        auto it = _committedSchemas.find(tableName);
+        compatible = it != _committedSchemas.end() && it->second.versions.count(expectedVersion) &&
+            it->second.image == table->_schema->SchemaImage();
+    }
+    uassert(ErrorCodes::QueryPlanKilled,
+            "Collection schema changed while restoring an Eloq cursor",
+            compatible);
+}
+
 const Eloq::MongoKeySchema* EloqRecoveryUnit::getIndexSchema(
     const txservice::TableName& tableName) const {
     invariant(tableName.Type() == txservice::TableType::Primary);
@@ -999,6 +1017,8 @@ void EloqRecoveryUnit::updateDiscoveredTable(const txservice::TableName& tableNa
     DiscoveredTable& discoveredTable = _discoveredTableMap.at(tableName);
     assert(discoveredTable._dirtySchema == nullptr);
     assert(discoveredTable._creatingIndexes.empty());
+    discoveredTable._ownSchemaVersions.insert(discoveredTable._schema->Version());
+    discoveredTable._ownSchemaVersions.insert(version);
     discoveredTable._schema =
         std::make_shared<Eloq::MongoTableSchema>(tableName, newSchemaImage, version);
 }
@@ -1115,10 +1135,28 @@ void EloqRecoveryUnit::_txnClose(bool commit) {
     _active = false;
     _inMultiDocumentTransation = false;
     _mySnapshotId = nextSnapshotId.fetch_add(1);
+    if (commit && succeed && err == txservice::TxErrorCode::NO_ERROR) {
+        for (const auto& entry : _discoveredTableMap) {
+            if (!entry.second._ownSchemaVersions.empty()) {
+                auto& committed = _committedSchemas[entry.first];
+                committed.versions.insert(entry.second._ownSchemaVersions.begin(),
+                                          entry.second._ownSchemaVersions.end());
+                committed.image = entry.second._schema->SchemaImage();
+            }
+        }
+    }
     _discoveredTableMap.clear();
     // _unreadyTableMap.clear();
 
+    // A reported commit with an inconsistent error is also unsafe to replay. Only a false
+    // result with a recognized conflict reason may leave through WriteConflictException.
+    uassert(ErrorCodes::UnknownError,
+            "Transaction reported a commit with an inconsistent error",
+            !commit || !succeed || err == txservice::TxErrorCode::NO_ERROR);
     uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    // A false commit result without an abort reason is not success, nor evidence that it is
+    // safe to replay a non-idempotent update. Surface it without a WriteConflict retry.
+    uassert(ErrorCodes::UnknownError, "Transaction commit outcome is unknown", !commit || succeed);
 }
 
 }  // namespace mongo

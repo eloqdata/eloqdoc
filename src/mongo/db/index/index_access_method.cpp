@@ -375,6 +375,23 @@ Status IndexAccessMethod::validateUpdate(OperationContext* opCtx,
     return Status::OK();
 }
 
+size_t IndexAccessMethod::calculateUpdateWriteBytes(OperationContext* opCtx,
+                                                    const UpdateTicket& ticket) {
+    invariant(ticket._isValid);
+    size_t bytes = 0;
+    for (const auto& key : ticket.removed) {
+        bytes += uassertStatusOK(_newInterface->calculateWriteBytes(opCtx, key, ticket.loc, false));
+    }
+    for (const auto& key : ticket.added) {
+        auto result = _newInterface->calculateWriteBytes(opCtx, key, ticket.loc, true);
+        if (result.getStatus().code() == ErrorCodes::KeyTooLong && ignoreKeyTooLong(opCtx)) {
+            continue;
+        }
+        bytes += uassertStatusOK(result);
+    }
+    return bytes;
+}
+
 Status IndexAccessMethod::update(OperationContext* opCtx,
                                  const UpdateTicket& ticket,
                                  int64_t* numInserted,

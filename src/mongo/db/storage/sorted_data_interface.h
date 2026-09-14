@@ -97,6 +97,18 @@ public:
      *         ErrorCodes::DuplicateKey if 'key' already exists in 'this' index
      *         at a RecordId other than 'loc' and duplicates were not allowed
      */
+    /**
+     * Bytes charged for one insert or unindex, with the same encoding and conditional
+     * behavior as that operation. May read for validation, but must not add writes.
+     * Only engines advertising a RecoveryUnit write-set limit need to implement this.
+     */
+    virtual StatusWith<size_t> calculateWriteBytes(OperationContext* opCtx,
+                                                   const BSONObj& key,
+                                                   const RecordId& id,
+                                                   bool inserting) {
+        MONGO_UNREACHABLE;
+    }
+
     virtual Status insert(OperationContext* opCtx,
                           const BSONObj& key,
                           const RecordId& loc,
