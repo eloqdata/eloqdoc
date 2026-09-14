@@ -456,6 +456,17 @@ public:
      *
      * For capped record stores, the record size will never change.
      */
+    /**
+     * Bytes charged for updateRecord, including storage-managed index writes. Called only
+     * when the RecoveryUnit advertises a write-set limit; must not add any writes.
+     */
+    virtual size_t calculateUpdateWriteBytes(OperationContext* opCtx,
+                                             const RecordId& id,
+                                             const char* data,
+                                             int len) {
+        MONGO_UNREACHABLE;
+    }
+
     virtual Status updateRecord(OperationContext* opCtx,
                                 const RecordId& oldLocation,
                                 const char* data,

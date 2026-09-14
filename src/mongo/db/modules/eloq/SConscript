@@ -398,6 +398,18 @@ env.CppUnitTest(
     ],
 )
 
+env.CppUnitTest(
+    target="eloq_write_set_test",
+    source=[
+        "src/base/eloq_write_set_test.cpp",
+        "src/base/eloq_key.cpp",
+        "src/base/eloq_record.cpp",
+    ],
+    # Encoding/accounting tests do not initialize the server or require a cluster config.
+    LIBDEPS=["$BUILD_DIR/mongo/db/storage/key_string"],
+    SYSLIBDEPS=eloq_dependencies,
+)
+
 env.Library(
     target="storage_eloq",
     source=[
