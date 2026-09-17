@@ -124,15 +124,6 @@ jobs:
           arch: ${{ matrix.arch }}
           cache-scope: ubuntu-dev
 
-      - name: Install RustFS extraction dependency
-        if: matrix.engine.id != 'rocksdb'
-        run: |
-          # Older ubuntu-dev images predate the bundled RustFS extraction tool.
-          if ! command -v unzip >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y --no-install-recommends unzip
-          fi
-
       - name: Configure CI runtime
         run: |
           NPROC=$(nproc)
