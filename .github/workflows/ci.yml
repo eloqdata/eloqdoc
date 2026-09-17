@@ -127,8 +127,11 @@ jobs:
       - name: Install RustFS extraction dependency
         if: matrix.engine.id != 'rocksdb'
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends unzip
+          # Older ubuntu-dev images predate the bundled RustFS extraction tool.
+          if ! command -v unzip >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends unzip
+          fi
 
       - name: Configure CI runtime
         run: |
