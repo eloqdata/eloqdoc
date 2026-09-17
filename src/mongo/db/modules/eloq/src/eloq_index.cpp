@@ -97,7 +97,6 @@ public:
         _id = RecordId{};
         _eof = true;
         _endPosition.reset();
-        _endSpecifiedForPrefetch = false;
 
         _scanTupleKey = nullptr;
         _scanTupleRecord = nullptr;
@@ -114,18 +113,11 @@ public:
     void setEndPosition(const BSONObj& key, bool inclusive) override {
         MONGO_LOG(1) << "EloqIndexCursor::setEndPosition " << _indexName->StringView()
                      << ". endKey: " << key << ". inclusive: " << inclusive;
-        _endSpecifiedForPrefetch = false;
         if (key.isEmpty()) {
             // This means scan to end of index.
             _endPosition.reset();
             return;
         }
-
-        // Mongo uses a single empty-object value as the upper type bound for strings.
-        // Keep that stop position, but use progressive prefetch for this broad bound.
-        const auto endElement = key.firstElement();
-        _endSpecifiedForPrefetch =
-            !(key.nFields() == 1 && endElement.type() == Object && endElement.Obj().isEmpty());
 
         // NOTE: this uses the opposite rules as a normal seek because a forward scan should
         // end after the key if inclusive and before if exclusive.
@@ -312,7 +304,7 @@ private:
                                endInclusive,
                                direction,
                                isForWrite,
-                               _endSpecifiedForPrefetch);
+                               _endPosition ? true : false);
         _clearPrefetchedRecords();
         return true;
     }
@@ -699,7 +691,6 @@ private:
     RecordId _id;
     bool _eof{true};
     boost::optional<KeyString> _endPosition;
-    bool _endSpecifiedForPrefetch{false};
 
     const Eloq::MongoKey* _scanTupleKey{nullptr};
     const Eloq::MongoRecord* _scanTupleRecord{nullptr};
