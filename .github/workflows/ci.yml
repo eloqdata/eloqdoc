@@ -124,6 +124,12 @@ jobs:
           arch: ${{ matrix.arch }}
           cache-scope: ubuntu-dev
 
+      - name: Install RustFS extraction dependency
+        if: matrix.engine.id != 'rocksdb'
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends unzip
+
       - name: Configure CI runtime
         run: |
           NPROC=$(nproc)
