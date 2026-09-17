@@ -4,11 +4,11 @@ set -Eexo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
-MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key data_store_type log_state [all|build|jstests|tpcc]}
-MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key data_store_type log_state [all|build|jstests|tpcc]}
-MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key data_store_type log_state [all|build|jstests|tpcc]}
-DATA_STORE_TYPE=${4:?usage: $0 minio_endpoint minio_access_key minio_secret_key data_store_type log_state [all|build|jstests|tpcc]}
-WITH_LOG_STATE=${5:?usage: $0 minio_endpoint minio_access_key minio_secret_key data_store_type log_state [all|build|jstests|tpcc]}
+S3_ENDPOINT=${1:?usage: $0 s3_endpoint s3_access_key s3_secret_key data_store_type log_state [all|build|jstests|tpcc]}
+S3_ACCESS_KEY=${2:?usage: $0 s3_endpoint s3_access_key s3_secret_key data_store_type log_state [all|build|jstests|tpcc]}
+S3_SECRET_KEY=${3:?usage: $0 s3_endpoint s3_access_key s3_secret_key data_store_type log_state [all|build|jstests|tpcc]}
+DATA_STORE_TYPE=${4:?usage: $0 s3_endpoint s3_access_key s3_secret_key data_store_type log_state [all|build|jstests|tpcc]}
+WITH_LOG_STATE=${5:?usage: $0 s3_endpoint s3_access_key s3_secret_key data_store_type log_state [all|build|jstests|tpcc]}
 CI_PHASE=${6:-${CI_PHASE:-all}}
 
 BUILD_TYPE=${BUILD_TYPE:?BUILD_TYPE env var not set}
@@ -21,7 +21,7 @@ case "${CI_PHASE}" in
   *) echo "Unsupported CI phase: ${CI_PHASE}" >&2; exit 2 ;;
 esac
 
-trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump_ci_failure_logs "$rc" "$failed_command"; fi; shutdown_eloqdoc "$ELOQDOC_INSTALL_PREFIX"; stop_minio; exit "$rc"' EXIT
+trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump_ci_failure_logs "$rc" "$failed_command"; fi; shutdown_eloqdoc "$ELOQDOC_INSTALL_PREFIX"; stop_rustfs; exit "$rc"' EXIT
 
 ulimit -n 1000000 || true
 ulimit -l || true
@@ -35,8 +35,8 @@ bash scripts/checkout_product_submodules.sh
 
 echo "CI_MODE=${CI_MODE} CI_PHASE=${CI_PHASE} BUILD_TYPE=${BUILD_TYPE} WITH_DATA_STORE=${DATA_STORE_TYPE} WITH_LOG_STATE=${WITH_LOG_STATE}"
 
-if [ "${CI_PHASE}" != "build" ] && needs_minio "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}"; then
-  start_minio "${MINIO_ENDPOINT}" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
+if [ "${CI_PHASE}" != "build" ] && needs_s3 "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}"; then
+  start_rustfs "${S3_ENDPOINT}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
 fi
 
 RUN_DIR="${ELOQDOC_BASE_PATH}/.github/runtime/${BUILD_TYPE}-${ENGINE_ID}"
@@ -53,9 +53,9 @@ configure_runtime() {
     "${WITH_LOG_STATE}" \
     "${RUN_DIR}" \
     "${ELOQDOC_INSTALL_PREFIX}" \
-    "${MINIO_ENDPOINT}" \
-    "${MINIO_ACCESS_KEY}" \
-    "${MINIO_SECRET_KEY}" \
+    "${S3_ENDPOINT}" \
+    "${S3_ACCESS_KEY}" \
+    "${S3_SECRET_KEY}" \
     "${BASE_BUCKET_NAME}-${bucket_suffix}" \
     "${BUCKET_PREFIX}"
 }

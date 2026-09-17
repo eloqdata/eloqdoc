@@ -94,7 +94,7 @@ engine_id() {
   esac
 }
 
-needs_minio() {
+needs_s3() {
   local data_store_type="$1"
   local log_state="$2"
 
@@ -108,9 +108,9 @@ write_runtime_configs() {
   local log_state="$2"
   local run_dir="$3"
   local install_prefix="$4"
-  local minio_endpoint="$5"
-  local minio_access_key="$6"
-  local minio_secret_key="$7"
+  local s3_endpoint="$5"
+  local s3_access_key="$6"
+  local s3_secret_key="$7"
   local bucket_name="$8"
   local bucket_prefix="$9"
 
@@ -165,7 +165,7 @@ EOF
 txlog_rocksdb_cloud_bucket_prefix=${bucket_prefix}
 txlog_rocksdb_cloud_bucket_name=${bucket_name}
 txlog_rocksdb_cloud_object_path=txlog
-txlog_rocksdb_cloud_s3_endpoint_url=${minio_endpoint}
+txlog_rocksdb_cloud_s3_endpoint_url=${s3_endpoint}
 txlog_rocksdb_cloud_sst_file_cache_size=1GB
 EOF
   fi
@@ -183,8 +183,8 @@ EOF
 
   if [ "${log_state}" = "ROCKSDB_CLOUD_S3" ]; then
     cat >> "${run_dir}/data_substrate.cnf" <<EOF
-aws_access_key_id=${minio_access_key}
-aws_secret_key=${minio_secret_key}
+aws_access_key_id=${s3_access_key}
+aws_secret_key=${s3_secret_key}
 EOF
   fi
 
@@ -193,21 +193,21 @@ EOF
 rocksdb_cloud_bucket_prefix=${bucket_prefix}
 rocksdb_cloud_bucket_name=${bucket_name}
 rocksdb_cloud_object_path=dss
-rocksdb_cloud_s3_endpoint_url=${minio_endpoint}
+rocksdb_cloud_s3_endpoint_url=${s3_endpoint}
 EOF
     if [ "${log_state}" != "ROCKSDB_CLOUD_S3" ]; then
       cat >> "${run_dir}/data_substrate.cnf" <<EOF
-aws_access_key_id=${minio_access_key}
-aws_secret_key=${minio_secret_key}
+aws_access_key_id=${s3_access_key}
+aws_secret_key=${s3_secret_key}
 EOF
     fi
   elif [ "${data_store_type}" = "ELOQDSS_ELOQSTORE" ]; then
     cat >> "${run_dir}/data_substrate.cnf" <<EOF
 eloq_store_cloud_provider=aws
-eloq_store_cloud_endpoint=${minio_endpoint}
+eloq_store_cloud_endpoint=${s3_endpoint}
 eloq_store_cloud_store_path=${bucket_prefix}${bucket_name}/eloqstore
-eloq_store_cloud_access_key=${minio_access_key}
-eloq_store_cloud_secret_key=${minio_secret_key}
+eloq_store_cloud_access_key=${s3_access_key}
+eloq_store_cloud_secret_key=${s3_secret_key}
 eloq_store_cloud_verify_ssl=false
 eloq_store_cloud_request_threads=2
 EOF
@@ -326,49 +326,52 @@ cleanup_build_outputs() {
   log_disk_usage "after build cleanup"
 }
 
-start_minio() {
+start_rustfs() {
   local endpoint="$1"
   local access_key="$2"
   local secret_key="$3"
+  # RustFS is pinned and installed by the shared ubuntu-dev image.
+  if ! command -v rustfs >/dev/null 2>&1; then
+    echo "RustFS is missing; use an ubuntu-dev image with RustFS preinstalled." >&2
+    return 1
+  fi
 
-  case "$(uname -m)" in
-    x86_64) MINIO_ARCH=amd64 ;;
-    aarch64|arm64) MINIO_ARCH=arm64 ;;
-    *) echo "Unsupported arch $(uname -m) for MinIO" >&2; return 1 ;;
-  esac
+  RUSTFS_RUN_DIR=$(mktemp -d /tmp/eloqdoc-rustfs.XXXXXX)
+  export RUSTFS_RUN_DIR
+  mkdir -p "${RUSTFS_RUN_DIR}/data"
+  RUSTFS_ACCESS_KEY="${access_key}" RUSTFS_SECRET_KEY="${secret_key}" \
+    RUSTFS_ADDRESS="${endpoint#http://}" RUSTFS_CONSOLE_ENABLE=false \
+    rustfs server "${RUSTFS_RUN_DIR}/data" \
+    >/tmp/rustfs.log 2>&1 &
+  RUSTFS_PID=$!
+  export RUSTFS_PID
 
-  cd "${GITHUB_WORKSPACE:-/tmp}"
-  wget -q "https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/minio"
-  chmod +x minio
-  mkdir -p /tmp/minio_data
-  MINIO_ROOT_USER="${access_key}" MINIO_ROOT_PASSWORD="${secret_key}" \
-    ./minio server /tmp/minio_data --address :9900 --console-address :9901 \
-    >/tmp/minio.log 2>&1 &
-  MINIO_PID=$!
-  export MINIO_PID
-
-  for _ in $(seq 1 30); do
-    if curl -sf "${endpoint}/minio/health/live" >/dev/null 2>&1; then
-      return 0
-    fi
-    if ! kill -0 "${MINIO_PID}" 2>/dev/null; then
-      cat /tmp/minio.log
+  for _ in $(seq 1 60); do
+    if ! kill -0 "${RUSTFS_PID}" 2>/dev/null; then
+      cat /tmp/rustfs.log
       return 1
+    fi
+    if curl -sf --noproxy '*' --max-time 2 "${endpoint}/health/ready" >/dev/null 2>&1; then
+      return 0
     fi
     sleep 1
   done
 
-  cat /tmp/minio.log
+  echo "RustFS did not become ready at ${endpoint}" >&2
+  cat /tmp/rustfs.log
   return 1
 }
 
-stop_minio() {
-  if [ -n "${MINIO_PID:-}" ]; then
-    kill "${MINIO_PID}" 2>/dev/null || true
-    wait "${MINIO_PID}" 2>/dev/null || true
+stop_rustfs() {
+  if [ -n "${RUSTFS_PID:-}" ]; then
+    kill "${RUSTFS_PID}" 2>/dev/null || true
+    wait "${RUSTFS_PID}" 2>/dev/null || true
+    unset RUSTFS_PID
   fi
-  rm -rf /tmp/minio_data
-  rm -f "${GITHUB_WORKSPACE:-/tmp}/minio"
+  if [ -n "${RUSTFS_RUN_DIR:-}" ]; then
+    rm -rf "${RUSTFS_RUN_DIR}"
+    unset RUSTFS_RUN_DIR
+  fi
 }
 
 launch_eloqdoc() {
@@ -378,18 +381,18 @@ launch_eloqdoc() {
   local bucket_prefix="${4:-}"
   local -a cloud_flags=()
 
-  if needs_minio "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" && [ -n "${bucket_name}" ] && [ -n "${bucket_prefix}" ]; then
+  if needs_s3 "${DATA_STORE_TYPE}" "${WITH_LOG_STATE}" && [ -n "${bucket_name}" ] && [ -n "${bucket_prefix}" ]; then
     cloud_flags=(
-      "--txlog_rocksdb_cloud_object_store_service_url=${MINIO_ENDPOINT}/${bucket_prefix}${bucket_name}/txlog"
-      "--aws_access_key_id=${MINIO_ACCESS_KEY}"
-      "--aws_secret_key=${MINIO_SECRET_KEY}"
+      "--txlog_rocksdb_cloud_object_store_service_url=${S3_ENDPOINT}/${bucket_prefix}${bucket_name}/txlog"
+      "--aws_access_key_id=${S3_ACCESS_KEY}"
+      "--aws_secret_key=${S3_SECRET_KEY}"
     )
     if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
       cloud_flags+=(
-        "--eloq_store_cloud_endpoint=${MINIO_ENDPOINT}"
+        "--eloq_store_cloud_endpoint=${S3_ENDPOINT}"
         "--eloq_store_cloud_store_path=${bucket_prefix}${bucket_name}/eloqstore"
-        "--eloq_store_cloud_access_key=${MINIO_ACCESS_KEY}"
-        "--eloq_store_cloud_secret_key=${MINIO_SECRET_KEY}"
+        "--eloq_store_cloud_access_key=${S3_ACCESS_KEY}"
+        "--eloq_store_cloud_secret_key=${S3_SECRET_KEY}"
       )
     fi
   fi
@@ -650,7 +653,7 @@ dump_ci_failure_logs() {
   log_disk_usage "failure"
   echo ""
   echo "===== Running eloq-related processes ====="
-  ps -ef | grep -E 'eloqdoc|dss_server|launch_sv|host_manager|minio' | grep -v grep || true
+  ps -ef | grep -E 'eloqdoc|dss_server|launch_sv|host_manager|rustfs' | grep -v grep || true
 
   dump_live_process_backtraces
   dump_core_backtraces
@@ -659,8 +662,8 @@ dump_ci_failure_logs() {
     find "${install_prefix}/log" -maxdepth 1 -type f -print -exec sh -c \
       'echo "===== $1 ====="; tail -n 300 "$1" || true' sh {} \;
   fi
-  if [ -f /tmp/minio.log ]; then
-    echo "===== /tmp/minio.log ====="
-    tail -n 300 /tmp/minio.log || true
+  if [ -f /tmp/rustfs.log ]; then
+    echo "===== /tmp/rustfs.log ====="
+    tail -n 300 /tmp/rustfs.log || true
   fi
 }
