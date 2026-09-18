@@ -63,11 +63,6 @@ public:
     }
 
     uint32_t PrefetchSize() {
-        if (_endSpecified) {
-            // Prefetch more aggressively for end-specified scan as
-            // prefetch will not go beyond the end key.
-            return 256;
-        }
         std::array<uint32_t, 5> boundaries = {1, 4, 16, 64, 256};
 
         size_t idx = 0;
