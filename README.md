@@ -48,7 +48,7 @@ Seamlessly integrates with MongoDB clients, drivers, and tools, enabling you to 
 
 EloqDoc seamlessly manages hot and cold data across **memory, local NVMe cache, and object storage**. Since NVMe storage is ephemeral and lost when a node crashes, EloqDoc uses it strictly as a cache for object storage. This design ensures that all data remains safe and durable in cross-AZ object storage while still benefiting from NVMe-level performance for frequently accessed data.
 
-### Truely Distributed Database
+### Truly Distributed Database
 
 Supports **multiple writers** and **fast distributed transactions**, ensuring high concurrency and fault tolerance across a cluster without sharding complexity.
 
@@ -80,7 +80,7 @@ EloqDoc is a decoupled, distributed database built on [Data Substrate](https://w
 
 Each EloqDoc instance includes a frontend, compatible with the MongoDB protocol, deployed together with the core TxService to handle data operations. A logically independent LogService handles Write Ahead Logging (WAL) to ensure persistence, while a Storage Service manages memory state checkpoints and cold data storage.
 
-This architecture enable EloqDoc to support:
+This architecture enables EloqDoc to support:
 - **Fast Scaling**: Compute and memory scale independently without disk data movement, enabling rapid elasticity for dynamic workloads.
 - **Storage Flexibility**: Storage scales separately from compute, optimizing resource allocation and reducing waste.
 - **Write Optimization**: Independent redo log scaling boosts write throughput, ideal for high-velocity data ingestion.
@@ -215,7 +215,7 @@ cd $HOME/eloqdoc-rocksdbcloud && ls
 mkdir db logs data
 ```
 
-**Step-4**, start a S3 emulator, takes `minio` as an exmaple.
+**Step-4**, start a S3 emulator, takes `minio` as an example.
 
 ```bash
 cd $HOME
