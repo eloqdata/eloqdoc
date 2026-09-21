@@ -124,7 +124,12 @@ assert.commandWorked(
     db.adminCommand({"setParameter": 1, logComponentVerbosity: old.logComponentVerbosity}));
 
 var isMongos = (db.isMaster().msg === 'isdbgrid');
-if (!isMongos) {
+// The standalone EloqDoc build omits MongoDB replication commands and parameters.
+// Keep all generic checks above. Probe the command set, not the parameters under test,
+// so a missing oplog-fetcher parameter still fails on builds that include replication.
+var supportsReplication = assert.commandWorked(db.adminCommand({listCommands: 1}))
+                              .commands.hasOwnProperty('replSetGetStatus');
+if (!isMongos && supportsReplication) {
     //
     // oplogFetcherSteadyStateMaxFetcherRestarts
     //

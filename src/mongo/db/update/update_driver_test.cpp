@@ -169,10 +169,10 @@ public:
         : _opCtx(_serviceContext.makeOperationContext()),
           //   _driverOps(new UpdateDriver(new ExpressionContext(_opCtx.get(), nullptr))),
           _driverOps(new UpdateDriver(
-              ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx, nullptr))),
+              ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx.get(), nullptr))),
           //   _driverRepl(new UpdateDriver(new ExpressionContext(_opCtx.get(), nullptr)))
           _driverRepl(new UpdateDriver(
-              ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx, nullptr))) {
+              ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx.get(), nullptr))) {
         _driverOps->parse(fromjson("{$set:{'_':1}}"), _arrayFilters).transitional_ignore();
         _driverRepl->parse(fromjson("{}"), _arrayFilters).transitional_ignore();
     }

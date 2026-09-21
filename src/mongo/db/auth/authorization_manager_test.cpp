@@ -49,6 +49,7 @@
 #include "mongo/db/operation_context.h"
 #include "mongo/db/service_context_test_fixture.h"
 #include "mongo/db/storage/recovery_unit_noop.h"
+#include "mongo/db/storage/storage_engine.h"
 #include "mongo/stdx/memory.h"
 #include "mongo/transport/session.h"
 #include "mongo/transport/transport_layer_mock.h"
@@ -74,6 +75,64 @@ void setX509PeerInfo(const transport::SessionHandle& session, SSLPeerInfo info) 
 
 using std::vector;
 
+// These tests exercise local authorization bookkeeping, not Eloq's cross-node cache
+// notifications. Satisfy the storage-engine dependency without starting a real engine.
+class AuthorizationStorageEngineMock final : public StorageEngine {
+public:
+    void onAuthzDataChanged(OperationContext*) override {}
+
+    RecoveryUnit* newRecoveryUnit() override {
+        return new RecoveryUnitNoop();
+    }
+
+    bool supportsDocLocking() const override {
+        return false;
+    }
+
+    bool isDurable() const override {
+        return false;
+    }
+
+    bool isEphemeral() const override {
+        return true;
+    }
+
+    void cleanShutdown() override {}
+
+    // No database operations should reach the engine in these mock-backed auth tests.
+    void listDatabases(std::vector<std::string>*) const override {
+        MONGO_UNREACHABLE;
+    }
+
+    DatabaseCatalogEntry* getDatabaseCatalogEntry(OperationContext*, StringData) override {
+        MONGO_UNREACHABLE;
+    }
+
+    Status closeDatabase(OperationContext*, StringData) override {
+        MONGO_UNREACHABLE;
+    }
+
+    Status dropDatabase(OperationContext*, StringData) override {
+        MONGO_UNREACHABLE;
+    }
+
+    int flushAllFiles(OperationContext*, bool) override {
+        MONGO_UNREACHABLE;
+    }
+
+    Status repairRecordStore(OperationContext*, const std::string&) override {
+        MONGO_UNREACHABLE;
+    }
+
+    void setJournalListener(JournalListener*) override {
+        MONGO_UNREACHABLE;
+    }
+
+    Timestamp getAllCommittedTimestamp() const override {
+        MONGO_UNREACHABLE;
+    }
+};
+
 class AuthorizationManagerTest : public ServiceContextTest {
 public:
     virtual ~AuthorizationManagerTest() {
@@ -82,6 +141,7 @@ public:
     }
 
     AuthorizationManagerTest() {
+        getServiceContext()->setStorageEngine(std::make_unique<AuthorizationStorageEngineMock>());
         auto localExternalState = std::make_unique<AuthzManagerExternalStateMock>();
         externalState = localExternalState.get();
         auto localAuthzManager = std::make_unique<AuthorizationManagerImpl>(

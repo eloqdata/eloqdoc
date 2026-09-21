@@ -279,11 +279,11 @@ void KVStorageEngine::closeCatalog(OperationContext* opCtx) {
         _dumpCatalog(opCtx);
     }
 
-    // stdx::lock_guard<stdx::mutex> lock(_dbsLock);
-    // for (auto entry : _dbMapVector) {
-    //     delete entry.second;
-    // }
-    _dbMapVector.clear();
+    // The slots are indexed by LocalThread::ID() when the catalog is reopened.
+    // Clear their entries, not the slots themselves.
+    for (auto& dbMap : _dbMapVector) {
+        dbMap.clear();
+    }
 
     _catalog.reset(nullptr);
     _catalogRecordStore.reset(nullptr);

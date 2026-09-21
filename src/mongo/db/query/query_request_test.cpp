@@ -40,6 +40,7 @@
 #include "mongo/db/pipeline/aggregation_request.h"
 #include "mongo/db/query/query_request.h"
 #include "mongo/db/service_context_test_fixture.h"
+#include "mongo/db/storage/recovery_unit_noop.h"
 #include "mongo/unittest/unittest.h"
 
 namespace mongo {
@@ -369,7 +370,7 @@ TEST(QueryRequestTest, ParseFromCommandWithOptions) {
         "maxScan: 1000}}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     // Make sure the values from the command BSON are reflected in the QR.
@@ -384,7 +385,7 @@ TEST(QueryRequestTest, ParseFromCommandHintAsString) {
         "hint: 'foo_1'}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     BSONObj hintObj = qr->getHint();
@@ -423,7 +424,7 @@ TEST(QueryRequestTest, ParseFromCommandAllFlagsTrue) {
         "allowPartialResults: true}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     // Test that all the flags got set to true.
@@ -443,7 +444,7 @@ TEST(QueryRequestTest, ParseFromCommandCommentWithValidMinMax) {
         "max: {a: 2}}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT_EQUALS("the comment", qr->getComment());
@@ -469,7 +470,7 @@ TEST(QueryRequestTest, ParseFromCommandAllNonOptionFields) {
         "singleBatch: false}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     // Check the values inside the QR.
@@ -501,7 +502,7 @@ TEST(QueryRequestTest, ParseFromCommandLargeLimit) {
         "limit: 8000000000}");  // 8 * 1000 * 1000 * 1000
     const NamespaceString nss("test.testns");
     const bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT_EQUALS(8LL * 1000 * 1000 * 1000, *qr->getLimit());
@@ -514,7 +515,7 @@ TEST(QueryRequestTest, ParseFromCommandLargeBatchSize) {
         "batchSize: 8000000000}");  // 8 * 1000 * 1000 * 1000
     const NamespaceString nss("test.testns");
     const bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT_EQUALS(8LL * 1000 * 1000 * 1000, *qr->getBatchSize());
@@ -527,7 +528,7 @@ TEST(QueryRequestTest, ParseFromCommandLargeSkip) {
         "skip: 8000000000}");  // 8 * 1000 * 1000 * 1000
     const NamespaceString nss("test.testns");
     const bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT_EQUALS(8LL * 1000 * 1000 * 1000, *qr->getSkip());
@@ -817,7 +818,7 @@ TEST(QueryRequestTest, ParseFromCommandSkipIsZero) {
         "filter: {a: 3}}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
     ASSERT_BSONOBJ_EQ(BSON("a" << 3), qr->getFilter());
     ASSERT_FALSE(qr->getSkip());
@@ -841,7 +842,7 @@ TEST(QueryRequestTest, ParseFromCommandLimitIsZero) {
         "filter: {a: 3}}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
     ASSERT_BSONOBJ_EQ(BSON("a" << 3), qr->getFilter());
     ASSERT_FALSE(qr->getLimit());
@@ -862,7 +863,7 @@ TEST(QueryRequestTest, ParseFromCommandBatchSizeZero) {
     BSONObj cmdObj = fromjson("{find: 'testns', batchSize: 0}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT(qr->getBatchSize());
@@ -875,7 +876,7 @@ TEST(QueryRequestTest, ParseFromCommandDefaultBatchSize) {
     BSONObj cmdObj = fromjson("{find: 'testns'}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT(!qr->getBatchSize());
@@ -948,7 +949,7 @@ TEST(QueryRequestTest, ParseCommandIsFromFindCommand) {
     BSONObj cmdObj = fromjson("{find: 'testns'}");
     const NamespaceString nss("test.testns");
     bool isExplain = false;
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     ASSERT_FALSE(qr->getNToReturn());
@@ -982,7 +983,7 @@ TEST(QueryRequestTest, DefaultQueryParametersCorrect) {
     BSONObj cmdObj = fromjson("{find: 'testns'}");
 
     const NamespaceString nss("test.testns");
-    std::unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, false)));
 
     ASSERT_FALSE(qr->getSkip());
@@ -1281,7 +1282,7 @@ TEST(QueryRequestTest, ParseFromLegacyObjMetaOpComment) {
         "{$query: {a: 1},"
         "$comment: {b: 2, c: {d: 'ParseFromLegacyObjMetaOpComment'}}}");
     const NamespaceString nss("test.testns");
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::fromLegacyQuery(nss, queryObj, BSONObj(), 0, 0, 0)));
 
     // Ensure that legacy comment meta-operator is parsed to a string comment
@@ -1294,7 +1295,7 @@ TEST(QueryRequestTest, ParseFromLegacyStringMetaOpComment) {
         "{$query: {a: 1},"
         "$comment: 'ParseFromLegacyStringMetaOpComment'}");
     const NamespaceString nss("test.testns");
-    unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::fromLegacyQuery(nss, queryObj, BSONObj(), 0, 0, 0)));
 
     ASSERT_EQ(qr->getComment(), "ParseFromLegacyStringMetaOpComment");
@@ -1315,7 +1316,7 @@ TEST(QueryRequestTest, ParseFromLegacyQuery) {
             $maxScan: 7
          })");
     const NamespaceString nss("test.testns");
-    unique_ptr<QueryRequest> qr(assertGet(QueryRequest::fromLegacyQuery(
+    QueryRequest::UPtr qr(assertGet(QueryRequest::fromLegacyQuery(
         nss, queryObj, BSON("proj" << 1), kSkip, kNToReturn, QueryOption_Exhaust)));
 
     ASSERT_EQ(qr->nss(), nss);
@@ -1344,7 +1345,7 @@ TEST(QueryRequestTest, ParseFromLegacyQueryUnwrapped) {
             foo: 1
          })");
     const NamespaceString nss("test.testns");
-    unique_ptr<QueryRequest> qr(assertGet(
+    QueryRequest::UPtr qr(assertGet(
         QueryRequest::fromLegacyQuery(nss, queryObj, BSONObj(), 0, 0, QueryOption_Exhaust)));
 
     ASSERT_EQ(qr->nss(), nss);
@@ -1367,12 +1368,15 @@ class QueryRequestTest : public ServiceContextTest {};
 
 TEST_F(QueryRequestTest, ParseFromUUID) {
     auto opCtx = makeOperationContext();
+    // UUIDCatalog registers recovery-unit changes; this parser test needs no real engine.
+    opCtx->setRecoveryUnit(new RecoveryUnitNoop(),
+                          WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
     // Register a UUID/Collection pair in the UUIDCatalog.
     const CollectionUUID uuid = UUID::gen();
     const NamespaceString nss("test.testns");
-    Collection coll(stdx::make_unique<CollectionMock>(nss));
+    auto coll = stdx::make_unique<Collection>(stdx::make_unique<CollectionMock>(nss));
     UUIDCatalog& catalog = UUIDCatalog::get(opCtx.get());
-    catalog.onCreateCollection(opCtx.get(), &coll, uuid);
+    catalog.onCreateCollection(opCtx.get(), std::move(coll), uuid);
     QueryRequest qr(uuid);
     // Ensure a call to refreshNSS succeeds.
     qr.refreshNSS(opCtx.get());

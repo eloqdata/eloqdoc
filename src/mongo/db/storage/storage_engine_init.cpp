@@ -36,7 +36,6 @@
 #include "mongo/base/init.h"
 #include "mongo/bson/bsonobjbuilder.h"
 #include "mongo/db/concurrency/eloq_locker_noop.h"
-#include "mongo/db/concurrency/lock_state.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/storage/storage_engine_lock_file.h"
 #include "mongo/db/storage/storage_engine_metadata.h"
@@ -336,8 +335,7 @@ public:
     void onDestroyClient(Client* client) override{};
     void onCreateOperationContext(OperationContext* opCtx) override {
         auto service = opCtx->getServiceContext();
-        // Eloq TableSchema require a OperationContext while storageEngine is not set.
-        // Acutally, we always use EloqLockerNoop.
+        // Eloq TableSchema needs an OperationContext even before its engine is installed.
         auto storageEngine = service->getStorageEngine();
         // NOTE(schwerin): The following uassert would be more desirable than the early return when
         // no storage engine is set, but to achieve that we would have to ensure that this file was
@@ -348,10 +346,17 @@ public:
         //         storageEngine);
 
 
-        if (opCtx->lockState()) {
+        if (dynamic_cast<EloqLockerNoop*>(opCtx->lockState())) {
             opCtx->resetLockState();
         } else {
-            opCtx->setLockState(stdx::make_unique<EloqLockerNoop>());
+            // Production always uses Eloq locking. A pooled context may carry a test
+            // fixture's locker; replace it rather than keeping it in a server context.
+            auto locker = stdx::make_unique<EloqLockerNoop>();
+            if (opCtx->lockState()) {
+                opCtx->swapLockState(std::move(locker));
+            } else {
+                opCtx->setLockState(std::move(locker));
+            }
         }
 
         if (storageEngine) {

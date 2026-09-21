@@ -36,9 +36,11 @@
 #include "mongo/base/init.h"
 #include "mongo/bson/bson_validate.h"
 #include "mongo/db/client.h"
+#include "mongo/db/concurrency/locker_noop.h"
 #include "mongo/db/ftdc/file_reader.h"
 #include "mongo/db/jsobj.h"
 #include "mongo/db/service_context.h"
+#include "mongo/db/storage/recovery_unit_noop.h"
 #include "mongo/stdx/memory.h"
 #include "mongo/unittest/unittest.h"
 #include "mongo/util/clock_source.h"
@@ -48,6 +50,24 @@
 namespace mongo {
 
 namespace {
+
+// FTDC's background collector creates operation contexts directly through its Client.
+// Install mock storage state for this engine-less fixture, including after pool reuse.
+class FTDCStorageObserver final : public ServiceContext::ClientObserver {
+public:
+    void onCreateClient(Client*) override {}
+    void onDestroyClient(Client*) override {}
+    void onCreateOperationContext(OperationContext* opCtx) override {
+        if (!opCtx->lockState()) {
+            opCtx->setLockState(stdx::make_unique<LockerNoop>());
+        }
+        if (!opCtx->recoveryUnit()) {
+            opCtx->setRecoveryUnit(new RecoveryUnitNoop(),
+                                  WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+        }
+    }
+    void onDestroyOperationContext(OperationContext*) override {}
+};
 
 BSONObj filteredFTDCCopy(const BSONObj& obj) {
     BSONObjBuilder builder;
@@ -138,11 +158,20 @@ void createDirectoryClean(const boost::filesystem::path& dir) {
     boost::filesystem::create_directory(dir);
 }
 
-FTDCTest::FTDCTest() {
+FTDCTest::FTDCTest() : ServiceContextTest(stdx::make_unique<FTDCStorageObserver>()) {
     auto service = getServiceContext();
     service->setFastClockSource(stdx::make_unique<ClockSourceMock>());
     service->setPreciseClockSource(stdx::make_unique<ClockSourceMock>());
     service->setTickSource(stdx::make_unique<TickSourceMock>());
+}
+
+TEST_F(FTDCTest, InstallsNoopStorageStateAcrossPoolReuse) {
+    ASSERT_FALSE(getServiceContext()->getStorageEngine());
+    for (int i = 0; i < 64; ++i) {
+        auto opCtx = makeOperationContext();
+        ASSERT_TRUE(dynamic_cast<LockerNoop*>(opCtx->lockState()));
+        ASSERT_TRUE(dynamic_cast<RecoveryUnitNoop*>(opCtx->recoveryUnit()));
+    }
 }
 
 }  // namespace mongo

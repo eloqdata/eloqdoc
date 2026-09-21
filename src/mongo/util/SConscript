@@ -310,6 +310,7 @@ env.CppUnitTest(
     ],
     LIBDEPS=[
         "background_job",
+        "$BUILD_DIR/mongo/db/service_context",
     ],
 )
 

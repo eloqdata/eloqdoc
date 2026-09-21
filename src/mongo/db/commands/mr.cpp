@@ -392,7 +392,9 @@ void State::dropTempCollections() {
             }
         });
         // Always forget about temporary namespaces, so we don't cache lots of them
+#ifndef ELOQDOC_STANDALONE
         ShardConnection::forgetNS(_config.tempNamespace.ns());
+#endif
     }
     if (_useIncremental && !_config.incLong.isEmpty()) {
         writeConflictRetry(_opCtx, "M/R dropTempCollections", _config.incLong.ns(), [this] {
@@ -405,7 +407,9 @@ void State::dropTempCollections() {
             }
         });
 
+#ifndef ELOQDOC_STANDALONE
         ShardConnection::forgetNS(_config.incLong.ns());
+#endif
     }
 }
 
@@ -1694,6 +1698,7 @@ public:
 /**
  * This class represents a map/reduce command executed on the output server of a sharded env
  */
+#ifndef ELOQDOC_STANDALONE
 class MapReduceFinishCommand : public BasicCommand {
 public:
     std::string help() const override {
@@ -1893,6 +1898,7 @@ public:
     }
 
 } mapReduceFinishCommand;
+#endif
 
 }  // namespace mr
 }  // namespace mongo

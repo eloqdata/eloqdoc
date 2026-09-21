@@ -185,7 +185,7 @@ private:
         ThreadState(TickSource* ts) : running(ts), executing(ts) {}
 
         CumulativeTickTimer running;
-        TickSource::Tick executingCurRun;
+        TickSource::Tick executingCurRun = 0;
         CumulativeTickTimer executing;
         MetricsArray threadMetrics;
         std::int64_t markIdleCounter = 0;

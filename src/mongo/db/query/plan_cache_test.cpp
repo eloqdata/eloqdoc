@@ -67,11 +67,11 @@ static const NamespaceString nss("test.collection");
 /**
  * Utility functions to create a CanonicalQuery
  */
-unique_ptr<CanonicalQuery> canonicalize(const BSONObj& queryObj) {
+CanonicalQuery::UPtr canonicalize(const BSONObj& queryObj) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(queryObj);
     const boost::intrusive_ptr<ExpressionContext> expCtx;
     auto statusWithCQ =
@@ -84,19 +84,19 @@ unique_ptr<CanonicalQuery> canonicalize(const BSONObj& queryObj) {
     return std::move(statusWithCQ.getValue());
 }
 
-unique_ptr<CanonicalQuery> canonicalize(const char* queryStr) {
+CanonicalQuery::UPtr canonicalize(const char* queryStr) {
     BSONObj queryObj = fromjson(queryStr);
     return canonicalize(queryObj);
 }
 
-unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
+CanonicalQuery::UPtr canonicalize(const char* queryStr,
                                         const char* sortStr,
                                         const char* projStr,
                                         const char* collationStr) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson(queryStr));
     qr->setSort(fromjson(sortStr));
     qr->setProj(fromjson(projStr));
@@ -112,7 +112,7 @@ unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
     return std::move(statusWithCQ.getValue());
 }
 
-unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
+CanonicalQuery::UPtr canonicalize(const char* queryStr,
                                         const char* sortStr,
                                         const char* projStr,
                                         long long skip,
@@ -123,7 +123,7 @@ unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson(queryStr));
     qr->setSort(fromjson(sortStr));
     qr->setProj(fromjson(projStr));
@@ -147,7 +147,7 @@ unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
     return std::move(statusWithCQ.getValue());
 }
 
-unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
+CanonicalQuery::UPtr canonicalize(const char* queryStr,
                                         const char* sortStr,
                                         const char* projStr,
                                         long long skip,
@@ -159,7 +159,7 @@ unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson(queryStr));
     qr->setSort(fromjson(sortStr));
     qr->setProj(fromjson(projStr));
@@ -275,12 +275,12 @@ void assertShouldNotCacheQuery(const CanonicalQuery& query) {
 }
 
 void assertShouldNotCacheQuery(const BSONObj& query) {
-    unique_ptr<CanonicalQuery> cq(canonicalize(query));
+    CanonicalQuery::UPtr cq(canonicalize(query));
     assertShouldNotCacheQuery(*cq);
 }
 
 void assertShouldNotCacheQuery(const char* queryStr) {
-    unique_ptr<CanonicalQuery> cq(canonicalize(queryStr));
+    CanonicalQuery::UPtr cq(canonicalize(queryStr));
     assertShouldNotCacheQuery(*cq);
 }
 
@@ -291,12 +291,12 @@ void assertShouldNotCacheQuery(const char* queryStr) {
  */
 
 TEST(PlanCacheTest, ShouldCacheQueryBasic) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}"));
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}"));
     assertShouldCacheQuery(*cq);
 }
 
 TEST(PlanCacheTest, ShouldCacheQuerySort) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{}", "{a: -1}", "{_id: 0, a: 1}", "{}"));
+    CanonicalQuery::UPtr cq(canonicalize("{}", "{a: -1}", "{_id: 0, a: 1}", "{}"));
     assertShouldCacheQuery(*cq);
 }
 
@@ -310,7 +310,7 @@ TEST(PlanCacheTest, ShouldCacheQuerySort) {
  * This should normally be handled by the IDHack runner.
  */
 TEST(PlanCacheTest, ShouldNotCacheQueryCollectionScan) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{}"));
+    CanonicalQuery::UPtr cq(canonicalize("{}"));
     assertShouldNotCacheQuery(*cq);
 }
 
@@ -320,7 +320,7 @@ TEST(PlanCacheTest, ShouldNotCacheQueryCollectionScan) {
  * Therefore, not much point in caching.
  */
 TEST(PlanCacheTest, ShouldNotCacheQueryWithHint) {
-    unique_ptr<CanonicalQuery> cq(
+    CanonicalQuery::UPtr cq(
         canonicalize("{a: 1}", "{}", "{}", 0, 0, "{a: 1, b: 1}", "{}", "{}"));
     assertShouldNotCacheQuery(*cq);
 }
@@ -329,7 +329,7 @@ TEST(PlanCacheTest, ShouldNotCacheQueryWithHint) {
  * Min queries are a specialized case of hinted queries
  */
 TEST(PlanCacheTest, ShouldNotCacheQueryWithMin) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}", "{}", "{}", 0, 0, "{}", "{a: 100}", "{}"));
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}", "{}", "{}", 0, 0, "{}", "{a: 100}", "{}"));
     assertShouldNotCacheQuery(*cq);
 }
 
@@ -337,7 +337,7 @@ TEST(PlanCacheTest, ShouldNotCacheQueryWithMin) {
  *  Max queries are non-cacheable for the same reasons as min queries.
  */
 TEST(PlanCacheTest, ShouldNotCacheQueryWithMax) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}", "{}", "{}", 0, 0, "{}", "{}", "{a: 100}"));
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}", "{}", "{}", 0, 0, "{}", "{}", "{a: 100}"));
     assertShouldNotCacheQuery(*cq);
 }
 
@@ -346,7 +346,7 @@ TEST(PlanCacheTest, ShouldNotCacheQueryWithMax) {
  * the planner is able to come up with a cacheable solution.
  */
 TEST(PlanCacheTest, ShouldCacheQueryWithGeoWithinLegacyCoordinates) {
-    unique_ptr<CanonicalQuery> cq(
+    CanonicalQuery::UPtr cq(
         canonicalize("{a: {$geoWithin: "
                      "{$box: [[-180, -90], [180, 90]]}}}"));
     assertShouldCacheQuery(*cq);
@@ -356,7 +356,7 @@ TEST(PlanCacheTest, ShouldCacheQueryWithGeoWithinLegacyCoordinates) {
  * $geoWithin queries with GeoJSON coordinates are supported by the index bounds builder.
  */
 TEST(PlanCacheTest, ShouldCacheQueryWithGeoWithinJSONCoordinates) {
-    unique_ptr<CanonicalQuery> cq(
+    CanonicalQuery::UPtr cq(
         canonicalize("{a: {$geoWithin: "
                      "{$geometry: {type: 'Polygon', coordinates: "
                      "[[[0, 0], [0, 90], [90, 0], [0, 0]]]}}}}"));
@@ -367,7 +367,7 @@ TEST(PlanCacheTest, ShouldCacheQueryWithGeoWithinJSONCoordinates) {
  * $geoWithin queries with both legacy and GeoJSON coordinates are cacheable.
  */
 TEST(PlanCacheTest, ShouldCacheQueryWithGeoWithinLegacyAndJSONCoordinates) {
-    unique_ptr<CanonicalQuery> cq(
+    CanonicalQuery::UPtr cq(
         canonicalize("{$or: [{a: {$geoWithin: {$geometry: {type: 'Polygon', "
                      "coordinates: [[[0, 0], [0, 90], "
                      "[90, 0], [0, 0]]]}}}},"
@@ -379,7 +379,7 @@ TEST(PlanCacheTest, ShouldCacheQueryWithGeoWithinLegacyAndJSONCoordinates) {
  * $geoIntersects queries are always cacheable because they support GeoJSON coordinates only.
  */
 TEST(PlanCacheTest, ShouldCacheQueryWithGeoIntersects) {
-    unique_ptr<CanonicalQuery> cq(
+    CanonicalQuery::UPtr cq(
         canonicalize("{a: {$geoIntersects: "
                      "{$geometry: {type: 'Point', coordinates: "
                      "[10.0, 10.0]}}}}"));
@@ -391,7 +391,7 @@ TEST(PlanCacheTest, ShouldCacheQueryWithGeoIntersects) {
  * between flat and spherical queries.
  */
 TEST(PlanCacheTest, ShouldNotCacheQueryWithGeoNear) {
-    unique_ptr<CanonicalQuery> cq(
+    CanonicalQuery::UPtr cq(
         canonicalize("{a: {$geoNear: {$geometry: {type: 'Point',"
                      "coordinates: [0,0]}, $maxDistance:100}}}"));
     assertShouldCacheQuery(*cq);
@@ -403,7 +403,7 @@ TEST(PlanCacheTest, ShouldNotCacheQueryWithGeoNear) {
  * non-winning plans.
  */
 TEST(PlanCacheTest, ShouldNotCacheQueryExplain) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}",
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}",
                                                "{}",
                                                "{}",
                                                0,
@@ -421,7 +421,7 @@ TEST(PlanCacheTest, ShouldNotCacheQueryExplain) {
 // Adding an empty vector of query solutions should fail.
 TEST(PlanCacheTest, AddEmptySolutions) {
     PlanCache planCache;
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}"));
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}"));
     std::vector<QuerySolution*> solns;
     unique_ptr<PlanRankingDecision> decision(createDecision(1U));
     QueryTestServiceContext serviceContext;
@@ -430,7 +430,7 @@ TEST(PlanCacheTest, AddEmptySolutions) {
 
 TEST(PlanCacheTest, AddValidSolution) {
     PlanCache planCache;
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}"));
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}"));
     QuerySolution qs;
     qs.cacheData.reset(new SolutionCacheData());
     qs.cacheData->tree.reset(new PlanCacheIndexTree());
@@ -557,7 +557,7 @@ protected:
         // Clean up any previous state from a call to runQueryFull or runQueryAsCommand.
         solns.clear();
 
-        auto qr = stdx::make_unique<QueryRequest>(nss);
+        auto qr = ObjectPool<QueryRequest>::newObject(nss);
         qr->setFilter(query);
         qr->setSort(sort);
         qr->setProj(proj);
@@ -591,7 +591,7 @@ protected:
         solns.clear();
 
         const bool isExplain = false;
-        std::unique_ptr<QueryRequest> qr(
+        QueryRequest::UPtr qr(
             assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
         const boost::intrusive_ptr<ExpressionContext> expCtx;
@@ -664,7 +664,7 @@ protected:
         QueryTestServiceContext serviceContext;
         auto opCtx = serviceContext.makeOperationContext();
 
-        auto qr = stdx::make_unique<QueryRequest>(nss);
+        auto qr = ObjectPool<QueryRequest>::newObject(nss);
         qr->setFilter(query);
         qr->setSort(sort);
         qr->setProj(proj);
@@ -677,7 +677,7 @@ protected:
                                          ExtensionsCallbackNoop(),
                                          MatchExpressionParser::kAllowAllSpecialFeatures);
         ASSERT_OK(statusWithCQ.getStatus());
-        unique_ptr<CanonicalQuery> scopedCq = std::move(statusWithCQ.getValue());
+        CanonicalQuery::UPtr scopedCq = std::move(statusWithCQ.getValue());
 
         // Create a CachedSolution the long way..
         // QuerySolution -> PlanCacheEntry -> CachedSolution
@@ -1332,7 +1332,7 @@ void testComputeKey(const char* queryStr,
                     const char* expectedStr) {
     PlanCache planCache;
     const char* collationStr = "{}";
-    unique_ptr<CanonicalQuery> cq(canonicalize(queryStr, sortStr, projStr, collationStr));
+    CanonicalQuery::UPtr cq(canonicalize(queryStr, sortStr, projStr, collationStr));
     PlanCacheKey key = planCache.computeKey(*cq);
     PlanCacheKey expectedKey(expectedStr);
     if (key == expectedKey) {
@@ -1412,11 +1412,11 @@ TEST(PlanCacheTest, ComputeKeyGeoWithin) {
     PlanCache planCache;
 
     // Legacy coordinates.
-    unique_ptr<CanonicalQuery> cqLegacy(
+    CanonicalQuery::UPtr cqLegacy(
         canonicalize("{a: {$geoWithin: "
                      "{$box: [[-180, -90], [180, 90]]}}}"));
     // GeoJSON coordinates.
-    unique_ptr<CanonicalQuery> cqNew(
+    CanonicalQuery::UPtr cqNew(
         canonicalize("{a: {$geoWithin: "
                      "{$geometry: {type: 'Polygon', coordinates: "
                      "[[[0, 0], [0, 90], [90, 0], [0, 0]]]}}}}"));
@@ -1468,9 +1468,9 @@ TEST(PlanCacheTest, ComputeKeySparseIndex) {
                                                nullptr,  // filterExpr
                                                BSONObj())});
 
-    unique_ptr<CanonicalQuery> cqEqNumber(canonicalize("{a: 0}}"));
-    unique_ptr<CanonicalQuery> cqEqString(canonicalize("{a: 'x'}}"));
-    unique_ptr<CanonicalQuery> cqEqNull(canonicalize("{a: null}}"));
+    CanonicalQuery::UPtr cqEqNumber(canonicalize("{a: 0}}"));
+    CanonicalQuery::UPtr cqEqString(canonicalize("{a: 'x'}}"));
+    CanonicalQuery::UPtr cqEqNull(canonicalize("{a: null}}"));
 
     // 'cqEqNumber' and 'cqEqString' get the same key, since both are compatible with this
     // index.
@@ -1496,9 +1496,9 @@ TEST(PlanCacheTest, ComputeKeyPartialIndex) {
                                                filterExpr.get(),
                                                BSONObj())});
 
-    unique_ptr<CanonicalQuery> cqGtNegativeFive(canonicalize("{f: {$gt: -5}}"));
-    unique_ptr<CanonicalQuery> cqGtZero(canonicalize("{f: {$gt: 0}}"));
-    unique_ptr<CanonicalQuery> cqGtFive(canonicalize("{f: {$gt: 5}}"));
+    CanonicalQuery::UPtr cqGtNegativeFive(canonicalize("{f: {$gt: -5}}"));
+    CanonicalQuery::UPtr cqGtZero(canonicalize("{f: {$gt: 0}}"));
+    CanonicalQuery::UPtr cqGtFive(canonicalize("{f: {$gt: 5}}"));
 
     // 'cqGtZero' and 'cqGtFive' get the same key, since both are compatible with this index.
     ASSERT_EQ(planCache.computeKey(*cqGtZero), planCache.computeKey(*cqGtFive));
@@ -1522,11 +1522,11 @@ TEST(PlanCacheTest, ComputeKeyCollationIndex) {
     entry.collator = &collator;
     planCache.notifyOfIndexEntries({entry});
 
-    unique_ptr<CanonicalQuery> containsString(canonicalize("{a: 'abc'}"));
-    unique_ptr<CanonicalQuery> containsObject(canonicalize("{a: {b: 'abc'}}"));
-    unique_ptr<CanonicalQuery> containsArray(canonicalize("{a: ['abc', 'xyz']}"));
-    unique_ptr<CanonicalQuery> noStrings(canonicalize("{a: 5}"));
-    unique_ptr<CanonicalQuery> containsStringHasCollation(
+    CanonicalQuery::UPtr containsString(canonicalize("{a: 'abc'}"));
+    CanonicalQuery::UPtr containsObject(canonicalize("{a: {b: 'abc'}}"));
+    CanonicalQuery::UPtr containsArray(canonicalize("{a: ['abc', 'xyz']}"));
+    CanonicalQuery::UPtr noStrings(canonicalize("{a: 5}"));
+    CanonicalQuery::UPtr containsStringHasCollation(
         canonicalize("{a: 'abc'}", "{}", "{}", "{locale: 'mock_reverse_string'}"));
 
     // 'containsString', 'containsObject', and 'containsArray' have the same key, since none are
@@ -1541,11 +1541,11 @@ TEST(PlanCacheTest, ComputeKeyCollationIndex) {
     // index.
     ASSERT_EQ(planCache.computeKey(*noStrings), planCache.computeKey(*containsStringHasCollation));
 
-    unique_ptr<CanonicalQuery> inContainsString(canonicalize("{a: {$in: [1, 'abc', 2]}}"));
-    unique_ptr<CanonicalQuery> inContainsObject(canonicalize("{a: {$in: [1, {b: 'abc'}, 2]}}"));
-    unique_ptr<CanonicalQuery> inContainsArray(canonicalize("{a: {$in: [1, ['abc', 'xyz'], 2]}}"));
-    unique_ptr<CanonicalQuery> inNoStrings(canonicalize("{a: {$in: [1, 2]}}"));
-    unique_ptr<CanonicalQuery> inContainsStringHasCollation(
+    CanonicalQuery::UPtr inContainsString(canonicalize("{a: {$in: [1, 'abc', 2]}}"));
+    CanonicalQuery::UPtr inContainsObject(canonicalize("{a: {$in: [1, {b: 'abc'}, 2]}}"));
+    CanonicalQuery::UPtr inContainsArray(canonicalize("{a: {$in: [1, ['abc', 'xyz'], 2]}}"));
+    CanonicalQuery::UPtr inNoStrings(canonicalize("{a: {$in: [1, 2]}}"));
+    CanonicalQuery::UPtr inContainsStringHasCollation(
         canonicalize("{a: {$in: [1, 'abc', 2]}}", "{}", "{}", "{locale: 'mock_reverse_string'}"));
 
     // 'inContainsString', 'inContainsObject', and 'inContainsArray' have the same key, since none

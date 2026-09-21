@@ -73,7 +73,7 @@ public:
      */
     class EqualTo {
     public:
-        explicit EqualTo() = default;
+        EqualTo() = default;
 
         bool operator()(const BSONObj& lhs, const BSONObj& rhs) const {
             return kInstance.compare(lhs, rhs) == 0;
@@ -86,7 +86,7 @@ public:
      */
     class Hasher {
     public:
-        explicit Hasher() = default;
+        Hasher() = default;
 
         size_t operator()(const BSONObj& obj) const {
             return kInstance.hash(obj);

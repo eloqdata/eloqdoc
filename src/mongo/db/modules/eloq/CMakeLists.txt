@@ -47,3 +47,10 @@ endif()
 
 # --- Include build system modules ---
 add_subdirectory(data_substrate)
+
+# The pinned yaml-cpp 0.7.0 uses fixed-width integers in emitterutils.cpp without
+# including <cstdint>. GCC 15 no longer supplies it through unrelated headers.
+# Keep the compatibility include local to this downloaded dependency; this module
+# is shared by the top-level CMake and historical SCons dependency builds.
+target_compile_options(yaml-cpp PRIVATE
+    "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:SHELL:-include cstdint>")

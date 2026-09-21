@@ -63,7 +63,9 @@ public:
              const std::string&,
              const mongo::BSONObj&,
              mongo::BSONObjBuilder& result) override {
+#ifndef ELOQDOC_STANDALONE
         shardConnectionPool.flush();
+#endif
         globalConnPool.flush();
         return true;
     }

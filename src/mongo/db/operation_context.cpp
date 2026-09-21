@@ -386,9 +386,7 @@ StatusWith<stdx::cv_status> OperationContext::waitForConditionOrInterruptNoAsser
             cv.wait(m);
             return stdx::cv_status::no_timeout;
         }
-        // return getServiceContext()->getPreciseClockSource()->waitForConditionUntil(cv, m,
-        // deadline);
-        return cv.wait_until(m, deadline);
+        return getServiceContext()->getPreciseClockSource()->waitForConditionUntil(cv, m, deadline);
     }();
 
     // Continue waiting on cv until no other thread is attempting to kill this one.

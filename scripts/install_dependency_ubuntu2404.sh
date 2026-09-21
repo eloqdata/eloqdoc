@@ -7,11 +7,13 @@ set -euo pipefail
 #   scripts/install_dependency_ubuntu2404.sh [TEMP_DIR] [--skip_eloq_common]
 #
 # TEMP_DIR controls temporary downloads and build artifacts. It defaults to
-# /tmp/eloqdoc-deps. The legacy --skip_eloq_common option installs only the
-# Python 2.7 build environment.
+# /tmp/eloqdoc-deps. The legacy --skip_eloq_common option skips the CMake and
+# Data Substrate dependencies.
 #
 # Set ELOQ_SKIP_THIRD_PARTY=1 to skip the Data Substrate third-party workspace
 # build. CI uses that mode when the third-party prefix is restored from cache.
+# Python 2 and the SCons requirements are installed by default so the historical build keeps
+# working. Set ELOQ_INSTALL_LEGACY_SCONS=0 for a smaller CMake-only environment.
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
@@ -132,7 +134,7 @@ install_python2() {
     fi
 
     if ! command -v python2 >/dev/null 2>&1; then
-        log_info "Installing Python 2.7.18 with pyenv"
+        log_info "Installing Python 2.7.18 with pyenv for the legacy SCons workflow"
         apt_install \
             build-essential zlib1g-dev libbz2-dev liblzma-dev libreadline-dev \
             libsqlite3-dev libffi-dev libssl-dev libncurses5-dev \
@@ -202,13 +204,13 @@ configure_timezone
 if [ "${SKIP_ELOQ_COMMON}" = false ]; then
     log_info "Installing EloqDoc system build packages"
     system_packages=(
-        sudo wget curl apt-utils python3 python3-dev python3-pip python3-venv
+        sudo wget curl apt-utils python3 python3-dev python3-pip python3-venv python3-yaml
         libcurl4-openssl-dev build-essential libncurses5-dev libncursesw5-dev
         gnutls-dev bison zlib1g-dev ccache rsync cmake ninja-build libuv1-dev
         git g++ gcc make openssh-client libssl-dev libgflags-dev
         libleveldb-dev libsnappy-dev openssl libbz2-dev liblz4-dev libzstd-dev
         libboost-context-dev ca-certificates libc-ares-dev libc-ares2 m4
-        pkg-config tar xz-utils libreadline-dev libsqlite3-dev ncurses-dev
+        pkg-config tar xz-utils libreadline-dev libsqlite3-dev ncurses-dev libicu-dev
         tk-dev libffi-dev liblzma-dev patchelf libprotobuf-dev
         protobuf-compiler libjsoncpp-dev unzip
     )
@@ -230,6 +232,10 @@ else
     log_info "Skipping EloqDoc system and Data Substrate third-party dependencies"
 fi
 
-install_python2
+if [ "${ELOQ_INSTALL_LEGACY_SCONS:-1}" = "1" ]; then
+    install_python2
+else
+    log_info "Skipping the Python 2/SCons environment (ELOQ_INSTALL_LEGACY_SCONS=0)"
+fi
 
 log_info "EloqDoc dependency installation completed successfully"

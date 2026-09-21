@@ -292,21 +292,22 @@ TEST_F(LogicalSessionIdTest, InitializeOperationSessionInfo_SessionIdAndTransact
     ASSERT_EQ(100, *_opCtx->getTxnNumber());
 }
 
-TEST_F(LogicalSessionIdTest, InitializeOperationSessionInfo_IsReplSetMemberOrMongosFalse) {
+TEST_F(LogicalSessionIdTest, InitializeOperationSessionInfo_StandaloneSupportsTransactionNumber) {
     addSimpleUser(UserName("simple", "test"));
     LogicalSessionFromClient lsid;
     lsid.setId(UUID::gen());
 
-    ASSERT_THROWS_CODE(
-        initializeOperationSessionInfo(
-            _opCtx.get(),
-            BSON("TestCmd" << 1 << "lsid" << lsid.toBSON() << "txnNumber" << 100LL << "OtherField"
-                           << "TestField"),
-            true,
-            false,
-            true),
-        AssertionException,
-        ErrorCodes::IllegalOperation);
+    // Eloq provides transactions through its storage engine without MongoDB replication/sharding.
+    initializeOperationSessionInfo(
+        _opCtx.get(),
+        BSON("TestCmd" << 1 << "lsid" << lsid.toBSON() << "txnNumber" << 100LL),
+        true,
+        false,
+        true);
+    ASSERT(_opCtx->getLogicalSessionId());
+    ASSERT_EQ(lsid.getId(), _opCtx->getLogicalSessionId()->getId());
+    ASSERT(_opCtx->getTxnNumber());
+    ASSERT_EQ(100, *_opCtx->getTxnNumber());
 }
 
 TEST_F(LogicalSessionIdTest, InitializeOperationSessionInfo_SupportsDocLockingFalse) {

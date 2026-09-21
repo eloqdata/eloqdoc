@@ -39,6 +39,7 @@
 #include "mongo/db/commands.h"
 #include "mongo/db/commands/test_commands_enabled.h"
 #include "mongo/db/concurrency/d_concurrency.h"
+#include "mongo/db/storage/storage_options.h"
 #include "mongo/util/log.h"
 
 namespace mongo {
@@ -87,6 +88,11 @@ public:
              const std::string& db,
              const BSONObj& cmdObj,
              BSONObjBuilder& result) final {
+        // This command depends on a real global exclusive lock to protect every worker's
+        // catalog pointers. Eloq's no-op locker cannot provide that stop-the-world guarantee.
+        uassert(ErrorCodes::CommandNotSupported,
+                "Eloq storage engine does not support online catalog restart",
+                storageGlobalParams.engine != "eloq");
         Lock::GlobalLock global(opCtx, MODE_X);
 
         // This command will fail without modifying the catalog if there are any databases that are

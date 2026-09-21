@@ -36,6 +36,7 @@
 namespace mongo {
 
 class IndexCatalogEntry;
+class RecordStore;
 
 /**
  * Caller takes ownership.
@@ -44,5 +45,10 @@ class IndexCatalogEntry;
 SortedDataInterface* getEphemeralForTestBtreeImpl(const Ordering& ordering,
                                                   bool isUnique,
                                                   std::shared_ptr<void>* dataInOut);
+
+SortedDataInterface* getEphemeralForTestBtreeImpl(const Ordering& ordering,
+                                                bool isUnique,
+                                                std::shared_ptr<void>* dataInOut,
+                                                std::unique_ptr<RecordStore> recordStore);
 
 }  // namespace mongo

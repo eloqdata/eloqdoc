@@ -36,7 +36,14 @@ namespace {
 struct OperationTimeTrackerHolder {
     OperationTimeTrackerHolder() : opTimeTracker(std::make_shared<OperationTimeTracker>()) {}
     void reset() {
-        opTimeTracker.reset();
+        // OperationContext recycling has exclusive access to this holder. Reuse the tracker
+        // unless another shared owner (e.g. a remote callback) still needs the previous state.
+        invariant(opTimeTracker);
+        if (opTimeTracker.use_count() == 1) {
+            opTimeTracker->reset();
+        } else {
+            opTimeTracker = std::make_shared<OperationTimeTracker>();
+        }
     }
     static const OperationContext::Decoration<OperationTimeTrackerHolder> get;
     std::shared_ptr<OperationTimeTracker> opTimeTracker;
@@ -47,7 +54,7 @@ const OperationContext::Decoration<OperationTimeTrackerHolder> OperationTimeTrac
 }  // namespace
 
 std::shared_ptr<OperationTimeTracker> OperationTimeTracker::get(OperationContext* opCtx) {
-    auto timeTrackerHolder = OperationTimeTrackerHolder::get(opCtx);
+    auto& timeTrackerHolder = OperationTimeTrackerHolder::get(opCtx);
     invariant(timeTrackerHolder.opTimeTracker);
     return timeTrackerHolder.opTimeTracker;
 }
@@ -62,6 +69,11 @@ void OperationTimeTracker::updateOperationTime(LogicalTime newTime) {
     if (newTime > _maxOperationTime) {
         _maxOperationTime = std::move(newTime);
     }
+}
+
+void OperationTimeTracker::reset() {
+    stdx::lock_guard<stdx::mutex> lock(_mutex);
+    _maxOperationTime = LogicalTime::kUninitialized;
 }
 
 }  // namespace mongo

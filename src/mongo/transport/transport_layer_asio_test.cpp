@@ -46,6 +46,14 @@ namespace {
 
 class ServiceEntryPointUtil : public ServiceEntryPoint {
 public:
+    Status start() override {
+        return Status::OK();
+    }
+
+    transport::ServiceExecutor* getServiceExecutor() override {
+        return nullptr;
+    }
+
     void startSession(transport::SessionHandle session) override {
         stdx::unique_lock<stdx::mutex> lk(_mutex);
         _sessions.push_back(std::move(session));
@@ -161,6 +169,14 @@ TEST(TransportLayerASIO, PortZeroConnect) {
 
 class TimeoutSEP : public ServiceEntryPoint {
 public:
+    Status start() override {
+        return Status::OK();
+    }
+
+    transport::ServiceExecutor* getServiceExecutor() override {
+        return nullptr;
+    }
+
     void endAllSessions(transport::Session::TagMask tags) override {
         MONGO_UNREACHABLE;
     }

@@ -77,7 +77,7 @@ Status isValid(const std::string& queryStr, const QueryRequest& qrRaw) {
 
 TEST(ExpressionOptimizeTest, IsValidText) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     ASSERT_OK(qr->validate());
 
     // Valid: regular TEXT.
@@ -133,7 +133,7 @@ TEST(ExpressionOptimizeTest, IsValidText) {
 
 TEST(ExpressionOptimizeTest, IsValidTextTailable) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setTailableMode(TailableModeEnum::kTailable);
     ASSERT_OK(qr->validate());
 
@@ -143,7 +143,7 @@ TEST(ExpressionOptimizeTest, IsValidTextTailable) {
 
 TEST(ExpressionOptimizeTest, IsValidGeo) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     ASSERT_OK(qr->validate());
 
     // Valid: regular GEO_NEAR.
@@ -209,7 +209,7 @@ TEST(ExpressionOptimizeTest, IsValidGeo) {
 
 TEST(ExpressionOptimizeTest, IsValidTextAndGeo) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     ASSERT_OK(qr->validate());
 
     // Invalid: TEXT and GEO_NEAR.
@@ -230,7 +230,7 @@ TEST(ExpressionOptimizeTest, IsValidTextAndGeo) {
 
 TEST(ExpressionOptimizeTest, IsValidTextAndNaturalAscending) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setSort(fromjson("{$natural: 1}"));
     ASSERT_OK(qr->validate());
 
@@ -240,7 +240,7 @@ TEST(ExpressionOptimizeTest, IsValidTextAndNaturalAscending) {
 
 TEST(ExpressionOptimizeTest, IsValidTextAndNaturalDescending) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setSort(fromjson("{$natural: -1}"));
     ASSERT_OK(qr->validate());
 
@@ -250,7 +250,7 @@ TEST(ExpressionOptimizeTest, IsValidTextAndNaturalDescending) {
 
 TEST(ExpressionOptimizeTest, IsValidTextAndHint) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setHint(fromjson("{a: 1}"));
     ASSERT_OK(qr->validate());
 
@@ -261,7 +261,7 @@ TEST(ExpressionOptimizeTest, IsValidTextAndHint) {
 // SERVER-14366
 TEST(ExpressionOptimizeTest, IsValidGeoNearNaturalSort) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setSort(fromjson("{$natural: 1}"));
     ASSERT_OK(qr->validate());
 
@@ -272,7 +272,7 @@ TEST(ExpressionOptimizeTest, IsValidGeoNearNaturalSort) {
 // SERVER-14366
 TEST(ExpressionOptimizeTest, IsValidGeoNearNaturalHint) {
     // Filter inside QueryRequest is not used.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setHint(fromjson("{$natural: 1}"));
     ASSERT_OK(qr->validate());
 

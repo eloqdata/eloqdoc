@@ -32,15 +32,26 @@
 
 #include "boost/optional.hpp"
 
+#include "mongo/db/local_thread_state.h"
 #include "mongo/db/service_context.h"
+#include "mongo/stdx/future.h"
 #include "mongo/transport/service_executor_adaptive.h"
+#include "mongo/transport/service_executor_coroutine.h"
 #include "mongo/transport/service_executor_synchronous.h"
 #include "mongo/transport/service_executor_task_names.h"
+#include "mongo/unittest/death_test.h"
 #include "mongo/unittest/unittest.h"
 #include "mongo/util/log.h"
 #include "mongo/util/scopeguard.h"
 
 #include <asio.hpp>
+
+#ifdef ELOQ_MODULE_ENABLED
+#include <bthread/bthread.h>
+#include <gflags/gflags.h>
+
+DECLARE_bool(brpc_worker_as_ext_processor);
+#endif
 
 namespace mongo {
 namespace {
@@ -92,7 +103,8 @@ public:
     ASIOReactor() : _ioContext() {}
 
     void run() noexcept final {
-        MONGO_UNREACHABLE;
+        asio::io_context::work work(_ioContext);
+        _ioContext.run();
     }
 
     void runFor(Milliseconds time) noexcept final {
@@ -113,7 +125,7 @@ public:
     void drain() override final {
         _ioContext.restart();
         while (_ioContext.poll()) {
-            LOG(1) << "Draining remaining work in reactor.";
+            MONGO_LOG(1) << "Draining remaining work in reactor.";
         }
         _ioContext.stop();
     }
@@ -152,15 +164,20 @@ protected:
         auto scOwned = ServiceContext::make();
         setGlobalServiceContext(std::move(scOwned));
 
-        auto configOwned = stdx::make_unique<TestOptions>();
-        executorConfig = configOwned.get();
+        reactors = {std::make_shared<ASIOReactor>(), std::make_shared<ASIOReactor>()};
         executor = stdx::make_unique<ServiceExecutorAdaptive>(
-            getGlobalServiceContext(), std::make_shared<ASIOReactor>(), std::move(configOwned));
+            getGlobalServiceContext(), std::vector<ReactorHandle>(reactors),
+            stdx::make_unique<TestOptions>());
     }
 
-    ServiceExecutorAdaptive::Options* executorConfig;
+    void tearDown() override {
+        ASSERT_OK(executor->shutdown(kShutdownTime));
+        executor.reset();
+        setGlobalServiceContext({});
+    }
+
+    std::vector<ReactorHandle> reactors;
     std::unique_ptr<ServiceExecutorAdaptive> executor;
-    std::shared_ptr<asio::io_context> asioIOCtx;
 };
 
 class ServiceExecutorSynchronousFixture : public unittest::Test {
@@ -176,34 +193,130 @@ protected:
 };
 
 void scheduleBasicTask(ServiceExecutor* exec, bool expectSuccess) {
-    stdx::condition_variable cond;
-    stdx::mutex mutex;
-    auto task = [&cond, &mutex] {
-        stdx::unique_lock<stdx::mutex> lk(mutex);
-        cond.notify_all();
+    struct Completion {
+        stdx::condition_variable cond;
+        stdx::mutex mutex;
+        bool completed = false;
+    };
+    auto completion = std::make_shared<Completion>();
+    auto task = [completion] {
+        stdx::unique_lock<stdx::mutex> lk(completion->mutex);
+        completion->completed = true;
+        completion->cond.notify_all();
     };
 
-    stdx::unique_lock<stdx::mutex> lk(mutex);
+    stdx::unique_lock<stdx::mutex> lk(completion->mutex);
     auto status = exec->schedule(
         std::move(task), ServiceExecutor::kEmptyFlags, ServiceExecutorTaskName::kSSMStartSession);
     if (expectSuccess) {
         ASSERT_OK(status);
-        cond.wait(lk);
+        ASSERT_TRUE(completion->cond.wait_for(
+            lk, std::chrono::seconds(10), [&] { return completion->completed; }));
     } else {
         ASSERT_NOT_OK(status);
     }
 }
 
-TEST_F(ServiceExecutorAdaptiveFixture, BasicTaskRuns) {
+TEST_F(ServiceExecutorAdaptiveFixture, RunsEachIngressReactor) {
     ASSERT_OK(executor->start());
-    auto guard = MakeGuard([this] { ASSERT_OK(executor->shutdown(kShutdownTime)); });
-
-    scheduleBasicTask(executor.get(), true);
+    for (const auto& reactor : reactors) {
+        auto completed = std::make_shared<stdx::promise<void>>();
+        auto future = completed->get_future();
+        reactor->schedule(Reactor::kPost, [completed] { completed->set_value(); });
+        ASSERT_TRUE(future.wait_for(std::chrono::seconds(10)) == stdx::future_status::ready);
+        future.get();
+    }
+    ASSERT_EQ(reactors.size(), static_cast<size_t>(executor->threadsRunning()));
+    ASSERT_OK(executor->shutdown(kShutdownTime));
+    ASSERT_EQ(0, executor->threadsRunning());
 }
 
-TEST_F(ServiceExecutorAdaptiveFixture, ScheduleFailsBeforeStartup) {
-    scheduleBasicTask(executor.get(), false);
+TEST_F(ServiceExecutorAdaptiveFixture, ShutdownBeforeStartupIsSafe) {
+    ASSERT_OK(executor->shutdown(kShutdownTime));
 }
+
+TEST_F(ServiceExecutorAdaptiveFixture, ShutdownIsIdempotent) {
+    ASSERT_OK(executor->start());
+    ASSERT_OK(executor->shutdown(kShutdownTime));
+    ASSERT_OK(executor->shutdown(kShutdownTime));
+}
+
+TEST_F(ServiceExecutorAdaptiveFixture, RejectsEmptyReactorList) {
+    ServiceExecutorAdaptive empty(getGlobalServiceContext(), {},
+                                  stdx::make_unique<TestOptions>());
+    ASSERT_EQ(ErrorCodes::InvalidOptions, empty.start().code());
+    ASSERT_OK(empty.shutdown(kShutdownTime));
+}
+
+DEATH_TEST_F(ServiceExecutorAdaptiveFixture, SchedulingIsUnreachable, "MONGO_UNREACHABLE") {
+    ASSERT_OK(executor->start());
+    executor->schedule([] {}, ServiceExecutor::kEmptyFlags,
+                       ServiceExecutorTaskName::kSSMStartSession).ignore();
+}
+
+#ifdef ELOQ_MODULE_ENABLED
+TEST(ServiceExecutorCoroutine, ModuleSchedulingAndLifecycle) {
+    constexpr int kThreadGroups = 2;
+    // Start only brpc's worker pool: no Data Substrate, storage engine, or data-store fixture.
+    // This matches the module-backed scheduler used by the EloqDoc server.
+    FLAGS_brpc_worker_as_ext_processor = true;
+    ASSERT_EQ(0, bthread_setconcurrency(kThreadGroups));
+    bthread_t bootstrap;
+    ASSERT_EQ(0, bthread_start_background(
+        &bootstrap, nullptr, [](void*) -> void* { return nullptr; }, nullptr));
+    ASSERT_EQ(0, bthread_join(bootstrap, nullptr));
+
+    auto service = ServiceContext::make();
+    ServiceExecutorCoroutine executor(service.get(), kThreadGroups);
+    bool rejectedTaskRan = false;
+    auto rejectedTask = [&] { rejectedTaskRan = true; };
+    const auto flags = ServiceExecutor::kEmptyFlags;
+    const auto taskName = ServiceExecutorTaskName::kSSMStartSession;
+    ASSERT_EQ(ErrorCodes::ShutdownInProgress,
+              executor.schedule(rejectedTask, flags, taskName).code());
+    ASSERT_EQ(ErrorCodes::ShutdownInProgress,
+              executor.schedule(rejectedTask, flags, taskName, 1).code());
+
+    ASSERT_OK(executor.start());
+    bool running = true;
+    auto stop = MakeGuard([&] {
+        if (running)
+            ASSERT_OK(executor.shutdown(kShutdownTime));
+    });
+    auto checkGroup = [](int16_t expectedGroup, auto submit) {
+        auto completed = std::make_shared<stdx::promise<int16_t>>();
+        auto future = completed->get_future();
+        ServiceExecutor::Task task = [completed] { completed->set_value(LocalThread::ID()); };
+        submit(task);
+        ASSERT_TRUE(future.wait_for(std::chrono::seconds(10)) == stdx::future_status::ready);
+        ASSERT_EQ(expectedGroup, future.get());
+    };
+    checkGroup(0, [&](const ServiceExecutor::Task& task) {
+        ASSERT_OK(executor.schedule(task, flags, taskName));
+    });
+    for (int16_t group = 0; group < kThreadGroups; ++group) {
+        checkGroup(group, [&](const ServiceExecutor::Task& task) {
+            ASSERT_OK(executor.schedule(task, flags, taskName, group));
+        });
+        checkGroup(group, [&](const ServiceExecutor::Task& task) {
+            executor.coroutineResumeFunctor(group, task)();
+        });
+        checkGroup(group, [&](const ServiceExecutor::Task& task) {
+            executor.coroutineLongResumeFunctor(group, task)();
+        });
+        checkGroup(group, [&](const ServiceExecutor::Task& task) {
+            executor.deferCallOnMainStack(group, ServiceExecutor::Task(task));
+        });
+    }
+    ASSERT_OK(executor.shutdown(kShutdownTime));
+    running = false;
+    ASSERT_EQ(ErrorCodes::ShutdownInProgress,
+              executor.schedule(rejectedTask, flags, taskName).code());
+    ASSERT_EQ(ErrorCodes::ShutdownInProgress,
+              executor.schedule(rejectedTask, flags, taskName, 1).code());
+    ASSERT_FALSE(rejectedTaskRan);
+}
+#endif
 
 TEST_F(ServiceExecutorSynchronousFixture, BasicTaskRuns) {
     ASSERT_OK(executor->start());

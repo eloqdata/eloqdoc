@@ -35,6 +35,18 @@
 namespace mongo {
 namespace {
 
+TEST(RecordId, IntegerRepresentationAndNullSentinel) {
+    ASSERT_EQUALS(42, RecordId(42).repr());
+    ASSERT_EQUALS(-7, RecordId(-7).repr());
+    ASSERT_FALSE(RecordId(42).isNull());
+    ASSERT_TRUE(RecordId(0).isNull());
+    ASSERT_TRUE(RecordId().isNull());
+    RecordId stringId("key", 3);
+    ASSERT_TRUE(stringId.isStr());
+    ASSERT_FALSE(stringId.isNull());
+    ASSERT_EQUALS("key", stringId.getStringView());
+}
+
 TEST(RecordId, HashEqual) {
     RecordId locA(1, 2);
     RecordId locB;

@@ -175,13 +175,13 @@ TEST(CanonicalQueryTest, SortTreeNumChildrenComparison) {
 /**
  * Utility function to create a CanonicalQuery
  */
-unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
+CanonicalQuery::UPtr canonicalize(const char* queryStr,
                                         MatchExpressionParser::AllowedFeatureSet allowedFeatures =
                                             MatchExpressionParser::kDefaultSpecialFeatures) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson(queryStr));
 
     auto statusWithCQ = CanonicalQuery::canonicalize(
@@ -191,13 +191,13 @@ unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
     return std::move(statusWithCQ.getValue());
 }
 
-std::unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
+CanonicalQuery::UPtr canonicalize(const char* queryStr,
                                              const char* sortStr,
                                              const char* projStr) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson(queryStr));
     qr->setSort(fromjson(sortStr));
     qr->setProj(fromjson(projStr));
@@ -210,7 +210,7 @@ std::unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
  * Test function for CanonicalQuery::normalize.
  */
 void testNormalizeQuery(const char* queryStr, const char* expectedExprStr) {
-    unique_ptr<CanonicalQuery> cq(canonicalize(queryStr));
+    CanonicalQuery::UPtr cq(canonicalize(queryStr));
     MatchExpression* me = cq->root();
     BSONObj expectedExprObj = fromjson(expectedExprStr);
     unique_ptr<MatchExpression> expectedExpr(parseMatchExpression(expectedExprObj));
@@ -289,7 +289,7 @@ TEST(CanonicalQueryTest, CanonicalQueryFromQRWithNoCollation) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     auto cq = assertGet(CanonicalQuery::canonicalize(opCtx.get(), std::move(qr)));
     ASSERT_TRUE(cq->getCollator() == nullptr);
 }
@@ -298,7 +298,7 @@ TEST(CanonicalQueryTest, CanonicalQueryFromQRWithCollation) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setCollation(BSON("locale"
                           << "reverse"));
     auto cq = assertGet(CanonicalQuery::canonicalize(opCtx.get(), std::move(qr)));
@@ -310,7 +310,7 @@ TEST(CanonicalQueryTest, CanonicalQueryFromBaseQueryWithNoCollation) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{$or:[{a:1,b:1},{a:1,c:1}]}"));
     auto baseCq = assertGet(CanonicalQuery::canonicalize(opCtx.get(), std::move(qr)));
     MatchExpression* firstClauseExpr = baseCq->root()->getChild(0);
@@ -323,7 +323,7 @@ TEST(CanonicalQueryTest, CanonicalQueryFromBaseQueryWithCollation) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{$or:[{a:1,b:1},{a:1,c:1}]}"));
     qr->setCollation(BSON("locale"
                           << "reverse"));
@@ -339,7 +339,7 @@ TEST(CanonicalQueryTest, SettingCollatorUpdatesCollatorAndMatchExpression) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 'foo', b: {$in: ['bar', 'baz']}}"));
     auto cq = assertGet(CanonicalQuery::canonicalize(opCtx.get(), std::move(qr)));
     ASSERT_EQUALS(2U, cq->root()->numChildren());
@@ -368,7 +368,7 @@ TEST(CanonicalQueryTest, SettingCollatorUpdatesCollatorAndMatchExpression) {
 }
 
 TEST(CanonicalQueryTest, NorWithOneChildNormalizedToNot) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{$nor: [{a: 1}]}"));
+    CanonicalQuery::UPtr cq(canonicalize("{$nor: [{a: 1}]}"));
     auto root = cq->root();
     ASSERT_EQ(MatchExpression::NOT, root->matchType());
     ASSERT_EQ(1U, root->numChildren());
@@ -376,13 +376,13 @@ TEST(CanonicalQueryTest, NorWithOneChildNormalizedToNot) {
 }
 
 TEST(CanonicalQueryTest, NorWithTwoChildrenNotNormalized) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{$nor: [{a: 1}, {b: 1}]}"));
+    CanonicalQuery::UPtr cq(canonicalize("{$nor: [{a: 1}, {b: 1}]}"));
     auto root = cq->root();
     ASSERT_EQ(MatchExpression::NOR, root->matchType());
 }
 
 TEST(CanonicalQueryTest, NorWithOneChildNormalizedAfterNormalizingChild) {
-    unique_ptr<CanonicalQuery> cq(canonicalize("{$nor: [{$or: [{a: 1}]}]}"));
+    CanonicalQuery::UPtr cq(canonicalize("{$nor: [{$or: [{a: 1}]}]}"));
     auto root = cq->root();
     ASSERT_EQ(MatchExpression::NOT, root->matchType());
     ASSERT_EQ(1U, root->numChildren());

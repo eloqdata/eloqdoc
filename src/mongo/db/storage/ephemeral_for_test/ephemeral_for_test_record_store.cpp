@@ -343,6 +343,19 @@ void EphemeralForTestRecordStore::deleteRecord(OperationContext* opCtx, const Re
     deleteRecord_inlock(opCtx, loc);
 }
 
+void EphemeralForTestRecordStore::getAllCollections(std::vector<std::string>& collections) const {
+    if (ns() != "_mdb_catalog") {
+        return;
+    }
+    stdx::lock_guard<stdx::recursive_mutex> lock(_data->recordsMutex);
+    for (const auto& entry : _data->records) {
+        auto name = entry.second.toRecordData().toBson()["ns"];
+        if (name.type() == String) {
+            collections.push_back(name.String());
+        }
+    }
+}
+
 void EphemeralForTestRecordStore::deleteRecord_inlock(OperationContext* opCtx,
                                                       const RecordId& loc) {
     EphemeralForTestRecord* rec = recordFor(loc);
@@ -410,7 +423,16 @@ StatusWith<RecordId> EphemeralForTestRecordStore::insertRecord(
     memcpy(rec.data.get(), data, len);
 
     RecordId loc;
-    if (_data->isOplog) {
+    if (ns() == "_mdb_catalog") {
+        // Eloq's KVCatalog looks up metadata by namespace, not by a numeric record location.
+        BSONObj metadata(data);
+        StringData key = metadata["isFeatureDoc"].trueValue()
+            ? "featureDocument"_sd : metadata["ns"].checkAndGetStringData();
+        loc = RecordId(key.rawData(), key.size());
+        if (_data->records.count(loc)) {
+            return {ErrorCodes::DuplicateKey, "catalog namespace already exists"};
+        }
+    } else if (_data->isOplog) {
         StatusWith<RecordId> status = extractAndCheckLocForOplog(data, len);
         if (!status.isOK())
             return status;

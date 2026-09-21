@@ -28,6 +28,7 @@ fi
 export ELOQ_THIRD_PARTY_REQUIRED="${ELOQ_THIRD_PARTY_REQUIRED:-ON}"
 export BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 [ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1
+[ "${BUILD_JOBS}" -gt 8 ] && BUILD_JOBS=8
 export CMAKE_BUILD_TIMEOUT_SECONDS="${CMAKE_BUILD_TIMEOUT_SECONDS:-3600}"
 export SCONS_BUILD_TIMEOUT_SECONDS="${SCONS_BUILD_TIMEOUT_SECONDS:-7200}"
 export TPCC_TIMEOUT_SECONDS="${TPCC_TIMEOUT_SECONDS:-1200}"
@@ -278,7 +279,9 @@ build_eloqdoc() {
     aarch64|arm64) scons_arch_flags="-march=armv8-a+crc" ;;
   esac
 
-  local scons_third_party_include="-idirafter ${ELOQ_THIRD_PARTY_PREFIX}/include"
+  # Keep MongoDB's explicit -I paths first, but prefer the selected dependency
+  # prefix over unrelated copies installed in the compiler's default paths.
+  local scons_third_party_include="-isystem ${ELOQ_THIRD_PARTY_PREFIX}/include"
   local scons_cflags="${scons_third_party_include} ${scons_arch_flags} -Wno-nonnull"
   local scons_cxxflags="${scons_third_party_include} ${scons_arch_flags} -Wno-nonnull -Wno-class-memaccess -Wno-interference-size -Wno-redundant-move"
   local scons_libpath="${ELOQ_THIRD_PARTY_PREFIX}/lib ${ELOQ_THIRD_PARTY_PREFIX}/lib64"

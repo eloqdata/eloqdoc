@@ -51,7 +51,7 @@ public:
         // Must instantiate ExpressionContext _after_ setting the TZ database on the service
         // context.
         // _expCtx = new ExpressionContext(_opCtx.get(), nullptr);
-        _expCtx = ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx, nullptr);
+        _expCtx = ObjectPool<ExpressionContext>::newObjectRawPointer(_opCtx.get(), nullptr);
         _expCtx->ns = std::move(nss);
     }
 

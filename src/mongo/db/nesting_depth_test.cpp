@@ -35,19 +35,55 @@
 #include "mongo/bson/json.h"
 #include "mongo/client/connection_string.h"
 #include "mongo/executor/network_interface_integration_fixture.h"
+#include "mongo/rpc/get_status_from_command_result.h"
+#include "mongo/unittest/bson_test_util.h"
 #include "mongo/util/concurrency/thread_pool.h"
 
 namespace mongo {
 namespace executor {
 namespace {
+constexpr auto kCollectionName = "depthTest";
+
 class NestingDepthFixture : public NetworkInterfaceIntegrationFixture {
 public:
     void setUp() final {
         startNet();
+        RemoteCommandRequest request{fixture().getServers()[0], "admin", BSON("serverStatus" << 1),
+                                     BSONObj(), nullptr};
+        auto response = runCommandSync(request);
+        ASSERT_OK(response.status);
+        ASSERT_OK(getStatusFromCommandResult(response.data));
+        _usesEloq = response.data["storageEngine"].Obj()["name"].String() == "eloq";
+        assertCommandOK(kCollectionName, BSON("dropDatabase" << 1));
     }
-};
 
-constexpr auto kCollectionName = "depthTest";
+    void assertUpdateDepthError(const BSONObj& command) {
+        auto before = readDocument();
+        if (_usesEloq) {
+            // Eloq's command-level transaction aborts the whole update command on error.
+            // Do not swallow that error into writeErrors and commit a partial transaction.
+            assertCommandFailsOnServer(kCollectionName, command, ErrorCodes::Overflow);
+        } else {
+            assertWriteError(kCollectionName, command, ErrorCodes::Overflow);
+        }
+        ASSERT_BSONOBJ_EQ(before, readDocument());
+    }
+
+private:
+    BSONObj readDocument() {
+        RemoteCommandRequest request{fixture().getServers()[0], kCollectionName,
+                                     BSON("find" << kCollectionName << "singleBatch" << true),
+                                     BSONObj(), nullptr};
+        auto response = runCommandSync(request);
+        ASSERT_OK(response.status);
+        ASSERT_OK(getStatusFromCommandResult(response.data));
+        auto batch = response.data["cursor"].Obj()["firstBatch"].Array();
+        ASSERT_EQ(1U, batch.size());
+        return batch.front().Obj().getOwned();
+    }
+
+    bool _usesEloq = false;
+};
 
 /**
  * Appends an object to 'builder' that is nested 'depth' levels deep.
@@ -274,7 +310,7 @@ TEST_F(NestingDepthFixture, CannotUpdateDocumentToExceedDepthLimit) {
     BSONObjBuilder updateCmd;
     appendUpdateCommandWithNestedDocuments(
         &updateCmd, largeButValidDepth, BSONDepth::getMaxDepthForUserStorage() + 1);
-    assertWriteError(kCollectionName, updateCmd.obj(), ErrorCodes::Overflow);
+    assertUpdateDepthError(updateCmd.obj());
 }
 
 TEST_F(NestingDepthFixture, CanReplaceDocumentIfItStaysWithinDepthLimit) {
@@ -308,7 +344,7 @@ TEST_F(NestingDepthFixture, CannotReplaceDocumentToExceedDepthLimit) {
     BSONObjBuilder updateCmd;
     appendUpdateReplaceCommandWithNestedDocuments(
         &updateCmd, largeButValidDepth, BSONDepth::getMaxDepthForUserStorage() + 1);
-    assertWriteError(kCollectionName, updateCmd.obj(), ErrorCodes::Overflow);
+    assertUpdateDepthError(updateCmd.obj());
 }
 
 /**
@@ -435,7 +471,7 @@ TEST_F(NestingDepthFixture, CannotUpdateArrayToExceedDepthLimit) {
     BSONObjBuilder updateCmd;
     appendUpdateCommandWithNestedArrays(
         &updateCmd, largeButValidDepth, BSONDepth::getMaxDepthForUserStorage() + 1);
-    assertWriteError(kCollectionName, updateCmd.obj(), ErrorCodes::Overflow);
+    assertUpdateDepthError(updateCmd.obj());
 }
 
 TEST_F(NestingDepthFixture, CanReplaceArrayIfItStaysWithinDepthLimit) {
@@ -469,7 +505,7 @@ TEST_F(NestingDepthFixture, CannotReplaceArrayToExceedDepthLimit) {
     BSONObjBuilder updateCmd;
     appendUpdateReplaceCommandWithNestedArrays(
         &updateCmd, largeButValidDepth, BSONDepth::getMaxDepthForUserStorage() + 1);
-    assertWriteError(kCollectionName, updateCmd.obj(), ErrorCodes::Overflow);
+    assertUpdateDepthError(updateCmd.obj());
 }
 }  // namespace
 }  // namespace executor

@@ -85,6 +85,46 @@ private:
     std::string _config;
 };
 
+TEST(ServiceExecutorOptions, ThreadCountHasNoImplicitCommandLineValue) {
+    OptionsParserTester parser;
+    moe::Environment environment;
+    moe::OptionSection options;
+    ASSERT_OK(::mongo::addGeneralServerOptions(&options));
+    ASSERT_OK(parser.run(options, {"binaryname"}, {}, &environment));
+    // The runtime defaults to one adaptive worker, but an omitted option must not be
+    // mistaken for an explicit request to configure an adaptive-only setting.
+    ASSERT_FALSE(environment.count("net.adaptiveThreadNum"));
+    ASSERT_OK(::mongo::storeServerOptions(environment));
+}
+
+TEST(ServiceExecutorOptions, ExplicitThreadCountRequiresAdaptiveExecutor) {
+    OptionsParserTester parser;
+    moe::Environment environment;
+    moe::OptionSection options;
+    ASSERT_OK(::mongo::addGeneralServerOptions(&options));
+    ASSERT_OK(parser.run(options, {"binaryname", "--adaptiveThreadNum=2"}, {}, &environment));
+    const auto status = ::mongo::storeServerOptions(environment);
+    ASSERT_EQ(status.code(), ErrorCodes::BadValue);
+    ASSERT_STRING_CONTAINS(status.reason(), "serviceExecutor=adaptive");
+}
+
+TEST(ServiceExecutorOptions, RejectsNonpositiveAdaptiveThreadCounts) {
+    const auto oldExecutor = ::mongo::serverGlobalParams.serviceExecutor;
+    const auto restore = ::mongo::MakeGuard(
+        [&] { ::mongo::serverGlobalParams.serviceExecutor = oldExecutor; });
+    for (const auto* count : {"--adaptiveThreadNum=0", "--adaptiveThreadNum=-1"}) {
+        OptionsParserTester parser;
+        moe::Environment environment;
+        moe::OptionSection options;
+        ASSERT_OK(::mongo::addGeneralServerOptions(&options));
+        ASSERT_OK(parser.run(
+            options, {"binaryname", "--serviceExecutor=adaptive", count}, {}, &environment));
+        const auto status = ::mongo::storeServerOptions(environment);
+        ASSERT_EQ(status.code(), ErrorCodes::BadValue);
+        ASSERT_STRING_CONTAINS(status.reason(), "at least 1");
+    }
+}
+
 TEST(Verbosity, Default) {
     OptionsParserTester parser;
     moe::Environment environment;

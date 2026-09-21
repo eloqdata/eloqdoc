@@ -99,6 +99,9 @@ jobs:
       VARIANT_ID: ${{ matrix.id }}
       DATA_STORE_TYPE: ${{ matrix.data_store }}
       WITH_LOG_STATE: ${{ matrix.log_state }}
+      # This release job uses the historical SCons packaging path. Pin Python 2 explicitly even
+      # though the compatibility installer currently enables it by default.
+      ELOQ_INSTALL_LEGACY_SCONS: 1
 
     steps:
       - name: Bootstrap checkout tools

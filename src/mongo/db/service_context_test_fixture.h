@@ -45,6 +45,8 @@ public:
 
 protected:
     ScopedGlobalServiceContextForTest();
+    explicit ScopedGlobalServiceContextForTest(
+        std::unique_ptr<ServiceContext::ClientObserver> observer);
     virtual ~ScopedGlobalServiceContextForTest();
 };
 
@@ -64,6 +66,8 @@ public:
 
 protected:
     ServiceContextTest();
+    // Opt-in fixture observer, registered before the first client is created.
+    explicit ServiceContextTest(std::unique_ptr<ServiceContext::ClientObserver> observer);
     virtual ~ServiceContextTest();
 };
 

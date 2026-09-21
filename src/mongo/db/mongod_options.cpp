@@ -875,6 +875,18 @@ Status storeMongodOptions(const moe::Environment& params) {
         storageGlobalParams.engine = params["storage.engine"].as<std::string>();
         storageGlobalParams.engineSetByUser = true;
     }
+#ifdef ELOQDOC_STANDALONE
+    if (params.count("replication.replSetName") || params.count("replication.replSet") ||
+        params.count("sharding.clusterRole")) {
+        return Status(ErrorCodes::InvalidOptions,
+                      "This EloqDoc build supports standalone mode only; --replSet, --shardsvr "
+                      "and --configsvr are not supported");
+    }
+    // The CMake server retains normal option parsing, but only the Eloq engine is linked.
+    if (!storageGlobalParams.engineSetByUser) {
+        storageGlobalParams.engine = "eloq";
+    }
+#endif
 
     if (params.count("storage.dbPath")) {
         storageGlobalParams.dbpath = params["storage.dbPath"].as<std::string>();

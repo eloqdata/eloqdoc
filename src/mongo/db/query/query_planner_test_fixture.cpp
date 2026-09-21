@@ -225,7 +225,7 @@ void QueryPlannerTest::runQueryFull(const BSONObj& query,
     solns.clear();
     cq.reset();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(query);
     qr->setSort(sort);
     qr->setProj(proj);
@@ -307,7 +307,7 @@ void QueryPlannerTest::runInvalidQueryFull(const BSONObj& query,
     solns.clear();
     cq.reset();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(query);
     qr->setSort(sort);
     qr->setProj(proj);
@@ -346,7 +346,7 @@ void QueryPlannerTest::runQueryAsCommand(const BSONObj& cmdObj) {
     invariant(nss.isValid());
 
     const bool isExplain = false;
-    std::unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     const boost::intrusive_ptr<ExpressionContext> expCtx;
@@ -371,7 +371,7 @@ void QueryPlannerTest::runInvalidQueryAsCommand(const BSONObj& cmdObj) {
     invariant(nss.isValid());
 
     const bool isExplain = false;
-    std::unique_ptr<QueryRequest> qr(
+    QueryRequest::UPtr qr(
         assertGet(QueryRequest::makeFromFindCommand(nss, cmdObj, isExplain)));
 
     const boost::intrusive_ptr<ExpressionContext> expCtx;

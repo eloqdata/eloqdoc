@@ -36,6 +36,7 @@
 #include "mongo/db/catalog/catalog_control.h"
 #include "mongo/db/catalog/uuid_catalog.h"
 #include "mongo/db/concurrency/d_concurrency.h"
+#include "mongo/db/concurrency/lock_state.h"
 #include "mongo/db/logical_clock.h"
 #include "mongo/db/op_observer_registry.h"
 #include "mongo/db/service_entry_point_mongod.h"
@@ -46,6 +47,30 @@
 #include "mongo/db/catalog/database_holder.h"
 
 namespace mongo {
+namespace {
+
+// Engine-backed MongoDB fixtures need real local locking. Install it only in these
+// fixtures, after the production observer has initialized the operation context.
+class MongoDTestLockerObserver final : public ServiceContext::ClientObserver {
+public:
+    void onCreateClient(Client*) override {}
+    void onDestroyClient(Client*) override {}
+    void onCreateOperationContext(OperationContext* opCtx) override {
+        // Preserve Eloq's early catalog-initialization path before an engine exists.
+        if (!opCtx->getServiceContext()->getStorageEngine()) {
+            return;
+        }
+        auto locker = std::make_unique<DefaultLockerImpl>();
+        if (opCtx->lockState()) {
+            opCtx->swapLockState(std::move(locker));
+        } else {
+            opCtx->setLockState(std::move(locker));
+        }
+    }
+    void onDestroyOperationContext(OperationContext*) override {}
+};
+
+}  // namespace
 
 ServiceContextMongoDTest::ServiceContextMongoDTest()
     : ServiceContextMongoDTest("ephemeralForTest") {}
@@ -54,7 +79,8 @@ ServiceContextMongoDTest::ServiceContextMongoDTest(std::string engine)
     : ServiceContextMongoDTest(engine, RepairAction::kNoRepair) {}
 
 ServiceContextMongoDTest::ServiceContextMongoDTest(std::string engine, RepairAction repair)
-    : _tempDir("service_context_d_test_fixture") {
+    : ServiceContextTest(std::make_unique<MongoDTestLockerObserver>()),
+      _tempDir("service_context_d_test_fixture") {
 
     _stashedStorageParams.engine = std::exchange(storageGlobalParams.engine, std::move(engine));
     _stashedStorageParams.engineSetByUser =

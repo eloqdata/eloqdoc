@@ -64,6 +64,15 @@ public:
 
     virtual bool findRecord(OperationContext* opCtx, const RecordId& loc, RecordData* rd) const;
 
+    bool findRecord(OperationContext* opCtx,
+                    const RecordId& loc,
+                    RecordData* rd,
+                    bool isForWrite) const override {
+        return findRecord(opCtx, loc, rd);
+    }
+
+    void getAllCollections(std::vector<std::string>& collections) const override;
+
     virtual void deleteRecord(OperationContext* opCtx, const RecordId& dl);
 
     virtual StatusWith<RecordId> insertRecord(

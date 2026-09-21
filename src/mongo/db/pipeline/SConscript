@@ -307,6 +307,7 @@ pipelineeEnv.Library(
         'document_source_unwind.cpp',
         'mongo_process_common.cpp',
         'pipeline.cpp',
+        'pipeline_sharded.cpp',
         'sequential_document_cache.cpp',
         'tee_buffer.cpp',
     ],

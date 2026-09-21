@@ -74,8 +74,14 @@ public:
     template <class Clock, class Duration>
     std::cv_status wait_until(std::unique_lock<Mutex>& lock,
                               const std::chrono::time_point<Clock, Duration>& timeout_time) {
-        wait(lock);
-        return Clock::now() < timeout_time ? std::cv_status::no_timeout : std::cv_status::timeout;
+        if (Clock::now() >= timeout_time)
+            return std::cv_status::timeout;
+        if (_yieldIfCoroutine(lock)) {
+            return Clock::now() < timeout_time ? std::cv_status::no_timeout
+                                              : std::cv_status::timeout;
+        }
+        return _cv.wait_until(reinterpret_cast<std::unique_lock<std::mutex>&>(lock),
+                              timeout_time);
     }
 
     template <class Clock, class Duration, class Predicate>
@@ -105,11 +111,11 @@ public:
     }
 
     std::cv_status wait_until(std::unique_lock<Mutex>& lock, Date_t timeout_time) {
-        wait(lock);
-        return Date_t::now() < timeout_time ? std::cv_status::no_timeout : std::cv_status::timeout;
+        return wait_until(lock, timeout_time.toSystemTimePoint());
     }
 
 private:
+    bool _yieldIfCoroutine(std::unique_lock<Mutex>& lock);
     std::condition_variable _cv;
 };
 }  // namespace coro

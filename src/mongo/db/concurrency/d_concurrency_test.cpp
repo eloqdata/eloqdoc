@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "mongo/db/concurrency/d_concurrency.h"
+#include "mongo/db/concurrency/eloq_locker_noop.h"
 #include "mongo/db/concurrency/global_lock_acquisition_tracker.h"
 #include "mongo/db/concurrency/lock_manager_test_help.h"
 #include "mongo/db/concurrency/write_conflict_exception.h"
@@ -122,6 +123,43 @@ public:
     }
 };
 
+
+TEST_F(DConcurrencyTestFixture, FixtureInstallsDefaultLockerAcrossPoolReuse) {
+    // Use Client directly so the fixture must cover every operation-context checkout,
+    // not just calls to the fixture's makeOperationContext() helper.
+    auto client = getServiceContext()->makeClient("fixture_locker_reuse");
+    for (int i = 0; i < 64; ++i) {
+        auto opCtx = client->makeOperationContext();
+        ASSERT_TRUE(dynamic_cast<DefaultLockerImpl*>(opCtx->lockState()));
+        ASSERT_TRUE(opCtx->recoveryUnit());
+        Lock::GlobalLock lock(opCtx.get(), MODE_IX);
+        ASSERT_TRUE(opCtx->lockState()->isLocked());
+    }
+}
+
+TEST_F(DConcurrencyTestFixture, FixtureLockerDoesNotLeakIntoBareServiceContext) {
+    // Populate the thread-local pool with fixture contexts using real MongoDB lockers.
+    for (int i = 0; i < 64; ++i) {
+        auto opCtx = makeOperationContext();
+        ASSERT_TRUE(dynamic_cast<DefaultLockerImpl*>(opCtx->lockState()));
+    }
+
+    auto bareService = ServiceContext::make();
+    auto bareClient = bareService->makeClient("bare_locker_reuse");
+    ASSERT_FALSE(bareService->getStorageEngine());
+    for (int i = 0; i < 64; ++i) {
+        auto opCtx = bareClient->makeOperationContext();
+        ASSERT_TRUE(dynamic_cast<EloqLockerNoop*>(opCtx->lockState()));
+        ASSERT_FALSE(opCtx->recoveryUnit());
+    }
+
+    // Returning to the fixture must reinstall its real locker after production reuse.
+    for (int i = 0; i < 64; ++i) {
+        auto opCtx = makeOperationContext();
+        ASSERT_TRUE(dynamic_cast<DefaultLockerImpl*>(opCtx->lockState()));
+        ASSERT_TRUE(opCtx->recoveryUnit());
+    }
+}
 
 TEST_F(DConcurrencyTestFixture, WriteConflictRetryInstantiatesOK) {
     auto opCtx = makeOperationContext();

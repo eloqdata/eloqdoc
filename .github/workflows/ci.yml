@@ -49,6 +49,86 @@ jobs:
           arch: ${{ matrix.arch }}
           cache-scope: ubuntu-dev
 
+  cmake-build-smoke:
+    name: CMake/Ninja single-node tests (amd64)
+    needs: prime-third-party
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    container:
+      image: eloqdata/ubuntu-dev:24.04
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+    env:
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      CMAKE_PREFIX_PATH: /opt/eloq/third_party
+      CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
+      CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
+      LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+          path: eloqdoc
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout product submodules
+        run: |
+          git config --global --add safe.directory '*'
+          cd "$GITHUB_WORKSPACE/eloqdoc"
+          bash scripts/checkout_product_submodules.sh
+
+      - name: Setup third-party (cached)
+        uses: ./eloqdoc/.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}/eloqdoc
+          arch: amd64
+          cache-scope: ubuntu-dev
+
+      - name: Limit CMake build and test parallelism to runner capacity
+        run: |
+          jobs=$(nproc)
+          if [ "$jobs" -gt 8 ]; then jobs=8; fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+
+      - name: Configure top-level CMake build
+        working-directory: eloqdoc
+        run: |
+          cmake -S . -B build/cmake-ci -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_JOB_POOLS=link_pool=1 \
+            -DCMAKE_JOB_POOL_LINK=link_pool \
+            -DBUILD_SHARED_LIBS=ON \
+            -DELOQDOC_BUILD_TESTS=ON \
+            -DELOQ_THIRD_PARTY_PREFIX="$ELOQ_THIRD_PARTY_PREFIX" \
+            -DELOQ_THIRD_PARTY_REQUIRED=ON \
+            -DWITH_DATA_STORE=ELOQDSS_ROCKSDB \
+            -DWITH_LOG_STATE=ROCKSDB \
+            -DWITH_LOG_SERVICE=ON \
+            -DFORK_HM_PROCESS=ON \
+            -DSTATISTICS=ON
+
+      - name: Build server and all retained CMake tests
+        id: cmake_build
+        working-directory: eloqdoc
+        run: |
+          cmake --build build/cmake-ci \
+            --target eloqdoc eloqdoc-tests
+
+      - name: Run all registered CMake tests
+        working-directory: eloqdoc
+        run: |
+          ctest --test-dir build/cmake-ci \
+            --output-on-failure
+
+      - name: Exercise the normal server over the MongoDB wire protocol
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' }}
+        working-directory: eloqdoc
+        run: |
+          python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            cmake --build build/cmake-ci --target eloqdoc-server-smoke
+
   ent-ci:
     needs: prime-third-party
     concurrency:
@@ -136,7 +216,8 @@ jobs:
             echo "JSTEST_TIMEOUT_SECONDS=7200" >> "$GITHUB_ENV"
           fi
 
-      - name: Build (${{ matrix.build_type }}, ${{ matrix.engine.id }})
+      # gh_ci_entry.sh deliberately exercises the historical Python 2/SCons install-core path.
+      - name: Build with SCons (${{ matrix.build_type }}, ${{ matrix.engine.id }})
         run: |
           bash ./eloqdoc/.github/scripts/gh_ci_entry.sh \
             "$S3_ENDPOINT" \

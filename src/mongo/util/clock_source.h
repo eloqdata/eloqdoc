@@ -28,9 +28,11 @@
 
 #pragma once
 
+#include <memory>
 #include "mongo/stdx/condition_variable.h"
 #include "mongo/stdx/functional.h"
 #include "mongo/stdx/mutex.h"
+#include "mongo/stdx/thread.h"
 #include "mongo/util/time_support.h"
 
 namespace mongo {
@@ -80,6 +82,52 @@ public:
     stdx::cv_status waitForConditionUntil(stdx::condition_variable& cv,
                                           stdx::unique_lock<stdx::mutex>& m,
                                           Date_t deadline);
+
+    // Also support coroutine-aware locks/condition variables without bypassing a
+    // virtual clock. The same alarm protocol must be used by both kinds of waiter.
+    template <typename ConditionVariable, typename Mutex>
+    stdx::cv_status waitForConditionUntil(ConditionVariable& cv,
+                                         stdx::unique_lock<Mutex>& m,
+                                         Date_t deadline) {
+        if (_tracksSystemClock)
+            return cv.wait_until(m, deadline.toSystemTimePoint());
+        if (deadline <= now())
+            return stdx::cv_status::timeout;
+
+        struct AlarmInfo {
+            stdx::mutex controlMutex;
+            Mutex* waitMutex;
+            ConditionVariable* waitCV;
+            stdx::cv_status result = stdx::cv_status::no_timeout;
+        };
+        auto alarm = std::make_shared<AlarmInfo>();
+        alarm->waitCV = &cv;
+        alarm->waitMutex = m.mutex();
+        const auto waiterThreadId = stdx::this_thread::get_id();
+        bool invokedInline = false;
+        invariant(setAlarm(deadline, [alarm, waiterThreadId, &invokedInline] {
+            stdx::lock_guard<stdx::mutex> control(alarm->controlMutex);
+            alarm->result = stdx::cv_status::timeout;
+            if (!alarm->waitMutex)
+                return;
+            // A mock clock may invoke an already-expired alarm in setAlarm().
+            // The caller already owns waitMutex, so it must not lock it again.
+            if (stdx::this_thread::get_id() == waiterThreadId) {
+                invokedInline = true;
+                return;
+            }
+            stdx::lock_guard<Mutex> waiting(*alarm->waitMutex);
+            alarm->waitCV->notify_all();
+        }));
+        if (!invokedInline)
+            cv.wait(m);
+        m.unlock();
+        stdx::lock_guard<stdx::mutex> control(alarm->controlMutex);
+        m.lock();
+        alarm->waitMutex = nullptr;
+        alarm->waitCV = nullptr;
+        return alarm->result;
+    }
 
     /**
      * Like cv.wait_until(m, deadline, pred), but uses this ClockSource instead of

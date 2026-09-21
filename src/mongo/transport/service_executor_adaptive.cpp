@@ -188,6 +188,9 @@ ServiceExecutorAdaptive::~ServiceExecutorAdaptive() {
 
 Status ServiceExecutorAdaptive::start() {
     invariant(!_isRunning.load());
+    if (_reactorHandles.empty()) {
+        return {ErrorCodes::InvalidOptions, "Adaptive executor requires at least one reactor"};
+    }
     _isRunning.store(true);
     // _controllerThread = stdx::thread(&ServiceExecutorAdaptive::_controllerThreadRoutine, this);
     for (auto i = 0; i < _reactorHandles.size(); i++) {
@@ -204,7 +207,9 @@ Status ServiceExecutorAdaptive::shutdown(Milliseconds timeout) {
     _isRunning.store(false);
 
     _scheduleCondition.notify_one();
-    _controllerThread.join();
+    if (_controllerThread.joinable()) {
+        _controllerThread.join();
+    }
 
     stdx::unique_lock<stdx::mutex> lk(_threadsMutex);
     for (auto& reactorHandle : _reactorHandles) {
@@ -222,78 +227,9 @@ Status ServiceExecutorAdaptive::shutdown(Milliseconds timeout) {
 Status ServiceExecutorAdaptive::schedule(ServiceExecutorAdaptive::Task task,
                                          ScheduleFlags flags,
                                          ServiceExecutorTaskName taskName) {
+    // EloqDoc uses this executor only to run ingress reactors. Session tasks are
+    // assigned to ServiceExecutorCoroutine by ServiceEntryPointImpl::startSession().
     MONGO_UNREACHABLE;
-    auto scheduleTime = _tickSource->getTicks();
-    auto pendingCounterPtr = (flags & kDeferredTask) ? &_deferredTasksQueued : &_tasksQueued;
-    pendingCounterPtr->addAndFetch(1);
-
-    if (!_isRunning.load()) {
-        return {ErrorCodes::ShutdownInProgress, "Executor is not running"};
-    }
-
-    auto wrappedTask =
-        [this, task = std::move(task), scheduleTime, pendingCounterPtr, taskName, flags] {
-            pendingCounterPtr->subtractAndFetch(1);
-            auto start = _tickSource->getTicks();
-            _totalSpentQueued.addAndFetch(start - scheduleTime);
-
-            _localThreadState->threadMetrics[static_cast<size_t>(taskName)]
-                ._totalSpentQueued.addAndFetch(start - scheduleTime);
-
-            if (_localThreadState->recursionDepth++ == 0) {
-                _localThreadState->executing.markRunning();
-                _threadsInUse.addAndFetch(1);
-            }
-            const auto guard = MakeGuard([this, taskName] {
-                if (--_localThreadState->recursionDepth == 0) {
-                    _localThreadState->executingCurRun +=
-                        _localThreadState->executing.markStopped();
-                    _threadsInUse.subtractAndFetch(1);
-                }
-                _totalExecuted.addAndFetch(1);
-                _localThreadState->threadMetrics[static_cast<size_t>(taskName)]
-                    ._totalExecuted.addAndFetch(1);
-            });
-
-            TickTimer _localTimer(_tickSource);
-            task();
-            _localThreadState->threadMetrics[static_cast<size_t>(taskName)]
-                ._totalSpentExecuting.addAndFetch(_localTimer.sinceStartTicks());
-
-            if ((flags & ServiceExecutor::kMayYieldBeforeSchedule) &&
-                (_localThreadState->markIdleCounter++ & 0xf)) {
-                markThreadIdle();
-            }
-        };
-
-    // Dispatching a task on the io_context will run the task immediately, and may run it
-    // on the current thread (if the current thread is running the io_context right now).
-    //
-    // Posting a task on the io_context will run the task without recursion.
-    //
-    // If the task is allowed to recurse and we are not over the depth limit, dispatch it so it
-    // can be called immediately and recursively.
-    if ((flags & kMayRecurse) &&
-        (_localThreadState->recursionDepth + 1 < _config->recursionLimit())) {
-        // _reactorHandle->schedule(Reactor::kDispatch, std::move(wrappedTask));
-    } else {
-        // _reactorHandle->schedule(Reactor::kPost, std::move(wrappedTask));
-    }
-
-    _lastScheduleTimer.reset();
-    _totalQueued.addAndFetch(1);
-
-    _accumulatedMetrics[static_cast<size_t>(taskName)]._totalQueued.addAndFetch(1);
-
-    // Deferred tasks never count against the thread starvation avoidance. For other tasks, we
-    // notify the controller thread that a task has been scheduled and we should monitor thread
-    // starvation.
-    if (_isStarved() && !(flags & kDeferredTask)) {
-        _starvationCheckRequests.addAndFetch(1);
-        _scheduleCondition.notify_one();
-    }
-
-    return Status::OK();
 }
 
 bool ServiceExecutorAdaptive::_isStarved() const {

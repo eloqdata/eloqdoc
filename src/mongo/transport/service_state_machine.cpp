@@ -58,6 +58,7 @@
 #include <cstring>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <utility>
 
 namespace mongo {
 namespace {
@@ -315,6 +316,7 @@ void ServiceStateMachine::reset(ServiceContext* svcContext,
     _coroLongResume = {};
     _coroMigrateThreadGroup = {};
     _resumeTask = {};
+    _dbResponse = {};
     _migrating.store(false, std::memory_order_relaxed);
     _threadGroupId.store(groupId, std::memory_order_relaxed);
     _owned.store(Ownership::kUnowned);
@@ -467,7 +469,6 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
     // Pass sourced Message to handler to generate response.
 
 
-    DbResponse dbresponse;
     {
         // OperationContext opCtx(Client::getCurrent(), _serviceContext->nextOpId());
         // _serviceContext->initOperationContext(&opCtx);
@@ -477,11 +478,12 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
 
         // The handleRequest is implemented in a subclass for mongod/mongos and actually all the
         // database work for this request.
-        dbresponse = _sep->handleRequest(opCtx.get(), _inMessage);
+        _dbResponse = _sep->handleRequest(opCtx.get(), _inMessage);
 
         // Calling reset() to wait for Eloq-Tx be committed/aborted before set _coroStatus to Empty.
         opCtx.reset(nullptr);
 
+        invariant(_coroStatus == CoroStatus::OnGoing);
         _coroStatus = CoroStatus::Empty;
         _serviceExecutor->ongoingCoroutineCountUpdate(
             _threadGroupId.load(std::memory_order_relaxed), -1);
@@ -491,6 +493,11 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         // opCtx.reset();
         // _serviceContext->destoryOperationContext(&opCtx);
     }
+}
+
+void ServiceStateMachine::_processResponse(ThreadGuard guard) {
+    invariant(!_source);
+    auto dbresponse = std::move(_dbResponse);
 
     // Format our response, if we have one
     Message& toSink = dbresponse.response;
@@ -510,11 +517,12 @@ void ServiceStateMachine::_processMessage(ThreadGuard guard) {
         networkCounter.hitLogicalOut(toSink.size());
 
         if (_compressorId) {
+            auto& compressorMgr = MessageCompressorManager::forSession(_session());
             auto swm = compressorMgr.compressMessage(toSink, &_compressorId.value());
             uassertStatusOK(swm.getStatus());
             toSink = swm.getValue();
         }
-        _sinkMessage(std::move(guard), std::move(toSink));
+        return _sinkMessage(std::move(guard), std::move(toSink));
 
     } else {
         _state.store(State::Source);
@@ -551,29 +559,16 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
             case State::Process: {
                 if (!serverGlobalParams.enableCoroutine) {
                     _processMessage(std::move(guard));
+                    return _processResponse(ThreadGuard(this));
                 } else {
                     if (_coroStatus == CoroStatus::Empty) {
                         MONGO_LOG(1) << "coroutine begin";
                         _coroStatus = CoroStatus::OnGoing;
                         _serviceExecutor->ongoingCoroutineCountUpdate(
                             _threadGroupId.load(std::memory_order_relaxed), 1);
-                        _resumeTask = [ssm = this] {
-                            Client::setCurrent(std::move(ssm->_dbClient));
-                            if (ssm->_migrating.load(std::memory_order_relaxed)) {
-                                ssm->_coroResume();
-                                ssm->_coroYield();
-                            } else {
-                                ssm->_runResumeProcess();
-                                bool migrating = true;
-                                ssm->_migrating.compare_exchange_strong(
-                                    migrating, false, std::memory_order_acq_rel);
-                                if (migrating) {
-                                    MONGO_LOG(1)
-                                        << "Migrate logical session to "
-                                        << ssm->_threadGroupId.load(std::memory_order_relaxed);
-                                }
-                            }
-                        };
+                        // Session ownership lasts until final cleanup. Do not access the SSM
+                        // after this call: it may finish the request and release that ownership.
+                        _resumeTask = [ssm = this] { ssm->_runResumeProcess(); };
 
                         _coroResume = _serviceExecutor->coroutineResumeFunctor(
                             _threadGroupId.load(std::memory_order_relaxed), _resumeTask);
@@ -588,44 +583,38 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
                             std::allocator_arg,
                             prealloc,
                             NoopAllocator(),
-                            [wssm = weak_from_this(), &guard](boost::context::continuation&& sink) {
-                                auto ssm = wssm.lock();
-                                if (!ssm) {
-                                    return std::move(sink);
-                                }
-                                ssm->_coroYield = [ssm = ssm.get(), &sink]() {
+                            [ssm = this, &guard](boost::context::continuation&& sink) {
+                                // Session ownership lasts until this coroutine returns and final
+                                // cleanup runs on the executor stack.
+                                ssm->_coroYield = [ssm, &sink]() {
                                     MONGO_LOG(3) << "call yield";
                                     ssm->_dbClient = Client::releaseCurrent();
                                     sink = sink.resume();
                                 };
-                                ssm->_processMessage(std::move(guard));
+                                try {
+                                    ssm->_processMessage(std::move(guard));
+                                } catch (const DBException&) {
+                                    // Keep cleanup on the executor stack, including when a request
+                                    // throws after yielding and resuming on this coroutine stack.
+                                    ssm->_coroutineException = std::current_exception();
+                                    if (ssm->_coroStatus == CoroStatus::OnGoing) {
+                                        ssm->_coroStatus = CoroStatus::Empty;
+                                        ssm->_serviceExecutor->ongoingCoroutineCountUpdate(
+                                            ssm->_threadGroupId.load(std::memory_order_relaxed), -1);
+                                    }
+                                } catch (const std::exception& e) {
+                                    error() << "Uncaught std::exception: " << e.what()
+                                            << ", terminating";
+                                    quickExit(EXIT_UNCAUGHT);
+                                }
 
                                 return std::move(sink);
                             });
-
-                        bool migrating = true;
-                        _migrating.compare_exchange_strong(
-                            migrating, false, std::memory_order_acq_rel);
-                        if (migrating) {
-                            MONGO_LOG(1) << "Migrate logical session to "
-                                         << _threadGroupId.load(std::memory_order_relaxed);
-                        }
-
-                        // _source =
-                        //     boost::context::callcc([this, &guard](boost::context::continuation&&
-                        //     sink) {
-                        //         _coroYield = [this, &sink]() {
-                        //             MONGO_LOG(1) << "call yield";
-                        //             _dbClient = Client::releaseCurrent();
-                        //             sink = sink.resume();
-                        //         };
-                        //         _processMessage(std::move(guard));
-                        //         return std::move(sink);
-                        //     });
                     } else if (_coroStatus == CoroStatus::OnGoing) {
                         MONGO_LOG(1) << "coroutine ongoing";
                         _source = _source.resume();
                     }
+                    return _finishCoroutineStep();
                 }
             } break;
             case State::EndSession:
@@ -653,10 +642,51 @@ void ServiceStateMachine::_runNextInGuard(ThreadGuard guard) {
 
 void ServiceStateMachine::_runResumeProcess() {
     MONGO_LOG(3) << "ServiceStateMachine::_resumeRun";
+    Client::setCurrent(std::move(_dbClient));
+    if (_migrating.load(std::memory_order_relaxed)) {
+        _coroResume();
+        _coroYield();
+        return;
+    }
+
     if (_coroStatus == CoroStatus::OnGoing) {
         MONGO_LOG(3) << "coroutine ongoing";
         _source = _source.resume();
+        return _finishCoroutineStep();
     }
+}
+
+void ServiceStateMachine::_finishCoroutineStep() {
+    bool migrating = true;
+    _migrating.compare_exchange_strong(migrating, false, std::memory_order_acq_rel);
+    if (migrating) {
+        MONGO_LOG(1) << "Migrate logical session to "
+                     << _threadGroupId.load(std::memory_order_relaxed);
+    }
+
+    if (_coroStatus == CoroStatus::OnGoing) {
+        // The request yielded. Keep the session registered until it resumes and finishes.
+        return;
+    }
+    invariant(!_source);
+
+    try {
+        if (_coroutineException) {
+            std::rethrow_exception(std::exchange(_coroutineException, nullptr));
+        }
+        // All coroutine and resume bookkeeping is complete. Response delivery can invoke
+        // cleanup inline, so this must be the last operation that accesses the SSM.
+        return _processResponse(ThreadGuard(this));
+    } catch (const DBException& e) {
+        log() << "DBException handling request, closing client connection: " << redact(e);
+    } catch (const std::exception& e) {
+        error() << "Uncaught std::exception: " << e.what() << ", terminating";
+        quickExit(EXIT_UNCAUGHT);
+    }
+
+    _state.store(State::EndSession);
+    // This can destroy the SSM. No access to its members is allowed after final cleanup.
+    return _cleanupSession(ThreadGuard(this));
 }
 
 void ServiceStateMachine::start(Ownership ownershipModel) {
@@ -779,9 +809,12 @@ void ServiceStateMachine::_terminateAndLogIfError(Status status) {
 
 void ServiceStateMachine::_cleanupSession(ThreadGuard guard) {
     MONGO_LOG(1) << "ServiceStateMachine::_cleanupSession";
+    invariant(_coroStatus == CoroStatus::Empty);
+    invariant(!_source);
     _state.store(State::Ended);
 
     _inMessage.reset();
+    _dbResponse = {};
 
     // By ignoring the return value of Client::releaseCurrent() we destroy the session.
     // _dbClient is now nullptr and _dbClientPtr is invalid and should never be accessed.

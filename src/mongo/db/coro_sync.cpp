@@ -42,31 +42,22 @@ void Mutex::lock() {
 
 void ConditionVariable::wait(std::unique_lock<Mutex>& lock) {
     invariant(lock.owns_lock());
-    if (LocalThread::ID() != -1) {
-        Client* client = Client::getCurrent();
-        if (client) {
-            const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
-            if (coro != CoroutineFunctors::Unavailable) {
-                lock.unlock();
-                (*coro.longResumeFuncPtr)();
-                (*coro.yieldFuncPtr)();
-                lock.lock();
-            } else {
-                MONGO_LOG(1) << "ThreadGroup " << LocalThread::ID()
-                             << " call std::condition_variable::wait because the coroutine context "
-                                "is unavailable.";
-                _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
-            }
-        } else {
-            MONGO_LOG(1)
-                << "ThreadGroup " << LocalThread::ID()
-                << " call std::condition_variable::wait because the client object is unavailable.";
-            _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
-        }
-
-    } else {
+    if (!_yieldIfCoroutine(lock)) {
         _cv.wait(reinterpret_cast<std::unique_lock<std::mutex>&>(lock));
     }
+}
+
+bool ConditionVariable::_yieldIfCoroutine(std::unique_lock<Mutex>& lock) {
+    if (LocalThread::ID() == -1 || !Client::getCurrent())
+        return false;
+    const auto& coro = Client::getCurrent()->coroutineFunctors();
+    if (coro == CoroutineFunctors::Unavailable)
+        return false;
+    lock.unlock();
+    (*coro.longResumeFuncPtr)();
+    (*coro.yieldFuncPtr)();
+    lock.lock();
+    return true;
 }
 }  // namespace coro
 }  // namespace mongo

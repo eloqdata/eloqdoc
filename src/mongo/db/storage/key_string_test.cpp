@@ -103,8 +103,9 @@ TEST_F(KeyStringTest, Simple1) {
 
     ASSERT_BSONOBJ_LT(a, b);
 
-    ASSERT_LESS_THAN(KeyString(version, a, ALL_ASCENDING, RecordId()),
-                     KeyString(version, b, ALL_ASCENDING, RecordId()));
+    // These keys use the integer RecordId format, including its zero sentinel.
+    ASSERT_LESS_THAN(KeyString(version, a, ALL_ASCENDING, RecordId(0)),
+                     KeyString(version, b, ALL_ASCENDING, RecordId(0)));
 }
 
 #define ROUNDTRIP_ORDER(version, x, order)                            \
@@ -445,7 +446,7 @@ TEST_F(KeyStringTest, RecordIdOrder1) {
     KeyString a(version, BSON("" << 5), ordering, RecordId::min());
     KeyString b(version, BSON("" << 5), ordering, RecordId(2));
     KeyString c(version, BSON("" << 5), ordering, RecordId(3));
-    KeyString d(version, BSON("" << 6), ordering, RecordId());
+    KeyString d(version, BSON("" << 6), ordering, RecordId(0));
     KeyString e(version, BSON("" << 6), ordering, RecordId(1));
 
     ASSERT_LESS_THAN(a, b);
@@ -1124,7 +1125,7 @@ TEST_F(KeyStringTest, RecordIds) {
             }
 
             if (rid.isNormal()) {
-                ASSERT_GT(ks, KeyString(version, RecordId()));
+                ASSERT_GT(ks, KeyString(version, RecordId(0)));
                 ASSERT_GT(ks, KeyString(version, RecordId::min()));
                 ASSERT_LT(ks, KeyString(version, RecordId::max()));
 
