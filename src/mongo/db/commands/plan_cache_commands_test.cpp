@@ -136,14 +136,14 @@ TEST(PlanCacheCommandsTest, planCacheListQueryShapesOneKey) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create a canonical query
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 1}"));
     qr->setSort(fromjson("{a: -1}"));
     qr->setProj(fromjson("{_id: 0}"));
     qr->setCollation(fromjson("{locale: 'mock_reverse_string'}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> cq = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr cq = std::move(statusWithCQ.getValue());
 
     // Plan cache with one entry
     PlanCache planCache;
@@ -173,11 +173,11 @@ TEST(PlanCacheCommandsTest, planCacheClearAllShapes) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create a canonical query
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 1}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> cq = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr cq = std::move(statusWithCQ.getValue());
 
     // Plan cache with one entry
     PlanCache planCache;
@@ -235,41 +235,41 @@ TEST(PlanCacheCommandsTest, Canonicalize) {
     auto statusWithCQ =
         PlanCacheCommand::canonicalize(opCtx.get(), nss.ns(), fromjson("{query: {a: 1, b: 1}}"));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> query = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr query = std::move(statusWithCQ.getValue());
 
     // Equivalent query should generate same key.
     statusWithCQ =
         PlanCacheCommand::canonicalize(opCtx.get(), nss.ns(), fromjson("{query: {b: 1, a: 1}}"));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> equivQuery = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr equivQuery = std::move(statusWithCQ.getValue());
     ASSERT_EQUALS(planCache.computeKey(*query), planCache.computeKey(*equivQuery));
 
     // Sort query should generate different key from unsorted query.
     statusWithCQ = PlanCacheCommand::canonicalize(
         opCtx.get(), nss.ns(), fromjson("{query: {a: 1, b: 1}, sort: {a: 1, b: 1}}"));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> sortQuery1 = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr sortQuery1 = std::move(statusWithCQ.getValue());
     ASSERT_NOT_EQUALS(planCache.computeKey(*query), planCache.computeKey(*sortQuery1));
 
     // Confirm sort arguments are properly delimited (SERVER-17158)
     statusWithCQ = PlanCacheCommand::canonicalize(
         opCtx.get(), nss.ns(), fromjson("{query: {a: 1, b: 1}, sort: {aab: 1}}"));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> sortQuery2 = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr sortQuery2 = std::move(statusWithCQ.getValue());
     ASSERT_NOT_EQUALS(planCache.computeKey(*sortQuery1), planCache.computeKey(*sortQuery2));
 
     // Changing order and/or value of predicates should not change key
     statusWithCQ = PlanCacheCommand::canonicalize(
         opCtx.get(), nss.ns(), fromjson("{query: {b: 3, a: 3}, sort: {a: 1, b: 1}}"));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> sortQuery3 = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr sortQuery3 = std::move(statusWithCQ.getValue());
     ASSERT_EQUALS(planCache.computeKey(*sortQuery1), planCache.computeKey(*sortQuery3));
 
     // Projected query should generate different key from unprojected query.
     statusWithCQ = PlanCacheCommand::canonicalize(
         opCtx.get(), nss.ns(), fromjson("{query: {a: 1, b: 1}, projection: {_id: 0, a: 1}}"));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> projectionQuery = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr projectionQuery = std::move(statusWithCQ.getValue());
     ASSERT_NOT_EQUALS(planCache.computeKey(*query), planCache.computeKey(*projectionQuery));
 }
 
@@ -310,16 +310,16 @@ TEST(PlanCacheCommandsTest, planCacheClearOneKey) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create 2 canonical queries.
-    auto qrA = stdx::make_unique<QueryRequest>(nss);
+    auto qrA = ObjectPool<QueryRequest>::newObject(nss);
     qrA->setFilter(fromjson("{a: 1}"));
     auto statusWithCQA = CanonicalQuery::canonicalize(opCtx.get(), std::move(qrA));
     ASSERT_OK(statusWithCQA.getStatus());
-    auto qrB = stdx::make_unique<QueryRequest>(nss);
+    auto qrB = ObjectPool<QueryRequest>::newObject(nss);
     qrB->setFilter(fromjson("{b: 1}"));
-    unique_ptr<CanonicalQuery> cqA = std::move(statusWithCQA.getValue());
+    CanonicalQuery::UPtr cqA = std::move(statusWithCQA.getValue());
     auto statusWithCQB = CanonicalQuery::canonicalize(opCtx.get(), std::move(qrB));
     ASSERT_OK(statusWithCQB.getStatus());
-    unique_ptr<CanonicalQuery> cqB = std::move(statusWithCQB.getValue());
+    CanonicalQuery::UPtr cqB = std::move(statusWithCQB.getValue());
 
     // Create plan cache with 2 entries.
     PlanCache planCache;
@@ -369,17 +369,17 @@ TEST(PlanCacheCommandsTest, planCacheClearOneKeyCollation) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create 2 canonical queries, one with collation.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 'foo'}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> cq = std::move(statusWithCQ.getValue());
-    auto qrCollation = stdx::make_unique<QueryRequest>(nss);
+    CanonicalQuery::UPtr cq = std::move(statusWithCQ.getValue());
+    auto qrCollation = ObjectPool<QueryRequest>::newObject(nss);
     qrCollation->setFilter(fromjson("{a: 'foo'}"));
     qrCollation->setCollation(fromjson("{locale: 'mock_reverse_string'}"));
     auto statusWithCQCollation = CanonicalQuery::canonicalize(opCtx.get(), std::move(qrCollation));
     ASSERT_OK(statusWithCQCollation.getStatus());
-    unique_ptr<CanonicalQuery> cqCollation = std::move(statusWithCQCollation.getValue());
+    CanonicalQuery::UPtr cqCollation = std::move(statusWithCQCollation.getValue());
 
     // Create plan cache with 2 entries. Add an index so that indexability is included in the plan
     // cache keys.
@@ -527,11 +527,11 @@ TEST(PlanCacheCommandsTest, planCacheListPlansOnlyOneSolutionTrue) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create a canonical query
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 1}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> cq = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr cq = std::move(statusWithCQ.getValue());
 
     // Plan cache with one entry
     PlanCache planCache;
@@ -557,11 +557,11 @@ TEST(PlanCacheCommandsTest, planCacheListPlansOnlyOneSolutionFalse) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create a canonical query
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 1}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> cq = std::move(statusWithCQ.getValue());
+    CanonicalQuery::UPtr cq = std::move(statusWithCQ.getValue());
 
     // Plan cache with one entry
     PlanCache planCache;
@@ -590,17 +590,17 @@ TEST(PlanCacheCommandsTest, planCacheListPlansCollation) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create 2 canonical queries, one with collation.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 'foo'}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());
-    unique_ptr<CanonicalQuery> cq = std::move(statusWithCQ.getValue());
-    auto qrCollation = stdx::make_unique<QueryRequest>(nss);
+    CanonicalQuery::UPtr cq = std::move(statusWithCQ.getValue());
+    auto qrCollation = ObjectPool<QueryRequest>::newObject(nss);
     qrCollation->setFilter(fromjson("{a: 'foo'}"));
     qrCollation->setCollation(fromjson("{locale: 'mock_reverse_string'}"));
     auto statusWithCQCollation = CanonicalQuery::canonicalize(opCtx.get(), std::move(qrCollation));
     ASSERT_OK(statusWithCQCollation.getStatus());
-    unique_ptr<CanonicalQuery> cqCollation = std::move(statusWithCQCollation.getValue());
+    CanonicalQuery::UPtr cqCollation = std::move(statusWithCQCollation.getValue());
 
     // Create plan cache with 2 entries. Add an index so that indexability is included in the plan
     // cache keys. Give query with collation two solutions.
@@ -645,7 +645,7 @@ TEST(PlanCacheCommandsTest, planCacheListPlansTimeOfCreationIsCorrect) {
     auto opCtx = serviceContext.makeOperationContext();
 
     // Create a canonical query.
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson("{a: 1}"));
     auto statusWithCQ = CanonicalQuery::canonicalize(opCtx.get(), std::move(qr));
     ASSERT_OK(statusWithCQ.getStatus());

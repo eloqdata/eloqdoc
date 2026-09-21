@@ -32,6 +32,7 @@
 #include <initializer_list>
 #include <memory>
 
+#include "mongo/db/concurrency/locker_noop.h"
 #include "mongo/db/jsobj.h"
 #include "mongo/db/operation_context_noop.h"
 #include "mongo/db/record_id.h"
@@ -50,6 +51,11 @@ public:
 
     virtual ServiceContext::UniqueOperationContext newOperationContext(Client* const client) {
         auto opCtx = client->makeOperationContext();
+        // Engine harnesses supply their own recovery units, without installing a server
+        // storage observer. WriteUnitOfWork still needs a locker on fresh/pooled contexts.
+        if (!opCtx->lockState()) {
+            opCtx->setLockState(stdx::make_unique<LockerNoop>());
+        }
         opCtx->setRecoveryUnit(newRecoveryUnit().release(),
                                WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
         return opCtx;

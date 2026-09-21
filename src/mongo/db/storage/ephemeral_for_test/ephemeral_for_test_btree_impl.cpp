@@ -37,6 +37,7 @@
 #include "mongo/db/catalog/index_catalog_entry.h"
 #include "mongo/db/storage/ephemeral_for_test/ephemeral_for_test_recovery_unit.h"
 #include "mongo/db/storage/index_entry_comparison.h"
+#include "mongo/db/storage/record_store.h"
 #include "mongo/stdx/memory.h"
 #include "mongo/util/mongoutils/str.h"
 
@@ -138,7 +139,10 @@ private:
 
 class EphemeralForTestBtreeImpl : public SortedDataInterface {
 public:
-    EphemeralForTestBtreeImpl(IndexSet* data, bool isUnique) : _data(data), _isUnique(isUnique) {
+    EphemeralForTestBtreeImpl(IndexSet* data,
+                             bool isUnique,
+                             std::unique_ptr<RecordStore> recordStore)
+        : _data(data), _isUnique(isUnique), _recordStore(std::move(recordStore)) {
         _currentKeySize = 0;
     }
 
@@ -223,9 +227,11 @@ public:
 
     class Cursor final : public SortedDataInterface::Cursor {
     public:
-        Cursor(OperationContext* opCtx, const IndexSet& data, bool isForward, bool isUnique)
+        Cursor(OperationContext* opCtx, const IndexSet& data, bool isForward, bool isUnique,
+               RecordStore* recordStore)
             : _opCtx(opCtx),
               _data(data),
+              _recordStore(recordStore),
               _forward(isForward),
               _isUnique(isUnique),
               _it(data.end()) {}
@@ -242,7 +248,7 @@ public:
 
             if (_isEOF)
                 return {};
-            return *_it;
+            return currentEntry();
         }
 
         void setEndPosition(const BSONObj& key, bool inclusive) override {
@@ -278,7 +284,7 @@ public:
                                   : compareKeys(_it->key, query) > 0);
             }
 
-            return *_it;
+            return currentEntry();
         }
 
         boost::optional<IndexKeyEntry> seek(const IndexSeekPoint& seekPoint,
@@ -290,7 +296,7 @@ public:
             if (_isEOF)
                 return {};
             dassert(compareKeys(_it->key, query) >= 0);
-            return *_it;
+            return currentEntry();
         }
 
         void save() override {
@@ -352,6 +358,18 @@ public:
         }
 
     private:
+        IndexKeyEntry currentEntry() const {
+            auto entry = *_it;
+            if (_recordStore) {
+                // Eloq's IDHack path consumes the document returned with the index entry.
+                // Standalone index harnesses have no record store and still return keys only.
+                auto record = _recordStore->dataFor(_opCtx, entry.loc);
+                record.makeOwned();
+                entry.record = std::move(record);
+            }
+            return entry;
+        }
+
         bool atEndPoint() const {
             return _endState && _it == _endState->it;
         }
@@ -446,6 +464,7 @@ public:
 
         OperationContext* _opCtx;  // not owned
         const IndexSet& _data;
+        RecordStore* const _recordStore;
         const bool _forward;
         const bool _isUnique;
         bool _isEOF = true;
@@ -472,7 +491,13 @@ public:
 
     virtual std::unique_ptr<SortedDataInterface::Cursor> newCursor(OperationContext* opCtx,
                                                                    bool isForward) const {
-        return stdx::make_unique<Cursor>(opCtx, *_data, isForward, _isUnique);
+        return stdx::make_unique<Cursor>(opCtx, *_data, isForward, _isUnique, _recordStore.get());
+    }
+
+    SortedDataInterface::Cursor::UPtr newCursorPtr(OperationContext* opCtx,
+                                                 bool isForward) const override {
+        return {newCursor(opCtx, isForward).release(),
+                [](SortedDataInterface::Cursor* cursor) { delete cursor; }};
     }
 
     virtual Status initAsEmpty(OperationContext* opCtx) {
@@ -503,6 +528,7 @@ private:
     IndexSet* _data;
     long long _currentKeySize;
     const bool _isUnique;
+    const std::unique_ptr<RecordStore> _recordStore;
 };
 }  // namespace
 
@@ -511,11 +537,19 @@ private:
 SortedDataInterface* getEphemeralForTestBtreeImpl(const Ordering& ordering,
                                                   bool isUnique,
                                                   std::shared_ptr<void>* dataInOut) {
+    return getEphemeralForTestBtreeImpl(ordering, isUnique, dataInOut, nullptr);
+}
+
+SortedDataInterface* getEphemeralForTestBtreeImpl(const Ordering& ordering,
+                                                bool isUnique,
+                                                std::shared_ptr<void>* dataInOut,
+                                                std::unique_ptr<RecordStore> recordStore) {
     invariant(dataInOut);
     if (!*dataInOut) {
         *dataInOut = std::make_shared<IndexSet>(IndexEntryComparison(ordering));
     }
-    return new EphemeralForTestBtreeImpl(static_cast<IndexSet*>(dataInOut->get()), isUnique);
+    return new EphemeralForTestBtreeImpl(
+        static_cast<IndexSet*>(dataInOut->get()), isUnique, std::move(recordStore));
 }
 
 }  // namespace mongo

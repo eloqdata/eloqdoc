@@ -835,7 +835,10 @@ TEST(Style, NoGuessing) {
     argv.push_back("--hel");
     std::map<std::string, std::string> env_map;
 
-    ASSERT_NOT_OK(parser.run(testOpts, argv, env_map, &environment));
+    // Eloq allows unregistered options for the Data Substrate's flag parser. An unknown
+    // abbreviation may pass through, but must not be guessed as the registered --help flag.
+    ASSERT_OK(parser.run(testOpts, argv, env_map, &environment));
+    ASSERT_FALSE(environment.count("help"));
 }
 
 TEST(Style, LongDisguises) {

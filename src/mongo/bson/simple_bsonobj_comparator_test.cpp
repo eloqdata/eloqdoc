@@ -58,6 +58,17 @@ void assertInsertFails(Set& set, BSONObj obj) {
         << "object was inserted successfully, but should have failed: " << obj.jsonString();
 }
 
+TEST(SimpleBSONObjContainerTest, UnorderedFunctorsAreCopyListInitializable) {
+    // Some standard-library hash tables initialize these stateless functors from an empty list.
+    SimpleBSONObjComparator::EqualTo equalTo = {};
+    SimpleBSONObjComparator::Hasher hasher = {};
+    const auto obj = BSON("x" << 1);
+    const auto same = BSON("x" << 1);
+    ASSERT_TRUE(equalTo(obj, same));
+    ASSERT_FALSE(equalTo(obj, BSON("x" << 2)));
+    ASSERT_EQ(hasher(obj), hasher(same));
+}
+
 TEST(SimpleBSONObjContainerTest, SetIsDefaultConstructible) {
     SimpleBSONObjSet set;
     assertInsertSucceeds(set, BSON("x" << 1));

@@ -76,7 +76,7 @@ private:
         Entry() = default;
 
         Entry(const Entry& other)
-            : _used(other._used), _everUsed(other.everUsed), _curHash(other._curHash) {
+            : _used(other._used), _everUsed(other._everUsed), _curHash(other._curHash) {
             if (other.isUsed()) {
                 new (&_data) value_type(other.getData());
             }

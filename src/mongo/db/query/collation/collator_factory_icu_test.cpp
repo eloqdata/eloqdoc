@@ -30,6 +30,8 @@
 
 #include "mongo/db/query/collation/collator_factory_icu.h"
 
+#include <unicode/uvernum.h>
+#include <unicode/coll.h>
 #include "mongo/base/init.h"
 #include "mongo/bson/bsonobjbuilder.h"
 #include "mongo/stdx/memory.h"
@@ -827,9 +829,9 @@ TEST(CollatorFactoryICUTest, VersionFieldParsesSuccessfully) {
     auto collator = factory.makeFromBSON(BSON("locale"
                                               << "en_US"
                                               << "version"
-                                              << "57.1"));
+                                              << U_ICU_VERSION));
     ASSERT_OK(collator.getStatus());
-    ASSERT_EQ("57.1", collator.getValue()->getSpec().version);
+    ASSERT_EQ(U_ICU_VERSION, collator.getValue()->getSpec().version);
 }
 
 TEST(CollatorFactoryICUTest, VersionFieldPopulatedWhenOmitted) {
@@ -837,7 +839,7 @@ TEST(CollatorFactoryICUTest, VersionFieldPopulatedWhenOmitted) {
     auto collator = factory.makeFromBSON(BSON("locale"
                                               << "en_US"));
     ASSERT_OK(collator.getStatus());
-    ASSERT_EQ("57.1", collator.getValue()->getSpec().version);
+    ASSERT_EQ(U_ICU_VERSION, collator.getValue()->getSpec().version);
 }
 
 TEST(CollatorFactoryICUTest, NonStringVersionFieldFailsToParse) {
@@ -1212,12 +1214,24 @@ TEST(CollatorFactoryICUTest, AliasNoForNorwegianBokmalLocaleNotSupported) {
                       .getStatus());
 }
 
-TEST(CollatorFactoryICUTest, TraditionalSpanishAliasNotSupported) {
+TEST(CollatorFactoryICUTest, TraditionalSpanishAliasMustMatchICUValidLocale) {
+    // ICU versions differ in whether this is recognized verbatim or canonicalized to another
+    // locale. The factory must accept it only when ICU's valid locale matches the request.
+    const char* localeID = "es__TRADITIONAL";
+    const auto locale = icu::Locale::createFromName(localeID);
+    UErrorCode status = U_ZERO_ERROR;
+    std::unique_ptr<icu::Collator> reference(icu::Collator::createInstance(locale, status));
+    ASSERT_TRUE(U_SUCCESS(status));
+    const auto validLocale = reference->getLocale(ULOC_VALID_LOCALE, status);
+    ASSERT_TRUE(U_SUCCESS(status));
     CollatorFactoryICU factory;
-    ASSERT_NOT_OK(factory
-                      .makeFromBSON(BSON("locale"
-                                         << "es__TRADITIONAL"))
-                      .getStatus());
+    auto result = factory.makeFromBSON(BSON("locale" << localeID));
+    if (StringData(validLocale.getName()) == localeID) {
+        ASSERT_OK(result.getStatus());
+        ASSERT_EQ(result.getValue()->getSpec().localeID, locale.getName());
+    } else {
+        ASSERT_EQ(result.getStatus().code(), ErrorCodes::BadValue);
+    }
 }
 
 }  // namespace

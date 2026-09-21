@@ -206,7 +206,7 @@ protected:
     QueryTestServiceContext serviceContext;
     ServiceContext::UniqueOperationContext opCtx;
     BSONObj queryObj;
-    std::unique_ptr<CanonicalQuery> cq;
+    CanonicalQuery::UPtr cq;
     QueryPlannerParams params;
     std::vector<std::unique_ptr<QuerySolution>> solns;
 };

@@ -47,20 +47,18 @@ using namespace mongo;
 
 namespace {
 
-using std::unique_ptr;
-
 static const NamespaceString nss("test.collection");
 
 /**
  * Utility functions to create a CanonicalQuery
  */
-unique_ptr<CanonicalQuery> canonicalize(const char* queryStr,
-                                        const char* sortStr,
-                                        const char* projStr) {
+CanonicalQuery::UPtr canonicalize(const char* queryStr,
+                                 const char* sortStr,
+                                 const char* projStr) {
     QueryTestServiceContext serviceContext;
     auto opCtx = serviceContext.makeOperationContext();
 
-    auto qr = stdx::make_unique<QueryRequest>(nss);
+    auto qr = ObjectPool<QueryRequest>::newObject(nss);
     qr->setFilter(fromjson(queryStr));
     qr->setSort(fromjson(sortStr));
     qr->setProj(fromjson(projStr));
@@ -94,7 +92,7 @@ void testAllowedIndices(std::vector<IndexEntry> indexes,
     QuerySettings querySettings;
 
     // getAllowedIndices should return false when query shape is not yet in query settings.
-    unique_ptr<CanonicalQuery> cq(canonicalize("{a: 1}", "{}", "{}"));
+    CanonicalQuery::UPtr cq(canonicalize("{a: 1}", "{}", "{}"));
     PlanCacheKey key = planCache.computeKey(*cq);
     ASSERT_FALSE(querySettings.getAllowedIndicesFilter(key));
 

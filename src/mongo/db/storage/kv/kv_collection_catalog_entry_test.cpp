@@ -38,7 +38,7 @@
 #include "mongo/db/index_names.h"
 #include "mongo/db/operation_context_noop.h"
 #include "mongo/db/service_context_test_fixture.h"
-#include "mongo/db/storage/devnull/devnull_kv_engine.h"
+#include "mongo/db/storage/ephemeral_for_test/ephemeral_for_test_engine.h"
 #include "mongo/db/storage/kv/kv_database_catalog_entry_mock.h"
 #include "mongo/db/storage/kv/kv_engine.h"
 #include "mongo/db/storage/kv/kv_storage_engine.h"
@@ -51,31 +51,35 @@ namespace {
 
 class KVCollectionCatalogEntryTest : public ServiceContextTest {
 public:
-    KVCollectionCatalogEntryTest()
-        : _nss("unittests.kv_collection_catalog_entry"),
-          _storageEngine(
-              new DevNullKVEngine(), KVStorageEngineOptions(), kvDatabaseCatalogEntryMockFactory) {
-        _storageEngine.finishInit();
+    KVCollectionCatalogEntryTest() : _nss("unittests.kv_collection_catalog_entry") {
+        auto engine = std::make_unique<KVStorageEngine>(
+            new EphemeralForTestEngine(), KVStorageEngineOptions(), kvDatabaseCatalogEntryMockFactory);
+        _storageEngine = engine.get();
+        getServiceContext()->setStorageEngine(std::move(engine));
+        _storageEngine->finishInit();
     }
 
     ~KVCollectionCatalogEntryTest() {
-        _storageEngine.cleanShutdown();
+        _storageEngine->cleanShutdown();
     }
 
     std::unique_ptr<OperationContext> newOperationContext() {
-        return stdx::make_unique<OperationContextNoop>(_storageEngine.newRecoveryUnit());
+        auto opCtx = stdx::make_unique<OperationContextNoop>(getClient(), 0);
+        opCtx->setRecoveryUnit(_storageEngine->newRecoveryUnit(),
+                              WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
+        return opCtx;
     }
 
     void setUp() final {
         auto opCtx = newOperationContext();
         DatabaseCatalogEntry* dbEntry =
-            _storageEngine.getDatabaseCatalogEntry(opCtx.get(), _nss.db());
+            _storageEngine->getDatabaseCatalogEntry(opCtx.get(), _nss.db());
 
         {
             WriteUnitOfWork wuow(opCtx.get());
-            const bool allocateDefaultSpace = true;
-            ASSERT_OK(dbEntry->createCollection(
-                opCtx.get(), _nss.ns(), CollectionOptions(), allocateDefaultSpace));
+            auto idIndex = BSON("v" << 2 << "key" << BSON("_id" << 1) << "name" << "_id_"
+                                    << "ns" << _nss.ns());
+            ASSERT_OK(dbEntry->createCollection(opCtx.get(), _nss, CollectionOptions(), idIndex));
             wuow.commit();
         }
     }
@@ -83,8 +87,8 @@ public:
     CollectionCatalogEntry* getCollectionCatalogEntry() {
         auto opCtx = newOperationContext();
         DatabaseCatalogEntry* dbEntry =
-            _storageEngine.getDatabaseCatalogEntry(opCtx.get(), _nss.db());
-        return dbEntry->getCollectionCatalogEntry(_nss.ns());
+            _storageEngine->getDatabaseCatalogEntry(opCtx.get(), _nss.db());
+        return dbEntry->getCollectionCatalogEntry(opCtx.get(), _nss.ns());
     }
 
     std::string createIndex(BSONObj keyPattern, std::string indexType = IndexNames::BTREE) {
@@ -136,7 +140,7 @@ private:
     }
 
     const NamespaceString _nss;
-    KVStorageEngine _storageEngine;
+    KVStorageEngine* _storageEngine;
     size_t numIndexesCreated = 0;
 };
 

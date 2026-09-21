@@ -37,6 +37,7 @@
 #include "mongo/db/concurrency/d_concurrency.h"
 #include "mongo/db/concurrency/lock_state.h"
 #include "mongo/db/service_context_test_fixture.h"
+#include "mongo/db/storage/recovery_unit_noop.h"
 #include "mongo/unittest/unittest.h"
 #include "mongo/util/log.h"
 #include "mongo/util/time_support.h"
@@ -52,7 +53,16 @@ public:
     ClientAndCtx makeClientWithLocker(const std::string& clientName) {
         auto client = getServiceContext()->makeClient(clientName);
         auto opCtx = client->makeOperationContext();
-        opCtx->swapLockState(stdx::make_unique<DefaultLockerImpl>());
+        // This fixture tests locking without a storage engine. Install its own state
+        // on both newly allocated and pooled operation contexts.
+        auto locker = stdx::make_unique<DefaultLockerImpl>();
+        if (opCtx->lockState()) {
+            opCtx->swapLockState(std::move(locker));
+        } else {
+            opCtx->setLockState(std::move(locker));
+        }
+        opCtx->setRecoveryUnit(new RecoveryUnitNoop(),
+                              WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
         return std::make_pair(std::move(client), std::move(opCtx));
     }
 

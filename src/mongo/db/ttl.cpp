@@ -48,6 +48,7 @@
 #include "mongo/db/commands/fsync_locked.h"
 #include "mongo/db/commands/server_status_metric.h"
 #include "mongo/db/concurrency/write_conflict_exception.h"
+#include "mongo/db/coro_sync.h"
 #include "mongo/db/db_raii.h"
 #include "mongo/db/exec/delete.h"
 #include "mongo/db/index/index_descriptor.h"
@@ -60,6 +61,7 @@
 #include "mongo/util/background.h"
 #include "mongo/util/concurrency/idle_thread_block.h"
 #include "mongo/util/exit.h"
+#include "mongo/util/fail_point_service.h"
 #include "mongo/util/log.h"
 
 namespace mongo {
@@ -73,6 +75,7 @@ ServerStatusMetricField<Counter64> ttlDeletedDocumentsDisplay("ttl.deletedDocume
 
 MONGO_EXPORT_SERVER_PARAMETER(ttlMonitorEnabled, bool, true);
 MONGO_EXPORT_SERVER_PARAMETER(ttlMonitorSleepSecs, int, 60);  // used for testing
+MONGO_FAIL_POINT_DEFINE(hangTTLMonitorBeforeStorageAccess);
 
 class TTLMonitor : public BackgroundJob {
 public:
@@ -85,15 +88,42 @@ public:
 
     static std::string secondsExpireField;
 
+    void shutdown() {
+        {
+            stdx::unique_lock<coro::Mutex> lock(_mutex);
+            _shutdownRequested = true;
+            _cond.notify_all();
+            // Shutdown can run on an Eloq request coroutine. Yield that coroutine while an
+            // active TTL pass finishes; blocking its worker could strand the pass's requests.
+            _cond.wait(lock, [this] { return _finished; });
+        }
+        // run() has released its Client and storage resources. BackgroundJob only has its
+        // completion bookkeeping left, so this native wait cannot block a Substrate request.
+        wait();
+    }
+
     virtual void run() {
+        ON_BLOCK_EXIT([this] {
+            stdx::lock_guard<coro::Mutex> lock(_mutex);
+            _finished = true;
+            _cond.notify_all();
+        });
         Client::initThread(name().c_str());
+        // Destroy the Client before publishing completion to the shutdown coroutine.
         ON_BLOCK_EXIT([] { Client::destroy(); });
         AuthorizationSession::get(cc())->grantInternalAuthorization();
 
         while (!globalInShutdownDeprecated()) {
             {
+                stdx::unique_lock<coro::Mutex> lock(_mutex);
                 MONGO_IDLE_THREAD_BLOCK;
-                sleepsecs(ttlMonitorSleepSecs.load());
+                const auto interval = Seconds(ttlMonitorSleepSecs.load());
+                LOG(1) << "TTL monitor waiting for next pass: " << interval.count() << " seconds";
+                if (_cond.wait_for(lock, interval.toSystemDuration(),
+                                   [this] { return _shutdownRequested; }) ||
+                    globalInShutdownDeprecated()) {
+                    break;
+                }
             }
 
             LOG(3) << "thread awake";
@@ -119,6 +149,11 @@ public:
     }
 
 private:
+    coro::Mutex _mutex;
+    coro::ConditionVariable _cond;
+    bool _shutdownRequested = false;
+    bool _finished = false;
+
     void doTTLPass() {
         const ServiceContext::UniqueOperationContext opCtxPtr = cc().makeOperationContext();
         OperationContext& opCtx = *opCtxPtr;
@@ -128,6 +163,18 @@ private:
                 repl::ReplicationCoordinator::modeReplSet &&
             !repl::ReplicationCoordinator::get(&opCtx)->getMemberState().readable())
             return;
+
+        // Exercise shutdown with a pass already committed to accessing storage. Releasing
+        // on the global shutdown flag lets the shutdown command drain it without another
+        // client connection (listening sockets are already closed during shutdown).
+        if (MONGO_FAIL_POINT(hangTTLMonitorBeforeStorageAccess)) {
+            log() << "TTL monitor paused before storage access";
+            while (MONGO_FAIL_POINT(hangTTLMonitorBeforeStorageAccess) &&
+                   !globalInShutdownDeprecated()) {
+                sleepmillis(10);
+            }
+            log() << "TTL monitor resuming storage access";
+        }
 
         // EloqDoc: TTLCollectionCache is unreliable.
         //
@@ -317,15 +364,37 @@ private:
 };
 
 namespace {
-// The global TTLMonitor object is intentionally leaked.  Even though it is only used in one
-// function, we declare it here to indicate to the leak sanitizer that the leak of this object
-// should not be reported.
+// Keep the monitor alive for the process lifetime so repeated shutdown calls can safely wait
+// for it. The global pointer also makes this intentional lifetime visible to leak sanitizer.
 TTLMonitor* ttlMonitor = nullptr;
+stdx::mutex ttlMonitorMutex;
+bool ttlShutdownRequested = false;
 }  // namespace
 
 void startTTLBackgroundJob() {
-    ttlMonitor = new TTLMonitor();
-    ttlMonitor->go();
+    stdx::lock_guard<stdx::mutex> lock(ttlMonitorMutex);
+    if (ttlShutdownRequested)
+        return;
+    invariant(!ttlMonitor);
+    auto monitor = std::make_unique<TTLMonitor>();
+    monitor->go();
+    ttlMonitor = monitor.release();
+}
+
+void shutdownTTLBackgroundJob() {
+    TTLMonitor* monitor;
+    {
+        // Shutdown may race startup or run before TTL is initialized. Do not allow a worker
+        // to be published after shutdown has observed that no worker exists.
+        stdx::lock_guard<stdx::mutex> lock(ttlMonitorMutex);
+        ttlShutdownRequested = true;
+        monitor = ttlMonitor;
+    }
+    if (monitor) {
+        log() << "Stopping TTL monitor";
+        monitor->shutdown();
+        log() << "TTL monitor stopped";
+    }
 }
 
 std::string TTLMonitor::secondsExpireField = "expireAfterSeconds";

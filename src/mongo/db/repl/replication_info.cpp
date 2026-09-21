@@ -125,6 +125,8 @@ void appendReplicationInfo(OperationContext* opCtx, BSONObjBuilder& result, int 
                 t.done();
             }
 
+#ifndef ELOQDOC_STANDALONE
+            // Only the full server links the legacy remote replication-source client.
             if (level > 1) {
                 invariant(!opCtx->lockState()->isLocked());
                 // note: there is no so-style timeout on this connection; perhaps we should have
@@ -144,6 +146,7 @@ void appendReplicationInfo(OperationContext* opCtx, BSONObjBuilder& result, int 
                 }
                 conn.done();
             }
+#endif
 
             sources.append(BSONObjBuilder::numStr(n++), bb.obj());
         }

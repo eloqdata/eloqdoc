@@ -41,6 +41,73 @@
 
 namespace mongo {
 
+std::unique_ptr<RecordStore> EphemeralForTestEngine::_getCatalogRecordStore() const {
+    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    auto it = _dataMap.find("_mdb_catalog");
+    if (it == _dataMap.end() || !it->second) {
+        return nullptr;
+    }
+    auto data = it->second;
+    return stdx::make_unique<EphemeralForTestRecordStore>("_mdb_catalog", &data);
+}
+
+Status EphemeralForTestEngine::lockCollection(OperationContext* opCtx,
+                                             StringData ns,
+                                             bool isForWrite,
+                                             bool* exists,
+                                             std::string* version) {
+    auto catalog = _getCatalogRecordStore();
+    RecordData record;
+    *exists = catalog && catalog->findRecord(opCtx, RecordId(ns.rawData(), ns.size()), &record);
+    version->clear();
+    if (*exists) {
+        *version = record.toBson()["md"].Obj()["options"].Obj()["catalogVersion"].String();
+    }
+    return Status::OK();
+}
+
+void EphemeralForTestEngine::listCollections(std::string_view dbName,
+                                            std::vector<std::string>& out) const {
+    auto catalog = _getCatalogRecordStore();
+    if (!catalog) {
+        return;
+    }
+    std::vector<std::string> collections;
+    catalog->getAllCollections(collections);
+    for (const auto& ns : collections) {
+        if (NamespaceString(ns).db().toStringView() == dbName) {
+            out.push_back(ns);
+        }
+    }
+}
+
+void EphemeralForTestEngine::listCollections(std::string_view dbName,
+                                            std::set<std::string>& out) const {
+    std::vector<std::string> collections;
+    listCollections(dbName, collections);
+    out.insert(collections.begin(), collections.end());
+}
+
+void EphemeralForTestEngine::listDatabases(std::vector<std::string>& out) const {
+    auto catalog = _getCatalogRecordStore();
+    if (!catalog) {
+        return;
+    }
+    std::vector<std::string> collections;
+    catalog->getAllCollections(collections);
+    std::set<std::string> databases;
+    for (const auto& ns : collections) {
+        databases.insert(NamespaceString(ns).db().toString());
+    }
+    out.insert(out.end(), databases.begin(), databases.end());
+}
+
+bool EphemeralForTestEngine::databaseExists(std::string_view dbName) const {
+    std::vector<std::string> collections;
+    listCollections(dbName, collections);
+    return !collections.empty();
+}
+
 RecoveryUnit* EphemeralForTestEngine::newRecoveryUnit() {
     return new EphemeralForTestRecoveryUnit([this]() {
         stdx::lock_guard<stdx::mutex> lk(_mutex);
@@ -89,8 +156,11 @@ SortedDataInterface* EphemeralForTestEngine::getSortedDataInterface(OperationCon
                                                                     StringData ident,
                                                                     const IndexDescriptor* desc) {
     stdx::lock_guard<stdx::mutex> lk(_mutex);
+    auto recordStore = stdx::make_unique<EphemeralForTestRecordStore>(
+        desc->parentNS(), &_dataMap[desc->parentNS()]);
     return getEphemeralForTestBtreeImpl(
-        Ordering::make(desc->keyPattern()), desc->unique(), &_dataMap[ident]);
+        Ordering::make(desc->keyPattern()), desc->unique(), &_dataMap[ident],
+        std::move(recordStore));
 }
 
 Status EphemeralForTestEngine::dropIdent(OperationContext* opCtx, StringData ident) {

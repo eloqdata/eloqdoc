@@ -30,30 +30,25 @@
 
 #include "mongo/platform/stack_locator.h"
 
+#include <cstdint>
 #include "mongo/util/assert_util.h"
 
 namespace mongo {
 
 boost::optional<std::size_t> StackLocator::available() const {
-    // Returns a disengaged optional since the remaining stack cannot be determined.
-    return boost::none;
-
     if (!begin() || !end())
         return boost::none;
 
-    // Technically, it is undefined behavior to compare or subtract
-    // two pointers that do not point into the same
-    // aggregate. However, we know that these are both pointers within
-    // the same stack, and it seems unlikely that the compiler will
-    // see that it can elide the comparison here.
+    // Compare addresses as integers: coroutine and native stack pointers need not
+    // point into the same allocation.
+    const auto cbegin = reinterpret_cast<std::uintptr_t>(begin());
+    const auto cthis = reinterpret_cast<std::uintptr_t>(this);
+    const auto cend = reinterpret_cast<std::uintptr_t>(end());
 
-    const auto cbegin = reinterpret_cast<const char*>(begin());
-    const auto cthis = reinterpret_cast<const char*>(this);
-    const auto cend = reinterpret_cast<const char*>(end());
-
-    // TODO: Assumes that stack grows downward
-    invariant(cthis <= cbegin);
-    invariant(cthis > cend);
+    // A coroutine may be running on a different stack from the OS thread whose
+    // bounds we queried. Do not report (or assert on) those unrelated bounds.
+    if (cthis > cbegin || cthis <= cend)
+        return boost::none;
 
     std::size_t avail = cthis - cend;
 

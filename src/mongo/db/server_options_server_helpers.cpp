@@ -133,8 +133,7 @@ Status addGeneralServerOptions(moe::OptionSection* options) {
         ->addOptionChaining("net.adaptiveThreadNum",
                             "adaptiveThreadNum",
                             moe::Int,
-                            "set the thread num for adaptive service executor mode")
-        .setDefault(moe::Value(1));
+                            "set the thread num for adaptive service executor mode");
 
 #if MONGO_ENTERPRISE_VERSION
     options->addOptionChaining("security.redactClientLogData",
@@ -563,10 +562,11 @@ Status storeServerOptions(const moe::Environment& params) {
             return {ErrorCodes::BadValue,
                     "adaptiveThreadNum can only be used with serviceExecutor=adaptive"};
         }
-        serverGlobalParams.adaptiveThreadNum = params["net.adaptiveThreadNum"].as<int>();
-        if (serverGlobalParams.adaptiveThreadNum < 1) {
+        const auto threadCount = params["net.adaptiveThreadNum"].as<int>();
+        if (threadCount < 1) {
             return {ErrorCodes::BadValue, "adaptiveThreadNum has to be at least 1"};
         }
+        serverGlobalParams.adaptiveThreadNum = threadCount;
     }
 
     if (params.count("security.transitionToAuth")) {

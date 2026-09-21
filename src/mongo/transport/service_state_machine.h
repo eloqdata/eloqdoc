@@ -32,6 +32,7 @@
 #include <boost/context/continuation.hpp>
 #include <boost/context/continuation_fcontext.hpp>
 #include <boost/context/stack_context.hpp>
+#include <exception>
 #include <functional>
 
 #include "boost/optional/optional.hpp"
@@ -213,11 +214,20 @@ private:
 
     void _runResumeProcess();
 
+    // Called on the executor stack after a coroutine yields or returns. Finish bookkeeping
+    // before delivering the response or cleaning up the session. May destroy this object;
+    // callers must not access it afterward.
+    void _finishCoroutineStep();
+
     /*
      * This function actually calls into the database and processes a request. It's broken out
      * into its own inline function for better readability.
      */
     inline void _processMessage(ThreadGuard guard);
+
+    // Deliver the saved response only after the request coroutine has returned. Network
+    // callbacks may run inline and perform final session cleanup.
+    void _processResponse(ThreadGuard guard);
 
     /*
      * These get called by the TransportLayer when requested network I/O has completed.
@@ -256,6 +266,7 @@ private:
     bool _inExhaust = false;
     boost::optional<MessageCompressorId> _compressorId;
     Message _inMessage;
+    DbResponse _dbResponse;
 
     AtomicWord<Ownership> _owned{Ownership::kUnowned};
 #if MONGO_CONFIG_DEBUG_BUILD
@@ -286,6 +297,9 @@ private:
     const size_t _osPageSize;
     char* _coroStack;
     boost::context::continuation _source;
+    // Exceptions cannot unwind across a Boost.Context stack boundary. Transfer them back to the
+    // executor stack, where session cleanup may safely release this object's coroutine stack.
+    std::exception_ptr _coroutineException;
 
     enum class CoroStatus { Empty = 0, OnGoing, Finished };
     CoroStatus _coroStatus{CoroStatus::Empty};

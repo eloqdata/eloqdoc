@@ -1612,6 +1612,7 @@ env.CppUnitTest(
     ],
     LIBDEPS=[
         'logical_time',
+        'service_context_test_fixture',
     ],
 )
 

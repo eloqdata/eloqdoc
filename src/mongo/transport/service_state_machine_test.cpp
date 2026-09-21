@@ -35,6 +35,7 @@
 #include "mongo/bson/bsonobjbuilder.h"
 #include "mongo/db/client.h"
 #include "mongo/db/dbmessage.h"
+#include "mongo/db/operation_context.h"
 #include "mongo/db/service_context.h"
 #include "mongo/rpc/op_msg.h"
 #include "mongo/stdx/memory.h"
@@ -62,6 +63,14 @@ class MockSEP : public ServiceEntryPoint {
 public:
     virtual ~MockSEP() = default;
 
+    Status start() override {
+        return Status::OK();
+    }
+
+    transport::ServiceExecutor* getServiceExecutor() override {
+        return nullptr;
+    }
+
     void startSession(transport::SessionHandle session) override {}
 
     DbResponse handleRequest(OperationContext* opCtx, const Message& request) override {
@@ -76,6 +85,11 @@ public:
         OpMsgBuilder builder;
         builder.setBody(BSON("ok" << 1));
 
+        if (_yieldInHandler) {
+            const auto& coro = opCtx->getClient()->coroutineFunctors();
+            (*coro.resumeFuncPtr)();
+            (*coro.yieldFuncPtr)();
+        }
         if (_uassertInHandler)
             uassert(40469, "Synthetic uassert failure", false);
 
@@ -100,6 +114,10 @@ public:
         _uassertInHandler = true;
     }
 
+    void setYieldInHandler() {
+        _yieldInHandler = true;
+    }
+
     bool ranHandler() {
         bool ret = _ranHandler;
         _ranHandler = false;
@@ -108,6 +126,7 @@ public:
 
 private:
     bool _uassertInHandler = false;
+    bool _yieldInHandler = false;
     bool _ranHandler = false;
 };
 
@@ -242,8 +261,29 @@ public:
         _scheduleHook = std::move(hook);
     }
 
+    std::function<void()> coroutineResumeFunctor(uint16_t, const Task& task) override {
+        return [this, task] { _resumeTask = task; };
+    }
+
+    void ongoingCoroutineCountUpdate(uint16_t, int delta) override {
+        _ongoingCoroutines += delta;
+        ASSERT_GTE(_ongoingCoroutines, 0);
+    }
+
+    int ongoingCoroutines() const {
+        return _ongoingCoroutines;
+    }
+
+    void resumeCoroutine() {
+        auto task = std::move(_resumeTask);
+        ASSERT_TRUE(static_cast<bool>(task));
+        task();
+    }
+
 private:
     ScheduleHook _scheduleHook;
+    Task _resumeTask;
+    int _ongoingCoroutines = 0;
 };
 
 class SimpleEvent {
@@ -304,6 +344,20 @@ protected:
     void runPingTest(State first, State second);
     void checkPingOk();
 
+    std::weak_ptr<ServiceStateMachine> expectFinalCleanup() {
+        std::weak_ptr<ServiceStateMachine> weakSSM = _ssm;
+        _ssm->setCleanupHook([this, weakSSM] {
+            ASSERT_FALSE(haveClient());
+            ASSERT_EQ(_sexec->ongoingCoroutines(), 0);
+            // Only the session owner remains: neither the coroutine nor its resume callback
+            // may hold an extra reference that masks premature cleanup.
+            ASSERT_EQ(weakSSM.use_count(), 1);
+            _ssm.reset();
+            ASSERT_TRUE(weakSSM.expired());
+        });
+        return weakSSM;
+    }
+
     MockTL* _tl;
     MockSEP* _sep;
     MockServiceExecutor* _sexec;
@@ -337,6 +391,7 @@ void ServiceStateMachineFixture::checkPingOk() {
 TEST_F(ServiceStateMachineFixture, TestOkaySimpleCommand) {
     runPingTest(State::Process, State::Source);
     checkPingOk();
+    ASSERT_EQ(_sexec->ongoingCoroutines(), 0);
 }
 
 TEST_F(ServiceStateMachineFixture, TestThrowHandling) {
@@ -346,6 +401,79 @@ TEST_F(ServiceStateMachineFixture, TestThrowHandling) {
     ASSERT(_tl->getLastSunk().empty());
     ASSERT_TRUE(_tl->ranSource());
     ASSERT_FALSE(_tl->ranSink());
+    ASSERT_EQ(_sexec->ongoingCoroutines(), 0);
+}
+
+TEST_F(ServiceStateMachineFixture, TestThrowAfterCoroutineResumeReleasesSession) {
+    _sep->setYieldInHandler();
+    _sep->setUassertInHandler();
+    auto weakSSM = expectFinalCleanup();
+
+    runPingTest(State::Process, State::Process);
+    ASSERT_EQ(_sexec->ongoingCoroutines(), 1);
+    _sexec->resumeCoroutine();
+
+    ASSERT_FALSE(haveClient());
+    ASSERT_TRUE(weakSSM.expired());
+    ASSERT_EQ(_sexec->ongoingCoroutines(), 0);
+    ASSERT_TRUE(_tl->getLastSunk().empty());
+    ASSERT_FALSE(_tl->ranSink());
+}
+
+TEST_F(ServiceStateMachineFixture, TestThrowBeforeCoroutineYieldReleasesSession) {
+    _sep->setUassertInHandler();
+    auto weakSSM = expectFinalCleanup();
+
+    _ssm->runNext();
+    ASSERT_EQ(State::Process, _ssm->state());
+    _ssm->runNext();
+
+    ASSERT_TRUE(weakSSM.expired());
+    ASSERT_FALSE(_tl->ranSink());
+}
+
+TEST_F(ServiceStateMachineFixture, TestSinkErrorAfterCoroutineReturnReleasesSession) {
+    _tl->setNextFailure(MockTL::Sink);
+    auto weakSSM = expectFinalCleanup();
+
+    _ssm->runNext();
+    ASSERT_EQ(State::Process, _ssm->state());
+    _ssm->runNext();
+
+    ASSERT_TRUE(weakSSM.expired());
+    ASSERT_TRUE(_tl->ranSink());
+}
+
+TEST_F(ServiceStateMachineFixture, TestSinkErrorAfterCoroutineResumeReleasesSession) {
+    _sep->setYieldInHandler();
+    _tl->setNextFailure(MockTL::Sink);
+    auto weakSSM = expectFinalCleanup();
+
+    runPingTest(State::Process, State::Process);
+    ASSERT_EQ(_sexec->ongoingCoroutines(), 1);
+    _sexec->resumeCoroutine();
+
+    ASSERT_TRUE(weakSSM.expired());
+    ASSERT_TRUE(_tl->ranSink());
+}
+
+TEST_F(ServiceStateMachineFixture, TerminateWhileCoroutineSuspendedDefersCleanup) {
+    _sep->setYieldInHandler();
+    auto weakSSM = expectFinalCleanup();
+
+    runPingTest(State::Process, State::Process);
+    // The session owner alone keeps the suspended SSM alive; the coroutine does not own itself.
+    ASSERT_EQ(weakSSM.use_count(), 1);
+    _ssm->terminate();
+    ASSERT_FALSE(weakSSM.expired());
+    ASSERT_EQ(State::Process, _ssm->state());
+    ASSERT_EQ(_sexec->ongoingCoroutines(), 1);
+
+    // Termination closes the socket but must leave the suspended request alive to finish.
+    _sexec->resumeCoroutine();
+    ASSERT_TRUE(weakSSM.expired());
+    ASSERT_TRUE(_tl->ranSink());
+    ASSERT_TRUE(_tl->getLastSunk().empty());
 }
 
 TEST_F(ServiceStateMachineFixture, TestSourceError) {

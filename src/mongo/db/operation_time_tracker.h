@@ -54,6 +54,9 @@ public:
      */
     void updateOperationTime(LogicalTime newTime);
 
+    // Clear state for reuse only when no other operation/callback owns this tracker.
+    void reset();
+
 private:
     // protects _maxOperationTime
     mutable stdx::mutex _mutex;

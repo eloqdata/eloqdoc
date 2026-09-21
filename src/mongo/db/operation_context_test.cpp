@@ -29,12 +29,14 @@
 #include "mongo/platform/basic.h"
 
 #include <boost/optional.hpp>
+#include <memory>
 
 #include "mongo/db/client.h"
 #include "mongo/db/json.h"
 #include "mongo/db/logical_session_id.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/operation_context_group.h"
+#include "mongo/db/operation_time_tracker.h"
 #include "mongo/db/service_context.h"
 #include "mongo/stdx/future.h"
 #include "mongo/stdx/memory.h"
@@ -48,6 +50,27 @@
 
 namespace mongo {
 namespace {
+
+TEST(CoroutineConditionVariable, NativeThreadWaitForExpiresWithoutNotification) {
+    coro::Mutex mutex;
+    coro::ConditionVariable cv;
+    stdx::unique_lock<coro::Mutex> lock(mutex);
+    const auto started = std::chrono::steady_clock::now();
+    const auto delay = std::chrono::milliseconds(5);
+    ASSERT_FALSE(cv.wait_for(lock, delay, [] { return false; }));
+    ASSERT_TRUE(std::chrono::steady_clock::now() >= started + delay);
+    ASSERT_TRUE(lock.owns_lock());
+}
+
+TEST(CoroutineConditionVariable, NativeThreadDateDeadlineExpiresWithoutNotification) {
+    coro::Mutex mutex;
+    coro::ConditionVariable cv;
+    stdx::unique_lock<coro::Mutex> lock(mutex);
+    auto deadline = Date_t::now() + Milliseconds(5);
+    while (cv.wait_until(lock, deadline) != stdx::cv_status::timeout) {}
+    ASSERT_TRUE(Date_t::now() >= deadline);
+    ASSERT_TRUE(lock.owns_lock());
+}
 
 using unittest::assertGet;
 
@@ -82,6 +105,79 @@ TEST(OperationContextTest, NoSessionIdNoTransactionNumber) {
 
     ASSERT(!opCtx->getLogicalSessionId());
     ASSERT(!opCtx->getTxnNumber());
+}
+
+TEST(OperationContextTest, NoStorageEngineLeavesRecoveryUnitUnset) {
+    auto serviceCtx = ServiceContext::make();
+    auto client = serviceCtx->makeClient("OperationContextTest");
+    ASSERT_FALSE(serviceCtx->getStorageEngine());
+    // Exercise creation and repeated pool return/reuse without a test storage observer.
+    for (int i = 0; i < 64; ++i) {
+        auto opCtx = client->makeOperationContext();
+        ASSERT_FALSE(opCtx->recoveryUnit());
+    }
+}
+
+TEST(OperationContextTest, PoolReleaseReusesUnsharedOperationTimeTracker) {
+    auto serviceCtx = ServiceContext::make();
+    auto client = serviceCtx->makeClient("OperationContextTest");
+    auto opCtx = client->makeOperationContext();
+    auto tracker = OperationTimeTracker::get(opCtx.get());
+    auto* original = tracker.get();
+    // A weak reference observes lifetime without preventing exclusive-ownership reuse.
+    std::weak_ptr<OperationTimeTracker> lifetime = tracker;
+    tracker->updateOperationTime(LogicalTime(Timestamp(15)));
+    tracker.reset();
+
+    for (int i = 0; i < 10; ++i) {
+        ASSERT_EQ(1, lifetime.use_count());
+        opCtx->resetAllDecorations();
+        // This also rules out destroy/reallocate-at-the-same-address implementations.
+        ASSERT_FALSE(lifetime.expired());
+        auto reused = OperationTimeTracker::get(opCtx.get());
+        ASSERT_EQ(original, reused.get());
+        ASSERT_EQ(LogicalTime::kUninitialized, reused->getMaxOperationTime());
+        reused->updateOperationTime(LogicalTime(Timestamp(5)));
+        ASSERT_EQ(LogicalTime(Timestamp(5)), reused->getMaxOperationTime());
+    }
+
+    // Exercise the actual ServiceContext deleter -> pool -> decoration-reset path too.
+    opCtx.reset();
+    ASSERT_FALSE(lifetime.expired());
+    ASSERT_EQ(LogicalTime::kUninitialized, lifetime.lock()->getMaxOperationTime());
+}
+
+TEST(OperationContextTest, PoolReleasePreservesSharedOperationTimeTracker) {
+    auto serviceCtx = ServiceContext::make();
+    auto client = serviceCtx->makeClient("OperationContextTest");
+    auto opCtx = client->makeOperationContext();
+    auto previous = OperationTimeTracker::get(opCtx.get());
+    const LogicalTime previousTime(Timestamp(15));
+    previous->updateOperationTime(previousTime);
+
+    opCtx->resetAllDecorations();
+    auto current = OperationTimeTracker::get(opCtx.get());
+    ASSERT_NE(previous, current);
+    ASSERT_EQ(previousTime, previous->getMaxOperationTime());
+    ASSERT_EQ(LogicalTime::kUninitialized, current->getMaxOperationTime());
+    previous->updateOperationTime(LogicalTime(Timestamp(30)));
+    ASSERT_EQ(LogicalTime::kUninitialized, current->getMaxOperationTime());
+    current->updateOperationTime(LogicalTime(Timestamp(5)));
+    ASSERT_EQ(LogicalTime(Timestamp(30)), previous->getMaxOperationTime());
+
+    // Once the replacement is exclusively owned, subsequent recycling must reuse it.
+    std::weak_ptr<OperationTimeTracker> lifetime = current;
+    current.reset();
+    opCtx->resetAllDecorations();
+    ASSERT_FALSE(lifetime.expired());
+    ASSERT_EQ(LogicalTime::kUninitialized, lifetime.lock()->getMaxOperationTime());
+
+    // A retained tracker also survives the real pool-return path with its state intact.
+    current = OperationTimeTracker::get(opCtx.get());
+    current->updateOperationTime(LogicalTime(Timestamp(7)));
+    opCtx.reset();
+    ASSERT_EQ(LogicalTime(Timestamp(7)), current->getMaxOperationTime());
+    ASSERT_EQ(LogicalTime(Timestamp(30)), previous->getMaxOperationTime());
 }
 
 TEST(OperationContextTest, SessionIdNoTransactionNumber) {

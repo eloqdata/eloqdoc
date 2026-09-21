@@ -121,11 +121,13 @@ inline bool ErrorCodes::isA<ErrorCategory::$cat.name>(Error code) {
  */
 namespace error_details {
 
+// These definitions live in a header, including the explicit specializations below.
+// Inline variables keep a single definition across translation units.
 template <int32_t code>
-constexpr bool isNamedCode = false;
+inline constexpr bool isNamedCode = false;
 //#for $ec in $codes
 template <>
-constexpr bool isNamedCode<ErrorCodes::$ec.name> = true;
+inline constexpr bool isNamedCode<ErrorCodes::$ec.name> = true;
 //#end for
 
 MONGO_COMPILER_NORETURN void throwExceptionForStatus(const Status& status);

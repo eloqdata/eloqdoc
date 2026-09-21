@@ -33,6 +33,8 @@
 #include <iomanip>
 #include <iostream>
 #include <unicode/coll.h>
+#include <unicode/unistr.h>
+#include <vector>
 
 #include "mongo/unittest/unittest.h"
 
@@ -90,6 +92,30 @@ void assertLessThanEnUS(StringData lessThan, StringData greaterThan) {
 void assertEqualEnUS(StringData left, StringData right) {
     assertEnUSComparison(left, right, ExpectedComparison::EQUAL);
     assertEnUSComparison(right, left, ExpectedComparison::EQUAL);
+}
+
+void assertMalformedUTF8MatchesICU(StringData input) {
+    // ICU releases differ in how many replacement characters represent an invalid
+    // sequence. Check the wrapper against this version's UTF-8 decoder, not ICU 57 data.
+    const auto decoded = icu::UnicodeString::fromUTF8(
+        icu::StringPiece(input.rawData(), input.size()));
+    std::string replaced;
+    decoded.toUTF8String(replaced);
+    ASSERT_FALSE(replaced.empty());
+    ASSERT_NOT_EQUALS(input, StringData(replaced));
+    assertEqualEnUS(input, replaced);
+}
+
+std::string referenceSortKey(const icu::Collator& collator, StringData input) {
+    const auto decoded = icu::UnicodeString::fromUTF8(
+        icu::StringPiece(input.rawData(), input.size()));
+    const auto size = collator.getSortKey(decoded, nullptr, 0);
+    std::vector<uint8_t> bytes(size);
+    ASSERT_EQUALS(size, collator.getSortKey(decoded, bytes.data(), size));
+    ASSERT_GREATER_THAN(size, 0);
+    ASSERT_EQUALS(0, bytes.back());
+    // Mongo's ComparisonKey excludes ICU's terminating zero byte.
+    return std::string(reinterpret_cast<const char*>(bytes.data()), size - 1);
 }
 
 // Returns true if an ICU collator compares 'left' and 'right' as non-equal. Verifies that
@@ -438,26 +464,26 @@ TEST(CollatorInterfaceICUTest, InvalidOneByteSeqAndTwoByteSeqCompareEqual) {
 TEST(CollatorInterfaceICUTest, OverlongASCIICharacterComparesEqualToReplacementCharacter) {
     // U+002F is the ASCII character "/", which should usually be represented as \x2F. The
     // representation \xC0\xAF is an unnecessary two-byte encoding of this codepoint.
-    assertEqualEnUS("\xC0\xAF", u8"\uFFFD");
+    assertMalformedUTF8MatchesICU("\xC0\xAF");
 }
 
 TEST(CollatorInterfaceICUTest, OverlongNullComparesEqualToReplacementCharacter) {
     // The two-byte sequence \xC0\x80 decodes to U+0000, which should instead be encoded using a
     // single null byte.
-    assertEqualEnUS("\xC0\x80", u8"\uFFFD");
+    assertMalformedUTF8MatchesICU("\xC0\x80");
 }
 
 TEST(CollatorInterfaceICUTest, IllegalCodePositionsCompareEqualToReplacementCharacter) {
     // U+D800
-    assertEqualEnUS("\xED\xA0\x80", u8"\uFFFD");
+    assertMalformedUTF8MatchesICU("\xED\xA0\x80");
     // U+DBFF
-    assertEqualEnUS("\xED\xAF\xBF", u8"\uFFFD");
+    assertMalformedUTF8MatchesICU("\xED\xAF\xBF");
     // U+DFFF
-    assertEqualEnUS("\xED\xBF\xBF", u8"\uFFFD");
+    assertMalformedUTF8MatchesICU("\xED\xBF\xBF");
     // U+D800, U+DC00
-    assertEqualEnUS("\xED\xA0\x80\xED\xB0\x80", u8"\uFFFD\uFFFD");
+    assertMalformedUTF8MatchesICU("\xED\xA0\x80\xED\xB0\x80");
     // U+DB80, U+DFFF
-    assertEqualEnUS("\xED\xAE\x80\xED\xBF\xBF", u8"\uFFFD\uFFFD");
+    assertMalformedUTF8MatchesICU("\xED\xAE\x80\xED\xBF\xBF");
 }
 
 TEST(CollatorInterfaceICUTest, UnexpectedTrailingContinuationByteComparesAsReplacementCharacter) {
@@ -520,7 +546,7 @@ TEST(CollatorInterfaceICUTest, LastPossibleSequenceOfLengthNotEqualToReplacement
 TEST(CollatorInterfaceICUTest, CodePointBeyondLargestValidComparesEqualToReplacementCharacter) {
     // Largest valid code point is U+0010FFFF; U+001FFFFF is higher, and is the last possible valid
     // four byte sequence.
-    assertEqualEnUS("\xF7\xBF\xBF\xBF", u8"\uFFFD");
+    assertMalformedUTF8MatchesICU("\xF7\xBF\xBF\xBF");
 }
 
 TEST(CollatorInterfaceICUTest, StringsWithDifferentEmbeddedInvalidSequencesCompareEqual) {
@@ -572,11 +598,13 @@ TEST(CollatorInterfaceICUTest, ComparisonKeysForEnUsCollatorCorrect) {
     std::unique_ptr<icu::Collator> coll(
         icu::Collator::createInstance(icu::Locale("en", "US"), status));
     ASSERT(U_SUCCESS(status));
+    const auto asciiKey = referenceSortKey(*coll, "abc");
+    const auto accentedKey = referenceSortKey(*coll, "c\xC3\xB4t\xC3\xA9");
     CollatorInterfaceICU icuCollator(collationSpec, std::move(coll));
 
-    ASSERT_EQ(icuCollator.getComparisonKey("abc").getKeyData(), "\x29\x2B\x2D\x01\x07\x01\x07");
+    ASSERT_EQ(icuCollator.getComparisonKey("abc").getKeyData(), asciiKey);
     ASSERT_EQ(icuCollator.getComparisonKey("c\xC3\xB4t\xC3\xA9").getKeyData(),
-              "\x2D\x45\x4F\x31\x01\x44\x8E\x44\x88\x01\x0A");
+              accentedKey);
 }
 
 TEST(CollatorInterfaceICUTest, ComparisonKeysForFrCaCollatorCorrect) {
@@ -586,11 +614,13 @@ TEST(CollatorInterfaceICUTest, ComparisonKeysForFrCaCollatorCorrect) {
     std::unique_ptr<icu::Collator> coll(
         icu::Collator::createInstance(icu::Locale("fr", "CA"), status));
     ASSERT(U_SUCCESS(status));
+    const auto asciiKey = referenceSortKey(*coll, "abc");
+    const auto accentedKey = referenceSortKey(*coll, "c\xC3\xB4t\xC3\xA9");
     CollatorInterfaceICU icuCollator(collationSpec, std::move(coll));
 
-    ASSERT_EQ(icuCollator.getComparisonKey("abc").getKeyData(), "\x29\x2B\x2D\x01\x07\x01\x07");
+    ASSERT_EQ(icuCollator.getComparisonKey("abc").getKeyData(), asciiKey);
     ASSERT_EQ(icuCollator.getComparisonKey("c\xC3\xB4t\xC3\xA9").getKeyData(),
-              "\x2D\x45\x4F\x31\x01\x88\x44\x8E\x06\x01\x0A");
+              accentedKey);
 }
 
 }  // namespace

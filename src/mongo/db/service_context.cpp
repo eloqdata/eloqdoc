@@ -243,15 +243,8 @@ ServiceContext::UniqueOperationContext ServiceContext::makeOperationContext(Clie
     auto opCtx =
         ObjectPool<OperationContext>::newObjectRawPointer(client, _nextOpId.fetchAndAdd(1));
     onCreate(opCtx, _clientObservers);
-    // if (!opCtx->lockState()) {
-    //     MONGO_UNREACHABLE;
-    //     opCtx->setLockState(std::make_unique<LockerNoop>());
-    // }
-    // if (!opCtx->recoveryUnit()) {
-    //     MONGO_UNREACHABLE;
-    //     opCtx->setRecoveryUnit(new RecoveryUnitNoop(),
-    //                            WriteUnitOfWork::RecoveryUnitState::kNotInUnitOfWork);
-    // }
+    // Storage observers own locker/recovery-unit setup. In particular, Eloq's early
+    // catalog initialization intentionally leaves the recovery unit unset.
     {
         stdx::lock_guard<Client> lk(*client);
         client->setOperationContext(opCtx);

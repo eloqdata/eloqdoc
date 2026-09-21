@@ -45,6 +45,23 @@ class EphemeralForTestEngine : public KVEngine {
 public:
     virtual RecoveryUnit* newRecoveryUnit();
 
+    RecoveryUnit::UPtr newRecoveryUnitUPtr() override {
+        return {newRecoveryUnit(), [](RecoveryUnit* unit) { delete unit; }};
+    }
+
+    // Model the fork's namespace-keyed catalog in this in-memory test engine. Callers still
+    // use MongoDB's ordinary database/collection locks; there is no remote catalog cache.
+    Status lockCollection(OperationContext* opCtx,
+                          StringData ns,
+                          bool isForWrite,
+                          bool* exists,
+                          std::string* version) override;
+    void onAuthzDataChanged(OperationContext*) override {}
+    void listDatabases(std::vector<std::string>& out) const override;
+    bool databaseExists(std::string_view dbName) const override;
+    void listCollections(std::string_view dbName, std::vector<std::string>& out) const override;
+    void listCollections(std::string_view dbName, std::set<std::string>& out) const override;
+
     virtual Status createRecordStore(OperationContext* opCtx,
                                      StringData ns,
                                      StringData ident,
@@ -115,6 +132,8 @@ public:
     }
 
 private:
+    std::unique_ptr<RecordStore> _getCatalogRecordStore() const;
+
     typedef StringMap<std::shared_ptr<void>> DataMap;
 
     mutable stdx::mutex _mutex;

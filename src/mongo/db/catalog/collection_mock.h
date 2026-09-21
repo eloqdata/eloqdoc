@@ -62,11 +62,15 @@ private:
     Status recordStoreGoingToUpdateInPlace(OperationContext* opCtx, const RecordId& loc) {
         std::abort();
     }
+    const std::string _catalogVersion;
     const NamespaceString _ns;
 
 public:
     const NamespaceString& ns() const {
         return _ns;
+    }
+    const std::string& catalogVersion() const {
+        return _catalogVersion;
     }
     bool ok() const {
         std::abort();
@@ -131,6 +135,17 @@ public:
     void deleteDocument(OperationContext* opCtx,
                         StmtId stmtId,
                         const RecordId& loc,
+                        OpDebug* opDebug,
+                        bool fromMigrate,
+                        bool noWarn,
+                        Collection::StoreDeletedDoc storeDeletedDoc) {
+        std::abort();
+    }
+
+    void deleteDocument(OperationContext* opCtx,
+                        StmtId stmtId,
+                        const RecordId& loc,
+                        const Snapshotted<BSONObj>& doc,
                         OpDebug* opDebug,
                         bool fromMigrate,
                         bool noWarn,

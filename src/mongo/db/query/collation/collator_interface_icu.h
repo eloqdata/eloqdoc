@@ -31,10 +31,11 @@
 #include "mongo/db/query/collation/collator_interface.h"
 
 #include <memory>
+#include <unicode/utypes.h>
 
-namespace icu {
+U_NAMESPACE_BEGIN
 class Collator;
-}  // namespace icu
+U_NAMESPACE_END
 
 namespace mongo {
 

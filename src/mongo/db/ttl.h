@@ -32,4 +32,6 @@
 
 namespace mongo {
 void startTTLBackgroundJob();
+// Wake and drain the TTL worker before storage teardown. Safe if startup never started TTL.
+void shutdownTTLBackgroundJob();
 }

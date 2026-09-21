@@ -92,6 +92,7 @@
 #include "mongo/db/logical_time_validator.h"
 #include "mongo/db/mongod_options.h"
 #include "mongo/db/op_observer_registry.h"
+#include "mongo/db/op_observer_impl.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/periodic_runner_job_abort_expired_transactions.h"
 #include "mongo/db/query/internal_plans.h"
@@ -99,14 +100,19 @@
 #include "mongo/db/repl/drop_pending_collection_reaper.h"
 #include "mongo/db/repl/oplog.h"
 #include "mongo/db/repl/repl_settings.h"
-#include "mongo/db/repl/replication_consistency_markers_impl.h"
 #include "mongo/db/repl/replication_coordinator.h"
+#ifdef ELOQDOC_STANDALONE
+#include "mongo/db/repl/replication_coordinator_standalone.h"
+#else
+#include "mongo/db/repl/replication_consistency_markers_impl.h"
 #include "mongo/db/repl/replication_coordinator_external_state_impl.h"
 #include "mongo/db/repl/replication_coordinator_impl.h"
-#include "mongo/db/repl/replication_process.h"
 #include "mongo/db/repl/replication_recovery.h"
-#include "mongo/db/repl/storage_interface_impl.h"
 #include "mongo/db/repl/topology_coordinator.h"
+#endif
+#include "mongo/db/repl/replication_process.h"
+#include "mongo/db/repl/storage_interface_impl.h"
+#ifndef ELOQDOC_STANDALONE
 #include "mongo/db/s/balancer/balancer.h"
 #include "mongo/db/s/config/sharding_catalog_manager.h"
 #include "mongo/db/s/config_server_op_observer.h"
@@ -114,6 +120,7 @@
 #include "mongo/db/s/shard_server_op_observer.h"
 #include "mongo/db/s/sharding_initialization_mongod.h"
 #include "mongo/db/s/sharding_state_recovery.h"
+#endif
 #include "mongo/db/server_options.h"
 #include "mongo/db/server_parameters.h"
 #include "mongo/db/service_context.h"
@@ -286,11 +293,13 @@ ExitCode _initAndListen(int listenPort) {
 
     opObserverRegistry->addObserver(stdx::make_unique<UUIDCatalogObserver>());
 
+#ifndef ELOQDOC_STANDALONE
     if (serverGlobalParams.clusterRole == ClusterRole::ShardServer) {
         opObserverRegistry->addObserver(stdx::make_unique<ShardServerOpObserver>());
     } else if (serverGlobalParams.clusterRole == ClusterRole::ConfigServer) {
         opObserverRegistry->addObserver(stdx::make_unique<ConfigServerOpObserver>());
     }
+#endif
     setupFreeMonitoringOpObserver(opObserverRegistry.get());
 
 
@@ -525,12 +534,14 @@ ExitCode _initAndListen(int listenPort) {
               << startupWarningsLog;
     }
 
+#ifndef ELOQDOC_STANDALONE
     // This function may take the global lock.
     auto shardingInitialized = ShardingInitializationMongoD::get(startupOpCtx.get())
                                    ->initializeShardingAwarenessIfNeeded(startupOpCtx.get());
     if (shardingInitialized) {
         waitForShardRegistryReload(startupOpCtx.get()).transitional_ignore();
     }
+#endif
 
     auto storageEngine = serviceContext->getStorageEngine();
     invariant(storageEngine);
@@ -547,6 +558,7 @@ ExitCode _initAndListen(int listenPort) {
 
         restartInProgressIndexesFromLastShutdown(startupOpCtx.get());
 
+#ifndef ELOQDOC_STANDALONE
         if (serverGlobalParams.clusterRole == ClusterRole::ShardServer) {
             // Note: For replica sets, ShardingStateRecovery happens on transition to primary.
             if (!repl::ReplicationCoordinator::get(startupOpCtx.get())->isReplEnabled()) {
@@ -573,6 +585,7 @@ ExitCode _initAndListen(int listenPort) {
             LogicalTimeValidator::set(startupOpCtx->getServiceContext(),
                                       stdx::make_unique<LogicalTimeValidator>(keyManager));
         }
+#endif
 
         repl::ReplicationCoordinator::get(startupOpCtx.get())->startup(startupOpCtx.get());
         const unsigned long long missingRepl =
@@ -801,6 +814,7 @@ void startupConfigActions(const std::vector<std::string>& args) {
 #endif
 }
 
+#ifndef ELOQDOC_STANDALONE
 auto makeReplicationExecutor(ServiceContext* serviceContext) {
     ThreadPool::Options tpOptions;
     tpOptions.poolName = "replexec";
@@ -814,9 +828,23 @@ auto makeReplicationExecutor(ServiceContext* serviceContext) {
         stdx::make_unique<ThreadPool>(tpOptions),
         executor::makeNetworkInterface("Replication", nullptr, std::move(hookList)));
 }
+#endif
 
 void setUpReplication(ServiceContext* serviceContext) {
     repl::StorageInterface::set(serviceContext, stdx::make_unique<repl::StorageInterfaceImpl>());
+#ifdef ELOQDOC_STANDALONE
+    // Preserve the server startup path, but omit MongoDB replica-set services. Eloq's
+    // transaction and durability services are initialized by the storage engine.
+    // Unsupported topology options are rejected by storeMongodOptions before startup.
+    // ReplicationProcess and DropPendingCollectionReaper are deliberately not installed.
+    // Callers must check replication mode before accessing either service; keep this
+    // contract when merging upstream startup, catalog, and shutdown changes.
+    invariant(!getGlobalReplSettings().usingReplSets() &&
+              serverGlobalParams.clusterRole == ClusterRole::None);
+    LogicalClock::set(serviceContext, stdx::make_unique<LogicalClock>(serviceContext));
+    repl::ReplicationCoordinator::set(
+        serviceContext, stdx::make_unique<repl::ReplicationCoordinatorStandalone>(serviceContext));
+#else
     auto storageInterface = repl::StorageInterface::get(serviceContext);
 
     auto consistencyMarkers =
@@ -851,6 +879,7 @@ void setUpReplication(ServiceContext* serviceContext) {
         storageInterface,
         static_cast<int64_t>(curTimeMillis64()));
     repl::ReplicationCoordinator::set(serviceContext, std::move(replCoord));
+#endif
     repl::setOplogCollectionName(serviceContext);
 }
 
@@ -895,7 +924,9 @@ void shutdownTask() {
         // is building an index.
         repl::ReplicationCoordinator::get(serviceContext)->shutdown(opCtx);
 
+#ifndef ELOQDOC_STANDALONE
         ShardingInitializationMongoD::get(serviceContext)->shutDown(opCtx);
+#endif
 
         // Destroy all stashed transaction resources, in order to release locks.
         SessionKiller::Matcher matcherAllSessions(
@@ -905,6 +936,10 @@ void shutdownTask() {
 
     serviceContext->setKillAllOperations();
 
+    // TTL is a separate BackgroundJob, not part of the periodic runner. Drain it while
+    // Data Substrate and its workers are alive, before taking the global shutdown lock.
+    shutdownTTLBackgroundJob();
+
     // Shut down the background periodic task runner
     if (auto runner = serviceContext->getPeriodicRunner()) {
         runner->shutdown();
@@ -912,9 +947,11 @@ void shutdownTask() {
 
     ReplicaSetMonitor::shutdown();
 
+#ifndef ELOQDOC_STANDALONE
     if (auto sr = Grid::get(serviceContext)->shardRegistry()) {
         sr->shutdown();
     }
+#endif
 
     // Validator shutdown must be called after setKillAllOperations is called. Otherwise, this can
     // deadlock.

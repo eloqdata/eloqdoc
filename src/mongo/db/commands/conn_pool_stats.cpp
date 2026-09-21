@@ -114,6 +114,7 @@ public:
 
 } poolStatsCmd;
 
+#ifndef ELOQDOC_STANDALONE
 class ShardedPoolStats final : public BasicCommand {
 public:
     ShardedPoolStats() : BasicCommand("shardConnPoolStats") {}
@@ -156,6 +157,7 @@ public:
     }
 
 } shardedPoolStatsCmd;
+#endif
 
 }  // namespace
 }  // namespace mongo

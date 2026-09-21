@@ -51,7 +51,7 @@ public:
      * Retrieves an already opened database or returns nullptr. Must be called with the database
      * locked in at least IS-mode.
      */
-    Database* get(OperationContext* opCtx, StringData ns) const override {
+    Database* get(OperationContext* opCtx, StringData ns) override {
         return nullptr;
     }
 

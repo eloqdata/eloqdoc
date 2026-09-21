@@ -61,7 +61,7 @@ public:
                              const BSONObj& msgObj,
                              const boost::optional<BSONObj> o2MsgObj) override {}
     void onCreateCollection(OperationContext* opCtx,
-                            Collection* coll,
+                            Collection::Uptr coll,
                             const NamespaceString& collectionName,
                             const CollectionOptions& options,
                             const BSONObj& idIndex,

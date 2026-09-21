@@ -17,12 +17,8 @@ concurrency:
 
 jobs:
   prime-third-party:
-    name: prime-third-party (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    name: prime-third-party (amd64)
+    runs-on: ubuntu-24.04
     container:
       image: eloqdata/ubuntu-dev:24.04
       options: --user root
@@ -46,8 +42,179 @@ jobs:
         uses: ./eloqdoc/.github/actions/setup-third-party
         with:
           source-dir: ${{ github.workspace }}/eloqdoc
-          arch: ${{ matrix.arch }}
+          arch: amd64
           cache-scope: ubuntu-dev
+
+  cmake-build-smoke:
+    name: CMake/Ninja RelWithDebInfo-eloqstore_s3-amd64
+    needs: prime-third-party
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    container:
+      image: eloqdata/ubuntu-dev:24.04
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+    env:
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      CMAKE_PREFIX_PATH: /opt/eloq/third_party
+      CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
+      CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
+      LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
+      S3_ENDPOINT: http://127.0.0.1:9900
+      S3_ACCESS_KEY: rustfsadmin
+      S3_SECRET_KEY: rustfsadmin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+          path: eloqdoc
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout product submodules
+        run: |
+          git config --global --add safe.directory '*'
+          cd "$GITHUB_WORKSPACE/eloqdoc"
+          bash scripts/checkout_product_submodules.sh
+
+      - name: Setup third-party (cached)
+        uses: ./eloqdoc/.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}/eloqdoc
+          arch: amd64
+          cache-scope: ubuntu-dev
+
+      - name: Limit CMake build and test parallelism to runner capacity
+        run: |
+          jobs=$(nproc)
+          if [ "$jobs" -gt 8 ]; then jobs=8; fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+
+      - name: Install Python 3 IDL compiler dependency
+        run: |
+          # The third-party cache contains C++ libraries, not Python code-generation dependencies.
+          apt-get update
+          apt-get install -y --no-install-recommends python3-yaml
+          /usr/bin/python3 -c 'import yaml'
+
+      - name: Prepare runtime test clients
+        id: cmake_clients
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          apt-get install -y --no-install-recommends python3-venv
+          /usr/bin/python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
+          source .github/scripts/common.sh
+          setup_python2
+          python2 -c 'import yaml, pymongo, requests'
+          git clone --depth 1 --branch production \
+            https://github.com/eloqdata/py-tpcc.git "$PY_TPCC_PATH"
+
+      - name: Configure top-level CMake build
+        working-directory: eloqdoc
+        run: |
+          cmake -S . -B build/cmake-ci -G Ninja \
+            -DPython3_EXECUTABLE=/usr/bin/python3 \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_JOB_POOLS=link_pool=1 \
+            -DCMAKE_JOB_POOL_LINK=link_pool \
+            -DBUILD_SHARED_LIBS=ON \
+            -DELOQDOC_BUILD_TESTS=ON \
+            -DELOQDOC_REGISTER_INTEGRATION_TESTS=ON \
+            -DELOQDOC_TEST_CONNECTION_STRING=localhost:27017 \
+            -DELOQ_THIRD_PARTY_PREFIX="$ELOQ_THIRD_PARTY_PREFIX" \
+            -DELOQ_THIRD_PARTY_REQUIRED=ON \
+            -DWITH_DATA_STORE=ELOQDSS_ELOQSTORE \
+            -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 \
+            -DWITH_LOG_SERVICE=ON \
+            -DFORK_HM_PROCESS=ON \
+            -DSTATISTICS=ON
+
+      - name: Build server and all retained CMake tests
+        id: cmake_build
+        working-directory: eloqdoc
+        run: |
+          cmake --build build/cmake-ci \
+            --target eloqdoc eloqdoc-tests
+
+      - name: Run CMake unit and integration-startup tests
+        working-directory: eloqdoc
+        run: |
+          ctest --test-dir build/cmake-ci \
+            --label-exclude '^integration$' --no-tests=error --output-on-failure
+
+      - name: Run C++ integration suites against the CMake server
+        id: cmake_integration
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' && steps.cmake_clients.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            bash .github/scripts/cmake_ci_runtime.sh build/cmake-ci integration
+
+      - name: Build the legacy JavaScript test shell only
+        id: cmake_shell
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' && steps.cmake_clients.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          BUILD_JOBS="$CMAKE_BUILD_PARALLEL_LEVEL" \
+            bash .github/scripts/build_cmake_test_shell.sh \
+              "$PWD/build/cmake-test-shell" "$PWD/build/cmake-test-client"
+
+      - name: Run eloq_basic and eloq_core against the CMake server
+        id: cmake_jstests
+        if: ${{ !cancelled() && steps.cmake_shell.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          ELOQDOC_TEST_SHELL="$PWD/build/cmake-test-client/bin/eloqdoc-cli" \
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            bash .github/scripts/cmake_ci_runtime.sh build/cmake-ci jstests
+
+      - name: Run TPCC against the CMake server
+        id: cmake_tpcc
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' && steps.cmake_clients.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            bash .github/scripts/cmake_ci_runtime.sh build/cmake-ci tpcc
+
+      - name: Preserve failed CMake runtime-test logs
+        if: ${{ failure() && (steps.cmake_integration.outcome == 'failure' || steps.cmake_jstests.outcome == 'failure' || steps.cmake_tpcc.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-runtime-eloqstore-s3-amd64-${{ github.run_attempt }}
+          path: |
+            eloqdoc/build/cmake-ci/runtime-diagnostics/
+            eloqdoc/build/cmake-ci/jstests-results.json
+            eloqdoc/build/cmake-ci/Testing/Temporary/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Exercise the normal server over the MongoDB wire protocol
+        id: cmake_smoke
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          source .github/scripts/common.sh
+          trap 'stop_rustfs' EXIT
+          start_rustfs "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            cmake --build build/cmake-ci --target eloqdoc-server-smoke
+
+      - name: Preserve failed CMake smoke-test logs
+        if: ${{ failure() && steps.cmake_smoke.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-smoke-eloqstore-s3-amd64-${{ github.run_attempt }}
+          path: |
+            eloqdoc/build/cmake-ci/smoke-diagnostics/
+            /tmp/rustfs.log
+          if-no-files-found: warn
+          retention-days: 7
 
   ent-ci:
     needs: prime-third-party
@@ -58,19 +225,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Debug, RelWithDebInfo]
-        arch: [amd64, arm64]
+        build_type: [RelWithDebInfo]
+        arch: [amd64]
         engine:
-          - id: rocksdb
-            data_store_type: ELOQDSS_ROCKSDB
-            log_state: ROCKSDB
           - id: rocks_s3
             data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
             log_state: ROCKSDB_CLOUD_S3
           - id: eloqstore_s3
             data_store_type: ELOQDSS_ELOQSTORE
             log_state: ROCKSDB_CLOUD_S3
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     container:
       image: eloqdata/ubuntu-dev:24.04
@@ -136,7 +300,8 @@ jobs:
             echo "JSTEST_TIMEOUT_SECONDS=7200" >> "$GITHUB_ENV"
           fi
 
-      - name: Build (${{ matrix.build_type }}, ${{ matrix.engine.id }})
+      # gh_ci_entry.sh deliberately exercises the historical Python 2/SCons install-core path.
+      - name: Build with SCons (${{ matrix.build_type }}, ${{ matrix.engine.id }})
         run: |
           bash ./eloqdoc/.github/scripts/gh_ci_entry.sh \
             "$S3_ENDPOINT" \

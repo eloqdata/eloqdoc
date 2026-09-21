@@ -38,6 +38,10 @@
 #include <unistd.h>
 #endif
 
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
@@ -120,6 +124,12 @@ void DeathTestImpl::_doTest() {
     // process calls std::abort() or std::terminate().
     const struct rlimit kNoCoreDump { 0U, 0U };
     checkSyscall(setrlimit(RLIMIT_CORE, &kNoCoreDump));
+#ifdef __linux__
+    // Linux ignores RLIMIT_CORE for piped core_pattern collectors (including WSL's).
+    // Expected deaths must not launch a crash collector or dump this large test process.
+    // Only this child becomes nondumpable; unexpected parent/server crashes retain diagnostics.
+    checkSyscall(prctl(PR_SET_DUMPABLE, 0, 0, 0, 0));
+#endif
 
     try {
         auto test = _makeTest();

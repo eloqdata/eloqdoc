@@ -30,10 +30,30 @@
 
 #include "mongo/db/logical_time.h"
 #include "mongo/db/operation_time_tracker.h"
+#include "mongo/db/service_context_test_fixture.h"
 #include "mongo/unittest/unittest.h"
 
 namespace mongo {
 namespace {
+
+using OperationTimeTrackerTest = ServiceContextTest;
+
+TEST_F(OperationTimeTrackerTest, ResetDecorationsCreatesIndependentTracker) {
+    auto opCtx = makeOperationContext();
+    auto previous = OperationTimeTracker::get(opCtx.get());
+    const LogicalTime previousTime(Timestamp(15));
+    previous->updateOperationTime(previousTime);
+    ASSERT_EQ(previous, OperationTimeTracker::get(opCtx.get()));
+
+    // OperationContext's pool deleter resets decorations without destroying the context.
+    opCtx->resetAllDecorations();
+    auto current = OperationTimeTracker::get(opCtx.get());
+    ASSERT_NE(previous, current);
+    ASSERT_EQ(LogicalTime::kUninitialized, current->getMaxOperationTime());
+    current->updateOperationTime(LogicalTime(Timestamp(5)));
+    ASSERT_EQ(previousTime, previous->getMaxOperationTime());
+    ASSERT_EQ(current, OperationTimeTracker::get(opCtx.get()));
+}
 
 TEST(OperationTimeTracker, UnintializedMaxOperationTime) {
     OperationTimeTracker opTimeTracker;

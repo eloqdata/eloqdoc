@@ -172,6 +172,7 @@ public:
 
             updateUniqueIndexesOnUpgrade(opCtx);
 
+#ifndef ELOQDOC_STANDALONE
             // Upgrade shards before config finishes its upgrade.
             if (serverGlobalParams.clusterRole == ClusterRole::ConfigServer) {
                 auto allDbs = uassertStatusOK(Grid::get(opCtx)->catalogClient()->getAllDBs(
@@ -224,6 +225,7 @@ public:
                                      << requestedVersion)))));
             }
 
+#endif
             FeatureCompatibilityVersion::unsetTargetUpgradeOrDowngrade(opCtx, requestedVersion);
         } else if (requestedVersion == FeatureCompatibilityVersionParser::kVersion36) {
             uassert(ErrorCodes::IllegalOperation,
@@ -254,6 +256,7 @@ public:
                 Lock::GlobalLock lk(opCtx, MODE_S);
             }
 
+#ifndef ELOQDOC_STANDALONE
             // Downgrade shards before config finishes its downgrade.
             if (serverGlobalParams.clusterRole == ClusterRole::ConfigServer) {
                 uassertStatusOK(
@@ -303,6 +306,7 @@ public:
                 Grid::get(opCtx)->catalogCache()->purgeAllDatabases();
             }
 
+#endif
             FeatureCompatibilityVersion::unsetTargetUpgradeOrDowngrade(opCtx, requestedVersion);
         }
 

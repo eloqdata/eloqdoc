@@ -982,6 +982,7 @@ void execCommandDatabase(OperationContext* opCtx,
             throw;
         }
     } catch (const DBException& e) {
+#ifndef ELOQDOC_STANDALONE
         // If we got a stale config, wait in case the operation is stuck in a critical section
         if (auto sce = e.extraInfo<StaleConfigInfo>()) {
             if (!opCtx->getClient()->isInDirectClient()) {
@@ -1003,6 +1004,7 @@ void execCommandDatabase(OperationContext* opCtx,
                     .ignore();
             }
         }
+#endif
 
         // Append the error labels for transient transaction errors.
         auto errorLabels = getErrorLabels(sessionOptions, command->getName(), e.code());
@@ -1159,6 +1161,7 @@ DbResponse receivedQuery(OperationContext* opCtx,
 
         dbResponse.exhaustNS = runQuery(opCtx, q, nss, dbResponse.response);
     } catch (const AssertionException& e) {
+#ifndef ELOQDOC_STANDALONE
         // If we got a stale config, wait in case the operation is stuck in a critical section
         if (auto sce = e.extraInfo<StaleConfigInfo>()) {
             if (!opCtx->getClient()->isInDirectClient()) {
@@ -1168,6 +1171,7 @@ DbResponse receivedQuery(OperationContext* opCtx,
                     .ignore();
             }
         }
+#endif
 
         dbResponse.response.reset();
         generateLegacyQueryErrorResponse(e, q, &op, &dbResponse.response);
