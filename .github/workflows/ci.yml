@@ -97,6 +97,19 @@ jobs:
           apt-get install -y --no-install-recommends python3-yaml
           /usr/bin/python3 -c 'import yaml'
 
+      - name: Prepare runtime test clients
+        id: cmake_clients
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          apt-get install -y --no-install-recommends python3-venv
+          /usr/bin/python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
+          source .github/scripts/common.sh
+          setup_python2
+          python2 -c 'import yaml, pymongo, requests'
+          git clone --depth 1 --branch production \
+            https://github.com/eloqdata/py-tpcc.git "$PY_TPCC_PATH"
+
       - name: Configure top-level CMake build
         working-directory: eloqdoc
         run: |
@@ -107,6 +120,8 @@ jobs:
             -DCMAKE_JOB_POOL_LINK=link_pool \
             -DBUILD_SHARED_LIBS=ON \
             -DELOQDOC_BUILD_TESTS=ON \
+            -DELOQDOC_REGISTER_INTEGRATION_TESTS=ON \
+            -DELOQDOC_TEST_CONNECTION_STRING=localhost:27017 \
             -DELOQ_THIRD_PARTY_PREFIX="$ELOQ_THIRD_PARTY_PREFIX" \
             -DELOQ_THIRD_PARTY_REQUIRED=ON \
             -DWITH_DATA_STORE=ELOQDSS_ELOQSTORE \
@@ -122,11 +137,61 @@ jobs:
           cmake --build build/cmake-ci \
             --target eloqdoc eloqdoc-tests
 
-      - name: Run all registered CMake tests
+      - name: Run CMake unit and integration-startup tests
         working-directory: eloqdoc
         run: |
           ctest --test-dir build/cmake-ci \
-            --output-on-failure
+            --label-exclude '^integration$' --no-tests=error --output-on-failure
+
+      - name: Run C++ integration suites against the CMake server
+        id: cmake_integration
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' && steps.cmake_clients.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            bash .github/scripts/cmake_ci_runtime.sh build/cmake-ci integration
+
+      - name: Build the legacy JavaScript test shell only
+        id: cmake_shell
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' && steps.cmake_clients.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          BUILD_JOBS="$CMAKE_BUILD_PARALLEL_LEVEL" \
+            bash .github/scripts/build_cmake_test_shell.sh \
+              "$PWD/build/cmake-test-shell" "$PWD/build/cmake-test-client"
+
+      - name: Run eloq_basic and eloq_core against the CMake server
+        id: cmake_jstests
+        if: ${{ !cancelled() && steps.cmake_shell.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          ELOQDOC_TEST_SHELL="$PWD/build/cmake-test-client/bin/eloqdoc-cli" \
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            bash .github/scripts/cmake_ci_runtime.sh build/cmake-ci jstests
+
+      - name: Run TPCC against the CMake server
+        id: cmake_tpcc
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' && steps.cmake_clients.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            bash .github/scripts/cmake_ci_runtime.sh build/cmake-ci tpcc
+
+      - name: Preserve failed CMake runtime-test logs
+        if: ${{ failure() && (steps.cmake_integration.outcome == 'failure' || steps.cmake_jstests.outcome == 'failure' || steps.cmake_tpcc.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-runtime-eloqstore-s3-amd64-${{ github.run_attempt }}
+          path: |
+            eloqdoc/build/cmake-ci/runtime-diagnostics/
+            eloqdoc/build/cmake-ci/jstests-results.json
+            eloqdoc/build/cmake-ci/Testing/Temporary/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Exercise the normal server over the MongoDB wire protocol
         id: cmake_smoke
@@ -137,7 +202,6 @@ jobs:
           source .github/scripts/common.sh
           trap 'stop_rustfs' EXIT
           start_rustfs "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
-          /usr/bin/python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
           PYTHONPATH="$PWD/build/cmake-ci/python" \
             cmake --build build/cmake-ci --target eloqdoc-server-smoke
 

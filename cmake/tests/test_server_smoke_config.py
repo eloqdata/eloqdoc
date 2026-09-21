@@ -82,6 +82,12 @@ class ServerSmokeConfigTest(unittest.TestCase):
                 self.assertEqual(1, self.config(data_store, log_state, core_number=1)[
                     "local"].getint("core_number"))
 
+    def test_larger_runtime_suites_can_set_the_memory_budget(self):
+        config = configparser.ConfigParser()
+        config.read_string(substrate_config(Path("/tmp/runtime"), 12345, 12346,
+                                           "ELOQDSS_ROCKSDB", "ROCKSDB", {}, memory_limit_mb=4000))
+        self.assertEqual(4000, config["local"].getint("node_memory_limit_mb"))
+
 
 if __name__ == "__main__":
     unittest.main()

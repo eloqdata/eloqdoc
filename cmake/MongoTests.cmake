@@ -19,6 +19,9 @@ set_tests_properties(cmake/server-smoke-config PROPERTIES LABELS "cmake;unit" TI
 add_test(NAME cmake/server-smoke-diagnostics
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/test_server_smoke_diagnostics.py")
 set_tests_properties(cmake/server-smoke-diagnostics PROPERTIES LABELS "cmake;unit" TIMEOUT 60)
+add_test(NAME cmake/server-fixture
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/test_server_fixture.py")
+set_tests_properties(cmake/server-fixture PROPERTIES LABELS "cmake;unit" TIMEOUT 30)
 
 # Opt-in wire-protocol regression fixture; PyMongo is an explicit test-only dependency.
 add_custom_target(eloqdoc-server-smoke
@@ -180,7 +183,8 @@ foreach(_test_id IN LISTS ELOQDOC_MONGO_TEST_IDS)
             add_test(NAME "${_name}" COMMAND ${_target}
                 "--connectionString=${ELOQDOC_TEST_CONNECTION_STRING}")
             set_tests_properties("${_name}" PROPERTIES
-                LABELS "mongo;integration" TIMEOUT 600)
+                LABELS "mongo;integration" TIMEOUT 600
+                RESOURCE_LOCK eloqdoc-integration-server)
         endif()
     endif()
 

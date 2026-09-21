@@ -244,7 +244,7 @@ run their tests in their own repositories.
 MongoDB integration tests require an already-running EloqDoc fixture, so their binaries are built
 but their server-dependent cases are not registered with CTest by default. Every integration
 binary has an always-registered `startup-options` check which runs `--help` without a server;
-this catches missing option-parser initializers even in normal CI. To register the full cases,
+this catches missing option-parser initializers without a server. To register the full cases,
 configure with:
 
 ```bash
@@ -254,6 +254,39 @@ configure with:
 
 Then run `ctest --test-dir build/cmake --label-regex integration --output-on-failure` after starting
 the fixture.
+
+GitHub's CMake job explicitly enables `ELOQDOC_REGISTER_INTEGRATION_TESTS`. It runs unit and
+integration-startup checks first, then runs the actual C++ integration suites against a managed
+CMake-built server. These suites execute serially because they modify shared server parameters
+and failpoints. The same job runs the existing `eloq_basic` and `eloq_core` JavaScript suites,
+the same two-warehouse transactional TPCC workload as SCons CI, and the wire-protocol smoke tests.
+The CI matrix remains one amd64 RelWithDebInfo EloqStore/S3 configuration for CMake.
+
+The legacy JavaScript client is built separately with SCons's `install-shell` target; this does
+not build or substitute a SCons server. Python 2 is needed for that shell build and resmoke,
+while the server fixture uses Python 3/PyMongo. Their Python package paths are isolated.
+Each runtime phase gets fresh local data and a private S3 bucket on its disposable RustFS
+service, and must pass both its tests and clean server shutdown. Failure logs are preserved in
+`build/cmake-ci/runtime-diagnostics/`; configs, credentials, and data directories are not uploaded.
+
+To reproduce individual CI runtime phases locally (cloud configurations also need RustFS on
+`PATH` and the S3 environment variables documented below):
+
+```bash
+cmake -S . -B build/cmake -DELOQDOC_REGISTER_INTEGRATION_TESTS=ON \
+    -DELOQDOC_TEST_CONNECTION_STRING=localhost:27017
+cmake --build build/cmake --target eloqdoc eloqdoc-tests -j8
+bash .github/scripts/cmake_ci_runtime.sh build/cmake integration
+ELOQDOC_TEST_SHELL=/path/to/eloqdoc-cli \
+    bash .github/scripts/cmake_ci_runtime.sh build/cmake jstests
+PY_TPCC_PATH=/path/to/py-tpcc \
+    bash .github/scripts/cmake_ci_runtime.sh build/cmake tpcc
+```
+
+The fixture interpreter defaults to `/usr/bin/python3` and can be selected with
+`CMAKE_TEST_PYTHON`; install `pymongo==4.8.0` for that interpreter. TPCC uses its own virtual
+environment. The JavaScript and TPCC phases reserve port 27017 and refuse to reuse an existing
+server on that port. No Data Substrate/data-store test suites are added.
 
 The existing `eloq_basic` and `eloq_core` JavaScript suites can also run against the CMake
 server using an EloqDoc shell. Put the shell directory on `PATH` as well as passing resmoke's

@@ -3,11 +3,14 @@
 import uuid
 
 
-def substrate_config(root, tx_port, hm_port, data_store, log_state, environment, *, core_number=2):
+def substrate_config(root, tx_port, hm_port, data_store, log_state, environment, *, core_number=2,
+                     memory_limit_mb=None):
     cloud = (data_store, log_state) == ("ELOQDSS_ELOQSTORE", "ROCKSDB_CLOUD_S3")
     local = data_store in ("ROCKSDB", "ELOQDSS_ROCKSDB") and log_state == "ROCKSDB"
     if not (cloud or local):
         raise ValueError(f"Unsupported smoke-test backend: {data_store}/{log_state}")
+    if memory_limit_mb is None:
+        memory_limit_mb = 2048 if cloud else 512
 
     cloud_local, cloud_store = "", ""
     if cloud:
@@ -42,7 +45,7 @@ def substrate_config(root, tx_port, hm_port, data_store, log_state, environment,
 
     return (
         f"[local]\ncore_number={core_number}\n"
-        f"node_memory_limit_mb={2048 if cloud else 512}\n"
+        f"node_memory_limit_mb={memory_limit_mb}\n"
         f"enable_data_store=true\nenable_wal={'true' if cloud else 'false'}\n"
         "enable_mvcc=true\nevent_dispatcher_num=1\nbind_all=false\n"
         f"tx_ip=127.0.0.1\ntx_port={tx_port}\nhm_port={hm_port}\n"
