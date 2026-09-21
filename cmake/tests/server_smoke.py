@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Exercise the real CMake server over the wire (requires pymongo>=4.6,<4.11).
 
-Uses a private Data Substrate fixture with two worker cores and a disposable local data
-store (WAL disabled). Build with ELOQDSS_ROCKSDB/ROCKSDB, not a cloud backend. Logs and
-data are retained in the printed temporary directory.
+Uses a private Data Substrate fixture with two worker cores. Supports local RocksDB
+(WAL disabled) and EloqStore/S3 with RocksDB/S3 logging (WAL enabled). The S3 fixture
+requires S3_ENDPOINT, S3_ACCESS_KEY and S3_SECRET_KEY and a running disposable S3
+service. Logs and local data are retained in the printed temporary directory.
 """
 
 import argparse
@@ -22,6 +23,8 @@ from pymongo import MongoClient
 from bson.int64 import Int64
 from pymongo.errors import AutoReconnect, OperationFailure, PyMongoError
 from pymongo.read_concern import ReadConcern
+
+from server_smoke_config import substrate_config
 
 
 def free_port():
@@ -53,6 +56,8 @@ def command_fails(database, command, *, code=None, message):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", required=True, type=Path)
+    parser.add_argument("--data-store", default="ELOQDSS_ROCKSDB")
+    parser.add_argument("--log-state", default="ROCKSDB")
     args = parser.parse_args()
     server = args.server.resolve()
     # Keep every fixture child, including auxiliary services, within the user's CPU limit.
@@ -63,14 +68,12 @@ def main():
     (root / "db").mkdir()
     port, tx_port = free_port(), free_port()
     config = root / "data_substrate.cnf"
-    config.write_text(
-        "[local]\ncore_number=2\nnode_memory_limit_mb=512\n"
-        "enable_data_store=true\nenable_wal=false\nenable_mvcc=true\n"
-        "event_dispatcher_num=1\nbind_all=false\n"
-        f"tx_ip=127.0.0.1\ntx_port={tx_port}\nhm_port={free_port()}\n"
-        f"eloq_data_path={root / 'eloq'}\nlog_service_data_path={root / 'log'}\n"
-        f"[cluster]\ntx_ip_port_list=127.0.0.1:{tx_port}\n",
-        encoding="utf-8")
+    try:
+        config_text = substrate_config(root, tx_port, free_port(), args.data_store,
+                                       args.log_state, os.environ)
+    except ValueError as exc:
+        parser.error(str(exc))
+    config.write_text(config_text, encoding="utf-8")
     server_config = root / "eloqdoc.yaml"
     # JSON is valid YAML and avoids adding another test-client dependency.
     server_config.write_text(json.dumps({

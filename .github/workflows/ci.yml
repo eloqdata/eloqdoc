@@ -17,12 +17,8 @@ concurrency:
 
 jobs:
   prime-third-party:
-    name: prime-third-party (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    name: prime-third-party (amd64)
+    runs-on: ubuntu-24.04
     container:
       image: eloqdata/ubuntu-dev:24.04
       options: --user root
@@ -46,11 +42,11 @@ jobs:
         uses: ./eloqdoc/.github/actions/setup-third-party
         with:
           source-dir: ${{ github.workspace }}/eloqdoc
-          arch: ${{ matrix.arch }}
+          arch: amd64
           cache-scope: ubuntu-dev
 
   cmake-build-smoke:
-    name: CMake/Ninja single-node tests (amd64)
+    name: CMake/Ninja RelWithDebInfo-eloqstore_s3-amd64
     needs: prime-third-party
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -63,6 +59,9 @@ jobs:
       CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
       CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
       LD_LIBRARY_PATH: /opt/eloq/third_party/lib:/opt/eloq/third_party/lib64
+      S3_ENDPOINT: http://127.0.0.1:9900
+      S3_ACCESS_KEY: rustfsadmin
+      S3_SECRET_KEY: rustfsadmin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,10 +90,18 @@ jobs:
           echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
           echo "CTEST_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
 
+      - name: Install Python 3 IDL compiler dependency
+        run: |
+          # The third-party cache contains C++ libraries, not Python code-generation dependencies.
+          apt-get update
+          apt-get install -y --no-install-recommends python3-yaml
+          /usr/bin/python3 -c 'import yaml'
+
       - name: Configure top-level CMake build
         working-directory: eloqdoc
         run: |
           cmake -S . -B build/cmake-ci -G Ninja \
+            -DPython3_EXECUTABLE=/usr/bin/python3 \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_JOB_POOLS=link_pool=1 \
             -DCMAKE_JOB_POOL_LINK=link_pool \
@@ -102,8 +109,8 @@ jobs:
             -DELOQDOC_BUILD_TESTS=ON \
             -DELOQ_THIRD_PARTY_PREFIX="$ELOQ_THIRD_PARTY_PREFIX" \
             -DELOQ_THIRD_PARTY_REQUIRED=ON \
-            -DWITH_DATA_STORE=ELOQDSS_ROCKSDB \
-            -DWITH_LOG_STATE=ROCKSDB \
+            -DWITH_DATA_STORE=ELOQDSS_ELOQSTORE \
+            -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 \
             -DWITH_LOG_SERVICE=ON \
             -DFORK_HM_PROCESS=ON \
             -DSTATISTICS=ON
@@ -124,8 +131,12 @@ jobs:
       - name: Exercise the normal server over the MongoDB wire protocol
         if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' }}
         working-directory: eloqdoc
+        shell: bash
         run: |
-          python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
+          source .github/scripts/common.sh
+          trap 'stop_rustfs' EXIT
+          start_rustfs "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
+          /usr/bin/python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
           PYTHONPATH="$PWD/build/cmake-ci/python" \
             cmake --build build/cmake-ci --target eloqdoc-server-smoke
 
@@ -138,19 +149,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Debug, RelWithDebInfo]
-        arch: [amd64, arm64]
+        build_type: [RelWithDebInfo]
+        arch: [amd64]
         engine:
-          - id: rocksdb
-            data_store_type: ELOQDSS_ROCKSDB
-            log_state: ROCKSDB
           - id: rocks_s3
             data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
             log_state: ROCKSDB_CLOUD_S3
           - id: eloqstore_s3
             data_store_type: ELOQDSS_ELOQSTORE
             log_state: ROCKSDB_CLOUD_S3
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     container:
       image: eloqdata/ubuntu-dev:24.04

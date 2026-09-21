@@ -39,6 +39,22 @@ set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 find_package(Threads REQUIRED)
 
+# PyYAML is needed by the IDL compiler in the selected Python 3 environment, even
+# when the separately maintained C++ dependencies were restored from a cache.
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" -c "import yaml"
+    RESULT_VARIABLE _eloqdoc_pyyaml_status
+    ERROR_VARIABLE _eloqdoc_pyyaml_error
+    OUTPUT_QUIET)
+if(NOT _eloqdoc_pyyaml_status EQUAL 0)
+    message(FATAL_ERROR
+        "${Python3_EXECUTABLE} cannot import PyYAML (yaml), required for MongoDB IDL generation.\n"
+        "On Ubuntu with /usr/bin/python3, install python3-yaml. For a virtual environment, "
+        "install PyYAML into that environment and select it with -DPython3_EXECUTABLE=/path/to/python.\n"
+        "Installing PyYAML for the SCons Python 2 interpreter does not satisfy this dependency.\n"
+        "${_eloqdoc_pyyaml_error}")
+endif()
+
 file(GLOB_RECURSE _eloqdoc_sconscript_files CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*SConscript")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS

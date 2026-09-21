@@ -49,6 +49,12 @@ with the historical SCons requirements, and the Data Substrate dependency prefix
 distribution, install equivalent packages and build the dependencies described by
 `src/mongo/db/modules/eloq/data_substrate/scripts/third_party/install-ubuntu2404.sh`.
 
+The CMake IDL compiler requires PyYAML in the Python 3 interpreter selected by CMake.
+For Ubuntu's `/usr/bin/python3`, install it with `sudo apt-get install python3-yaml`
+(the dependency script already does this). For a virtual environment, install `PyYAML`
+there and pass `-DPython3_EXECUTABLE=/path/to/venv/bin/python` to CMake. Python 2's
+SCons packages and the cached C++ dependency prefix do not provide this Python 3 module.
+
 By default the Data Substrate dependencies are installed at:
 
 ```text
@@ -256,8 +262,10 @@ its generic parameter checks and runs its oplog-fetcher checks only when the ser
 replication commands. This preserves those assertions for SCons without restoring replication
 to the CMake server or excluding the whole test.
 
-The self-contained server smoke test requires `ELOQDSS_ROCKSDB` or `ROCKSDB`. It starts an
-authenticated server with a temporary local store, two Substrate worker cores, and WAL disabled.
+The server smoke test uses the build's selected storage/log backend. It supports local
+`ELOQDSS_ROCKSDB` (or `ROCKSDB`) with `ROCKSDB` logging and WAL disabled, or
+`ELOQDSS_ELOQSTORE` with `ROCKSDB_CLOUD_S3` logging and WAL enabled. Both start an
+authenticated server with two Substrate worker cores and temporary local storage.
 EloqDoc's catalog requires a data-store handler even for a disposable fixture. The test checks
 CRUD, ICU 57.1 collation metadata and lookup, local aggregation, JavaScript,
 background/TTL indexes, sessions and transaction commit/abort,
@@ -273,6 +281,12 @@ python3 -m pip install --target build/cmake/python 'pymongo==4.8.0'
 PYTHONPATH="$PWD/build/cmake/python" \
     cmake --build build/cmake --target eloqdoc-server-smoke -j8
 ```
+
+For EloqStore/S3, first start a disposable S3-compatible service and export `S3_ENDPOINT`,
+`S3_ACCESS_KEY`, and `S3_SECRET_KEY`. The fixture uses a new bucket on each run and retains
+it for inspection; stop/remove your disposable service afterward. CI starts and stops its own
+RustFS instance. The CMake CI job tests only amd64/RelWithDebInfo/EloqStore-S3; the SCons CI
+jobs cover amd64/RelWithDebInfo with RocksDB-S3 and EloqStore-S3.
 
 The fixture is restricted to at most eight CPUs and retains its logs and data in the temporary
 directory printed at startup. It tests Mongo-facing behavior, not Data Substrate/data-store
