@@ -13,11 +13,11 @@ class ServerSmokeConfigTest(unittest.TestCase):
                    "S3_ACCESS_KEY": "test-access", "S3_SECRET_KEY": "test-secret"}
 
     def config(self, data_store="ELOQDSS_ELOQSTORE", log_state="ROCKSDB_CLOUD_S3",
-               environment=None):
+               environment=None, core_number=2):
         config = configparser.ConfigParser(interpolation=None)
         config.read_string(substrate_config(
             Path("/tmp/smoke fixture"), 12345, 12346, data_store, log_state,
-            self.environment if environment is None else environment))
+            self.environment if environment is None else environment, core_number=core_number))
         return config
 
     def test_eloqstore_s3_uses_same_bucket_and_credentials_for_data_and_log(self):
@@ -74,6 +74,13 @@ class ServerSmokeConfigTest(unittest.TestCase):
         self.assertEqual(12345, config["local"].getint("tx_port"))
         self.assertEqual(12346, config["local"].getint("hm_port"))
         self.assertEqual("127.0.0.1:12345", config["cluster"]["tx_ip_port_list"])
+
+    def test_active_shutdown_can_use_a_single_worker(self):
+        for data_store, log_state in (("ELOQDSS_ROCKSDB", "ROCKSDB"),
+                                      ("ELOQDSS_ELOQSTORE", "ROCKSDB_CLOUD_S3")):
+            with self.subTest(data_store=data_store):
+                self.assertEqual(1, self.config(data_store, log_state, core_number=1)[
+                    "local"].getint("core_number"))
 
 
 if __name__ == "__main__":

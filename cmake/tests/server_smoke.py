@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real CMake server over the wire (requires pymongo>=4.6,<4.11).
 
-Uses a private Data Substrate fixture with two worker cores. Supports local RocksDB
+Uses a private Data Substrate fixture with one or two worker cores. Supports local RocksDB
 (WAL disabled) and EloqStore/S3 with RocksDB/S3 logging (WAL enabled). The S3 fixture
 requires S3_ENDPOINT, S3_ACCESS_KEY and S3_SECRET_KEY and a running disposable S3
 service. Logs and local data are retained in the printed temporary directory.
@@ -59,6 +59,7 @@ def main():
     parser.add_argument("--server", required=True, type=Path)
     parser.add_argument("--data-store", default="ELOQDSS_ROCKSDB")
     parser.add_argument("--log-state", default="ROCKSDB")
+    parser.add_argument("--ttl-shutdown-mode", choices=("sleeping", "active"), default="sleeping")
     parser.add_argument("--diagnostics-dir", type=Path,
                         help="Copy failure logs here for CI artifact collection")
     args = parser.parse_args()
@@ -73,7 +74,10 @@ def main():
     config = root / "data_substrate.cnf"
     try:
         config_text = substrate_config(root, tx_port, free_port(), args.data_store,
-                                       args.log_state, os.environ)
+                                       args.log_state, os.environ,
+                                       # One worker makes a blocking shutdown wait deadlock
+                                       # deterministically if TTL still needs that worker.
+                                       core_number=1 if args.ttl_shutdown_mode == "active" else 2)
     except ValueError as exc:
         parser.error(str(exc))
     config.write_text(config_text, encoding="utf-8")
@@ -244,6 +248,21 @@ def main():
                 assert db.records_view.count_documents({}) == 9
                 assert db.records.find_one({"k": 0})["v"] == 20
             print("PASS unsafe online catalog restart rejected without affecting data", flush=True)
+            def server_logged(message):
+                return message in (root / "server.log").read_text(encoding="utf-8", errors="replace")
+            if args.ttl_shutdown_mode == "sleeping":
+                # Confirm the worker enters a wait much longer than the shutdown timeout.
+                # Merely joining an uninterruptible sleep must fail this regression check.
+                authenticated.admin.command({"setParameter": 1,
+                                             "logComponentVerbosity": {"index": {"verbosity": 1}},
+                                             "ttlMonitorSleepSecs": 600})
+                eventually(lambda: server_logged("TTL monitor waiting for next pass: 600 seconds"), 10)
+                print("PASS TTL worker entered its long sleep before shutdown", flush=True)
+            else:
+                authenticated.admin.command({"configureFailPoint": "hangTTLMonitorBeforeStorageAccess",
+                                             "mode": "alwaysOn"})
+                eventually(lambda: server_logged("TTL monitor paused before storage access"), 10)
+                print("PASS active TTL pass held before shutdown", flush=True)
             # The network integration suites can leave a long-running command behind. Shutdown
             # must interrupt it, not wait for its normal completion or require SIGTERM.
             sleep_finished = threading.Event()
@@ -276,6 +295,13 @@ def main():
             wait_for_clean_shutdown(process, timeout=30)
             assert sleep_finished.wait(5), "sleep command did not finish during shutdown"
             assert not sleep_errors, sleep_errors
+            shutdown_log = (root / "server.log").read_text(encoding="utf-8", errors="replace")
+            ttl_stopped = shutdown_log.index("TTL monitor stopped")
+            storage_stopped = shutdown_log.index("EloqKVEngine::cleanShutdown")
+            assert ttl_stopped < storage_stopped, "storage teardown ran before TTL completed"
+            if args.ttl_shutdown_mode == "active":
+                assert shutdown_log.index("TTL monitor resuming storage access") < ttl_stopped
+            print("PASS TTL worker drained before storage teardown", flush=True)
             print("PASS clean shutdown with an active command", flush=True)
         except BaseException as exc:
             # Record the real exit status and logs before fixture cleanup can send signals.

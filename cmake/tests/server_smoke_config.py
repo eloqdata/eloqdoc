@@ -3,7 +3,7 @@
 import uuid
 
 
-def substrate_config(root, tx_port, hm_port, data_store, log_state, environment):
+def substrate_config(root, tx_port, hm_port, data_store, log_state, environment, *, core_number=2):
     cloud = (data_store, log_state) == ("ELOQDSS_ELOQSTORE", "ROCKSDB_CLOUD_S3")
     local = data_store in ("ROCKSDB", "ELOQDSS_ROCKSDB") and log_state == "ROCKSDB"
     if not (cloud or local):
@@ -41,7 +41,7 @@ def substrate_config(root, tx_port, hm_port, data_store, log_state, environment)
             "eloq_store_cloud_verify_ssl=false\neloq_store_cloud_request_threads=2\n")
 
     return (
-        "[local]\ncore_number=2\n"
+        f"[local]\ncore_number={core_number}\n"
         f"node_memory_limit_mb={2048 if cloud else 512}\n"
         f"enable_data_store=true\nenable_wal={'true' if cloud else 'false'}\n"
         "enable_mvcc=true\nevent_dispatcher_num=1\nbind_all=false\n"

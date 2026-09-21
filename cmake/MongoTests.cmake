@@ -26,6 +26,12 @@ add_custom_target(eloqdoc-server-smoke
         --server "$<TARGET_FILE:eloqdoc>"
         --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
         --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/smoke-diagnostics"
+        --ttl-shutdown-mode sleeping
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/server_smoke.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/smoke-diagnostics"
+        --ttl-shutdown-mode active
     DEPENDS eloqdoc
     USES_TERMINAL)
 

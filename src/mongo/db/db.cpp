@@ -936,6 +936,10 @@ void shutdownTask() {
 
     serviceContext->setKillAllOperations();
 
+    // TTL is a separate BackgroundJob, not part of the periodic runner. Drain it while
+    // Data Substrate and its workers are alive, before taking the global shutdown lock.
+    shutdownTTLBackgroundJob();
+
     // Shut down the background periodic task runner
     if (auto runner = serviceContext->getPeriodicRunner()) {
         runner->shutdown();

@@ -265,7 +265,7 @@ to the CMake server or excluding the whole test.
 The server smoke test uses the build's selected storage/log backend. It supports local
 `ELOQDSS_ROCKSDB` (or `ROCKSDB`) with `ROCKSDB` logging and WAL disabled, or
 `ELOQDSS_ELOQSTORE` with `ROCKSDB_CLOUD_S3` logging and WAL enabled. Both start an
-authenticated server with two Substrate worker cores and temporary local storage.
+authenticated server with temporary local storage and at most two Substrate worker cores.
 EloqDoc's catalog requires a data-store handler even for a disposable fixture. The test checks
 CRUD, ICU 57.1 collation metadata and lookup, local aggregation, JavaScript,
 background/TTL indexes, sessions and transaction commit/abort,
@@ -298,6 +298,13 @@ applicable) before cleanup, prints bounded log tails, and copies full fixture lo
 summary to `build/cmake/smoke-diagnostics/`. CI uploads these diagnostics and the RustFS log
 as a seven-day artifact. Data directories and configuration files are not uploaded. A shutdown
 timeout remains distinct from a nonzero exit, and clean shutdown still requires exit code zero.
+
+The smoke target runs twice to verify TTL shutdown ordering: once with the worker in a
+600-second sleep (which shutdown must wake promptly), and once with an active pass paused
+before storage access. Both require the TTL worker to finish before storage teardown, while
+also interrupting a long-running client command. The active-pass run uses a single Substrate
+worker so a blocking wait on the shutdown coroutine would strand TTL's requests. It uses the test-only
+`hangTTLMonitorBeforeStorageAccess` failpoint; it is inactive during normal operation.
 
 ## 5. Inspect the selected MongoDB graph
 
