@@ -16,12 +16,16 @@ set_tests_properties(cmake/icu-data-generator PROPERTIES LABELS "cmake;unit" TIM
 add_test(NAME cmake/server-smoke-config
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/test_server_smoke_config.py")
 set_tests_properties(cmake/server-smoke-config PROPERTIES LABELS "cmake;unit" TIMEOUT 60)
+add_test(NAME cmake/server-smoke-diagnostics
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/test_server_smoke_diagnostics.py")
+set_tests_properties(cmake/server-smoke-diagnostics PROPERTIES LABELS "cmake;unit" TIMEOUT 60)
 
 # Opt-in wire-protocol regression fixture; PyMongo is an explicit test-only dependency.
 add_custom_target(eloqdoc-server-smoke
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/server_smoke.py"
         --server "$<TARGET_FILE:eloqdoc>"
         --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/smoke-diagnostics"
     DEPENDS eloqdoc
     USES_TERMINAL)
 

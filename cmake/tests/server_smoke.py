@@ -25,6 +25,7 @@ from pymongo.errors import AutoReconnect, OperationFailure, PyMongoError
 from pymongo.read_concern import ReadConcern
 
 from server_smoke_config import substrate_config
+from server_smoke_diagnostics import describe_exit, report_failure, wait_for_clean_shutdown
 
 
 def free_port():
@@ -58,6 +59,8 @@ def main():
     parser.add_argument("--server", required=True, type=Path)
     parser.add_argument("--data-store", default="ELOQDSS_ROCKSDB")
     parser.add_argument("--log-state", default="ROCKSDB")
+    parser.add_argument("--diagnostics-dir", type=Path,
+                        help="Copy failure logs here for CI artifact collection")
     args = parser.parse_args()
     server = args.server.resolve()
     # Keep every fixture child, including auxiliary services, within the user's CPU limit.
@@ -105,7 +108,8 @@ def main():
         try:
             last_connection_error = []
             def ready():
-                assert process.poll() is None, "server exited; see " + str(root / "server.log")
+                returncode = process.poll()
+                assert returncode is None, "server exited: " + describe_exit(returncode)
                 try:
                     return anonymous.admin.command("ping")["ok"] == 1
                 except PyMongoError as exc:
@@ -269,10 +273,14 @@ def main():
                 authenticated.admin.command("shutdown", force=True)
             except AutoReconnect:
                 pass
-            assert process.wait(timeout=30) == 0
+            wait_for_clean_shutdown(process, timeout=30)
             assert sleep_finished.wait(5), "sleep command did not finish during shutdown"
             assert not sleep_errors, sleep_errors
             print("PASS clean shutdown with an active command", flush=True)
+        except BaseException as exc:
+            # Record the real exit status and logs before fixture cleanup can send signals.
+            report_failure(root, process.poll(), exc, args.diagnostics_dir)
+            raise
         finally:
             anonymous.close()
             if authenticated:

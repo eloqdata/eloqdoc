@@ -293,6 +293,12 @@ directory printed at startup. It tests Mongo-facing behavior, not Data Substrate
 persistence or recovery. Use `--option=value` for server options with values, as in the existing
 SCons launch scripts: the gflags pass can reorder separate argument values.
 
+On a runtime failure, the smoke test reports the server's exit code (and signal name when
+applicable) before cleanup, prints bounded log tails, and copies full fixture logs plus a failure
+summary to `build/cmake/smoke-diagnostics/`. CI uploads these diagnostics and the RustFS log
+as a seven-day artifact. Data directories and configuration files are not uploaded. A shutdown
+timeout remains distinct from a nonzero exit, and clean shutdown still requires exit code zero.
+
 ## 5. Inspect the selected MongoDB graph
 
 The source list is derived statically from MongoDB's fine-grained `SConscript` library metadata;

@@ -129,6 +129,7 @@ jobs:
             --output-on-failure
 
       - name: Exercise the normal server over the MongoDB wire protocol
+        id: cmake_smoke
         if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' }}
         working-directory: eloqdoc
         shell: bash
@@ -139,6 +140,17 @@ jobs:
           /usr/bin/python3 -m pip install --target build/cmake-ci/python 'pymongo==4.8.0'
           PYTHONPATH="$PWD/build/cmake-ci/python" \
             cmake --build build/cmake-ci --target eloqdoc-server-smoke
+
+      - name: Preserve failed CMake smoke-test logs
+        if: ${{ failure() && steps.cmake_smoke.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-smoke-eloqstore-s3-amd64-${{ github.run_attempt }}
+          path: |
+            eloqdoc/build/cmake-ci/smoke-diagnostics/
+            /tmp/rustfs.log
+          if-no-files-found: warn
+          retention-days: 7
 
   ent-ci:
     needs: prime-third-party
