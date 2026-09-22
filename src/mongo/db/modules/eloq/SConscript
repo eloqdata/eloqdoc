@@ -398,6 +398,34 @@ env.CppUnitTest(
     ],
 )
 
+# CDC wire codecs (docs/cdc-change-stream.md §5.4 step 3 and §5.6). These decode logged bytes and
+# build resume tokens; they touch neither the storage engine nor the tx service, so they are kept
+# out of storage_eloq_core to stay linkable from the change-stream stages and cheap to unit test.
+env.Library(
+    target="cdc_codec",
+    source=[
+        "src/base/cdc_key_decoder.cpp",
+        "src/base/cdc_resume_token.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/base",
+    ],
+)
+
+env.CppUnitTest(
+    target="cdc_codec_test",
+    source=[
+        "src/base/cdc_key_decoder_test.cpp",
+        "src/base/cdc_resume_token_test.cpp",
+    ],
+    LIBDEPS=[
+        # The codec decodes KeyString bytes without linking the encoder; only these tests, which
+        # produce their inputs with the real encoder, need it.
+        "$BUILD_DIR/mongo/db/storage/key_string",
+        "cdc_codec",
+    ],
+)
+
 env.Library(
     target="storage_eloq",
     source=[
