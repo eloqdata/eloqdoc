@@ -96,6 +96,16 @@ bool handleCursorCommand(OperationContext* opCtx,
     long long batchSize = request.getBatchSize();
 
     CursorResponseBuilder responseBuilder(true, &result);
+
+    // Progress token for this batch (docs/cdc-change-stream.md, §5.3 step 4). Only cursors whose
+    // pipeline provides one carry a non-empty token. It starts as the cursor's opening token, so
+    // that a batchSize of 0, which pulls nothing, still reports it; it becomes the _id of each
+    // document appended to the reply; and it becomes the executor's watermark once the pipeline
+    // reports IS_EOF. A stashed document never advances it, so the client can never be told to
+    // resume past a document it has not received.
+    BSONObj resumeToken = cursor->getPostBatchResumeToken();
+    const bool tracksResumeToken = !resumeToken.isEmpty();
+
     BSONObj next;
     for (int objCount = 0; objCount < batchSize; objCount++) {
         // The initial getNext() on a PipelineProxyStage may be very expensive so we don't
@@ -107,7 +117,7 @@ bool handleCursorCommand(OperationContext* opCtx,
         } catch (const ExceptionFor<ErrorCodes::CloseChangeStream>&) {
             // This exception is thrown when a $changeStream stage encounters an event
             // that invalidates the cursor. We should close the cursor and return without
-            // error.
+            // error. The token already appended for the invalidate event stays the batch's.
             cursor = nullptr;
             break;
         }
@@ -115,6 +125,12 @@ bool handleCursorCommand(OperationContext* opCtx,
         if (state == PlanExecutor::IS_EOF) {
             responseBuilder.setLatestOplogTimestamp(
                 cursor->getExecutor()->getLatestOplogTimestamp());
+            if (tracksResumeToken) {
+                BSONObj watermark = cursor->getExecutor()->getPostBatchResumeToken();
+                if (!watermark.isEmpty()) {
+                    resumeToken = watermark;
+                }
+            }
             if (!cursor->isTailable()) {
                 // make it an obvious error to use cursor or executor after this point
                 cursor = nullptr;
@@ -136,6 +152,19 @@ bool handleCursorCommand(OperationContext* opCtx,
 
         responseBuilder.setLatestOplogTimestamp(cursor->getExecutor()->getLatestOplogTimestamp());
         responseBuilder.append(next);
+        if (tracksResumeToken) {
+            BSONElement id = next["_id"];
+            if (id.type() == BSONType::Object) {
+                resumeToken = id.Obj().getOwned();
+            }
+        }
+    }
+
+    if (tracksResumeToken) {
+        responseBuilder.setPostBatchResumeToken(resumeToken);
+        if (cursor) {
+            cursor->setPostBatchResumeToken(resumeToken);
+        }
     }
 
     if (cursor) {
@@ -551,6 +580,24 @@ Status runAggregate(OperationContext* opCtx,
         CursorManager::getGlobalCursorManager()->registerCursor(opCtx, std::move(cursorParams));
 
     ScopeGuard cursorFreer = MakeGuard(&ClientCursorPin::deleteUnderlying, &pin);
+
+    // A pipeline that provides resume tokens must be able to name its opening token here, before
+    // anything is pulled, so that the first reply carries one even with batchSize 0.
+    //
+    // Checked rather than assumed, because the rest of the plumbing infers "this cursor reports
+    // tokens" from the token being non-empty: if the source cannot yet name one -- because a
+    // change stream's opening wait were moved after registration, say, or because the source
+    // could not fix its start position at construction -- the cursor would be registered as an
+    // ordinary one and every reply would silently omit postBatchResumeToken. A driver would then
+    // resume from nothing. This pins that ordering requirement in the one place it can be seen.
+    if (pin.getCursor()->getExecutor()->tracksResumeToken()) {
+        const BSONObj openingToken = pin.getCursor()->getExecutor()->getPostBatchResumeToken();
+        uassert(ErrorCodes::ChangeStreamFatalError,
+                "A change stream cursor was registered before its start position was known, so "
+                "its replies would carry no resume token.",
+                !openingToken.isEmpty());
+        pin.getCursor()->setPostBatchResumeToken(openingToken);
+    }
 
     // If both explain and cursor are specified, explain wins.
     if (expCtx->explain) {

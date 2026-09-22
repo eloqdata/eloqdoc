@@ -41,6 +41,8 @@
 
 namespace mongo {
 
+class PostBatchResumeTokenProvider;
+
 /**
  * Stage for pulling results out from an aggregation pipeline.
  */
@@ -79,6 +81,21 @@ public:
      */
     Timestamp getLatestOplogTimestamp() const;
 
+    /**
+     * Whether this pipeline supplies resume tokens at all, which is fixed when the stage is
+     * built. Distinguishes "not a change stream" from "a change stream whose token is empty",
+     * the second of which is a bug rather than a state to tolerate.
+     */
+    bool tracksResumeToken() const {
+        return _resumeTokenProvider != nullptr;
+    }
+
+    /**
+     * Pass through the proxied pipeline's post-batch resume token; empty unless the pipeline's
+     * first stage provides one (see PostBatchResumeTokenProvider).
+     */
+    BSONObj getPostBatchResumeToken() const;
+
     std::string getPlanSummaryStr() const;
     void getPlanSummaryStats(PlanSummaryStats* statsOut) const;
 
@@ -99,9 +116,15 @@ protected:
 
 private:
     boost::optional<BSONObj> getNextBson();
+    void _verifyResumeTokenIntact(const BSONObj& doc) const;
 
     // Things in the _stash should be returned before pulling items from _pipeline.
     std::unique_ptr<Pipeline, PipelineDeleter> _pipeline;
+    // The pipeline's first stage when it supplies resume tokens, else null. Resolved once here
+    // rather than per document: the first stage is fixed by the time this stage exists, and
+    // every document on the server would otherwise pay for a dynamic_cast. Owned by _pipeline,
+    // so it is declared after it and outlives no longer than it does.
+    const PostBatchResumeTokenProvider* _resumeTokenProvider;
     std::vector<BSONObj> _stash;
     const bool _includeMetaData;
 

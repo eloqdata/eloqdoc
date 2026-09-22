@@ -519,6 +519,20 @@ public:
      */
     Timestamp getLatestOplogTimestamp();
 
+    /**
+     * Whether this executor runs a pipeline that supplies resume tokens. Fixed for the life of
+     * the executor, and distinct from getPostBatchResumeToken() returning an empty object, which
+     * for such a pipeline means something has gone wrong rather than that there is no token.
+     */
+    bool tracksResumeToken();
+
+    /**
+     * If this executor runs a pipeline whose first stage provides a post-batch resume token
+     * (see PostBatchResumeTokenProvider), return the token covering everything the pipeline has
+     * produced so far. Otherwise return an empty object.
+     */
+    BSONObj getPostBatchResumeToken();
+
 private:
     /**
      * Returns true if the PlanExecutor should listen for inserts, which is when a getMore is called

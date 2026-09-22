@@ -67,6 +67,7 @@
 #include "mongo/db/pipeline/document_source_single_document_transformation.h"
 #include "mongo/db/pipeline/document_source_sort.h"
 #include "mongo/db/pipeline/pipeline.h"
+#include "mongo/db/pipeline/post_batch_resume_token_provider.h"
 #include "mongo/db/query/collation/collator_interface.h"
 #include "mongo/db/query/get_executor.h"
 #include "mongo/db/query/plan_summary_stats.h"
@@ -556,6 +557,14 @@ Timestamp PipelineD::getLatestOplogTimestamp(const Pipeline* pipeline) {
         return docSourceCursor->getLatestOplogTimestamp();
     }
     return Timestamp();
+}
+
+const PostBatchResumeTokenProvider* PipelineD::getPostBatchResumeTokenProvider(
+    const Pipeline* pipeline) {
+    if (pipeline->_sources.empty()) {
+        return nullptr;
+    }
+    return dynamic_cast<const PostBatchResumeTokenProvider*>(pipeline->_sources.front().get());
 }
 
 std::string PipelineD::getPlanSummaryStr(const Pipeline* pPipeline) {

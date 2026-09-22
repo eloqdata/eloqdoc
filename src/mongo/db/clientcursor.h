@@ -196,6 +196,21 @@ public:
         _pos = n;
     }
 
+    /**
+     * The resume token most recently reported to the client as this cursor's
+     * postBatchResumeToken, or an empty object for cursors that do not carry one. Only the
+     * batch-building loops of aggregate and getMore write it, because only they know which
+     * documents were actually delivered (docs/cdc-change-stream.md, §5.3 step 4); a batch that
+     * delivers nothing re-reports this value.
+     */
+    const BSONObj& getPostBatchResumeToken() const {
+        return _postBatchResumeToken;
+    }
+
+    void setPostBatchResumeToken(BSONObj token) {
+        _postBatchResumeToken = token.getOwned();
+    }
+
     //
     // Timing.
     //
@@ -309,6 +324,9 @@ private:
 
     // Tracks the number of results returned by this cursor so far.
     long long _pos = 0;
+
+    // See getPostBatchResumeToken(). Owned; empty unless the pipeline provides tokens.
+    BSONObj _postBatchResumeToken;
 
     // Holds an owned copy of the command specification received from the client.
     const BSONObj _originatingCommand;

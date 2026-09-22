@@ -34,6 +34,7 @@
 #include "mongo/db/pipeline/document_source.h"
 #include "mongo/db/pipeline/expression_context.h"
 #include "mongo/db/pipeline/pipeline_d.h"
+#include "mongo/db/pipeline/post_batch_resume_token_provider.h"
 #include "mongo/stdx/memory.h"
 
 namespace mongo {
@@ -51,6 +52,7 @@ PipelineProxyStage::PipelineProxyStage(OperationContext* opCtx,
                                        WorkingSet* ws)
     : PlanStage(kStageType, opCtx),
       _pipeline(std::move(pipeline)),
+      _resumeTokenProvider(PipelineD::getPostBatchResumeTokenProvider(_pipeline.get())),
       _includeMetaData(_pipeline->getContext()->needsMerge),  // send metadata to merger
       _ws(ws) {
     // We take over responsibility for disposing of the Pipeline, since it is required that
@@ -114,13 +116,40 @@ unique_ptr<PlanStageStats> PipelineProxyStage::getStats() {
     return ret;
 }
 
+/**
+ * Checks that a document about to leave the pipeline still carries as its _id the token the
+ * change stream's own stages assigned it. Every stage allowed after $changeStream is streaming
+ * and yields at most one output per input, so the document leaving always derives from the last
+ * one those stages emitted; a difference means a user stage rewrote the resume token, which the
+ * batch loops would then record as progress.
+ */
+void PipelineProxyStage::_verifyResumeTokenIntact(const BSONObj& doc) const {
+    const BSONObj expected = _resumeTokenProvider->getLastEmittedResumeToken();
+    if (expected.isEmpty()) {
+        return;
+    }
+    const BSONElement id = doc["_id"];
+    uassert(ErrorCodes::ChangeStreamFatalError,
+            str::stream() << "The _id of a change event, which holds its resume token, was "
+                             "removed or modified by the pipeline; the stream could not be "
+                             "resumed from it. Only stages that leave _id untouched are "
+                             "allowed after $changeStream. Expected _id: "
+                          << expected
+                          << ", found: "
+                          << id,
+            id.type() == BSONType::Object && id.Obj().binaryEqual(expected));
+}
+
 boost::optional<BSONObj> PipelineProxyStage::getNextBson() {
     if (auto next = _pipeline->getNext()) {
-        if (_includeMetaData) {
-            return next->toBsonWithMetaData();
-        } else {
-            return next->toBson();
+        BSONObj obj = _includeMetaData ? next->toBsonWithMetaData() : next->toBson();
+        // Every document leaves the pipeline through here, including ones later stashed by the
+        // batch loops, so this is the one place that can guarantee a change event's _id, its
+        // resume token, survived the user's stages unchanged.
+        if (_resumeTokenProvider) {
+            _verifyResumeTokenIntact(obj);
         }
+        return obj;
     }
 
     return boost::none;
@@ -128,6 +157,10 @@ boost::optional<BSONObj> PipelineProxyStage::getNextBson() {
 
 Timestamp PipelineProxyStage::getLatestOplogTimestamp() const {
     return PipelineD::getLatestOplogTimestamp(_pipeline.get());
+}
+
+BSONObj PipelineProxyStage::getPostBatchResumeToken() const {
+    return _resumeTokenProvider ? _resumeTokenProvider->getPostBatchResumeToken() : BSONObj();
 }
 
 std::string PipelineProxyStage::getPlanSummaryStr() const {

@@ -793,6 +793,18 @@ Timestamp PlanExecutor::getLatestOplogTimestamp() {
     return Timestamp();
 }
 
+bool PlanExecutor::tracksResumeToken() {
+    if (auto pipelineProxy = getStageByType(_root.get(), STAGE_PIPELINE_PROXY))
+        return static_cast<PipelineProxyStage*>(pipelineProxy)->tracksResumeToken();
+    return false;
+}
+
+BSONObj PlanExecutor::getPostBatchResumeToken() {
+    if (auto pipelineProxy = getStageByType(_root.get(), STAGE_PIPELINE_PROXY))
+        return static_cast<PipelineProxyStage*>(pipelineProxy)->getPostBatchResumeToken();
+    return BSONObj();
+}
+
 //
 // PlanExecutor::Deleter
 //
