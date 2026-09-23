@@ -404,6 +404,7 @@ env.CppUnitTest(
 env.Library(
     target="cdc_codec",
     source=[
+        "src/base/cdc_blob_decoder.cpp",
         "src/base/cdc_key_decoder.cpp",
         "src/base/cdc_resume_token.cpp",
     ],
@@ -415,6 +416,7 @@ env.Library(
 env.CppUnitTest(
     target="cdc_codec_test",
     source=[
+        "src/base/cdc_blob_decoder_test.cpp",
         "src/base/cdc_key_decoder_test.cpp",
         "src/base/cdc_resume_token_test.cpp",
     ],
