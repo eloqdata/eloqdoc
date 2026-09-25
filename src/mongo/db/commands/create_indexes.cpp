@@ -319,24 +319,23 @@ public:
         // not allow locks or re-locks to be interrupted.
         UninterruptibleLockGuard noInterrupt(opCtx->lockState());
 
-        Database* db = DatabaseHolder::getDatabaseHolder().get(opCtx, ns.db());
-        if (!db) {
-            db = DatabaseHolder::getDatabaseHolder().openDb(opCtx, ns.db());
-        }
-        DatabaseShardingState::get(db).checkDbVersion(opCtx);
+        const auto getCollectionForWrite = [opCtx, &ns] {
+            return writeConflictRetryInterruptibly(
+                opCtx, kCommandName, ns.ns(), [opCtx, &ns] {
+                    Database* db = getDatabase(opCtx, ns);
+                    return db->getCollection(opCtx, ns, true);
+                });
+        };
 
-        Collection* collection_tmp = db->getCollection(opCtx, ns, true);
+        Collection* collection_tmp = getCollectionForWrite();
         if (collection_tmp) {
             result.appendBool("createdCollectionAutomatically", false);
         } else {
+            bool createdCollectionAutomatically = false;
             // Prevent collection from being deleted immediately after creation
             uint32_t retry_cnt = 10;
             while (!collection_tmp && --retry_cnt > 0) {
-                db = DatabaseHolder::getDatabaseHolder().get(opCtx, ns.db());
-                if (!db) {
-                    db = DatabaseHolder::getDatabaseHolder().openDb(opCtx, ns.db());
-                }
-                DatabaseShardingState::get(db).checkDbVersion(opCtx);
+                Database* db = getDatabase(opCtx, ns);
                 if (db->getViewCatalog()->lookup(opCtx, ns.ns())) {
                     errmsg = "Cannot create indexes on a view";
                     uasserted(ErrorCodes::CommandNotSupportedOnView, errmsg);
@@ -345,118 +344,156 @@ public:
                 status = userAllowedCreateNS(ns.db(), ns.coll());
                 uassertStatusOK(status);
 
-                writeConflictRetry(opCtx, kCommandName, ns.ns(), [&] {
-                    WriteUnitOfWork wunit(opCtx);
-                    collection_tmp = db->createCollection(opCtx, ns.ns(), CollectionOptions());
-                    invariant(collection_tmp);
-                    wunit.commit();
-                });
-                collection_tmp = db->getCollection(opCtx, ns, true);
+                const Status createStatus = writeConflictRetryInterruptibly(
+                    opCtx, kCommandName, ns.ns(), [opCtx, &ns] {
+                        return createCollectionAttempt(opCtx, ns);
+                    });
+                if (createStatus.isOK()) {
+                    createdCollectionAutomatically = true;
+                } else {
+                    // Only accept a concurrent create after a fresh lookup confirms that this
+                    // exact collection now exists.
+                    collection_tmp = getCollectionForWrite();
+                    if (!collection_tmp) {
+                        uassertStatusOK(createStatus);
+                    }
+                }
+                collection_tmp = getCollectionForWrite();
             }
 
             if (!collection_tmp) {
                 uassert(70002, "collection dropped during index build", collection_tmp);
             }
-            result.appendBool("createdCollectionAutomatically", true);
+            result.appendBool("createdCollectionAutomatically", createdCollectionAutomatically);
         }
 
-        // In EloqDoc, once the txservice executed UpsertTable (in "indexer.init(specs)"), the
-        // collection in cache is expired and may be erased. But, the collection pointer is still
-        // used at next in "indexer.init(specs)", to avoid program being crashed, we copy it.
-        auto collection_uptr = collection_tmp->clone(opCtx);
-        Collection* collection = collection_uptr.get();
+        const auto indexBuildResult = writeConflictRetryInterruptibly(
+            opCtx, kCommandName, ns.ns(), [opCtx, &ns, &specs] {
+                return buildMissingIndexes(opCtx, ns, specs);
+            });
 
-        MultiIndexBlock indexer(opCtx, collection);
-        indexer.allowBackgroundBuilding();
-        indexer.allowInterruption();
-
-        const size_t origSpecsSize = specs.size();
-        specs = resolveDefaultsAndRemoveExistingIndexes(opCtx, collection, std::move(specs));
-
-        const int numIndexesBefore = collection->getIndexCatalog()->numIndexesTotal(opCtx);
-        if (specs.size() == 0) {
-            return indexesAlreadyExist(numIndexesBefore);
+        if (indexBuildResult.allIndexesAlreadyExist) {
+            return indexesAlreadyExist(indexBuildResult.numIndexesBefore);
         }
 
-        result.append("numIndexesBefore", numIndexesBefore);
-
-        if (specs.size() != origSpecsSize) {
+        result.append("numIndexesBefore", indexBuildResult.numIndexesBefore);
+        if (indexBuildResult.someIndexesAlreadyExist) {
             result.append("note", "index already exists");
         }
-
-        for (size_t i = 0; i < specs.size(); i++) {
-            const BSONObj& spec = specs[i];
-            if (spec["unique"].trueValue()) {
-                status = checkUniqueIndexConstraints(opCtx, ns, spec["key"].Obj());
-                uassertStatusOK(status);
-            }
-        }
-
-        std::vector<BSONObj> indexInfoObjs =
-            writeConflictRetry(opCtx, kCommandName, ns.ns(), [&indexer, &specs] {
-                return uassertStatusOK(indexer.init(specs));
-            });
-
-        // Comment out below codes. Eloq build index in tx_service.
-        //
-        // // If we're a background index, replace exclusive db lock with an intent lock, so that
-        // // other readers and writers can proceed during this phase.
-        // if (indexer.getBuildInBackground()) {
-        //     opCtx->recoveryUnit()->abandonSnapshot();
-        //     dbLock.relockWithMode(MODE_IX);
-        // }
-
-        // try {
-        //     Lock::CollectionLock colLock(opCtx->lockState(), ns.ns(), MODE_IX);
-        //     uassertStatusOK(indexer.insertAllDocumentsInCollection());
-        // } catch (const DBException& e) {
-        //     invariant(e.code() != ErrorCodes::WriteConflict);
-        //     // Must have exclusive DB lock before we clean up the index build via the
-        //     // destructor of 'indexer'.
-        //     if (indexer.getBuildInBackground()) {
-        //         try {
-        //             // This function cannot throw today, but we will preemptively prepare for
-        //             // that day, to avoid data corruption due to lack of index cleanup.
-        //             opCtx->recoveryUnit()->abandonSnapshot();
-        //             dbLock.relockWithMode(MODE_X);
-        //         } catch (...) {
-        //             std::terminate();
-        //         }
-        //     }
-        //     throw;
-        // }
-        // // Need to return db lock back to exclusive, to complete the index build.
-        // if (indexer.getBuildInBackground()) {
-        //     opCtx->recoveryUnit()->abandonSnapshot();
-        //     dbLock.relockWithMode(MODE_X);
-
-        //     Database* db = DatabaseHolder::getDatabaseHolder().get(opCtx, ns.db());
-        //     if (db) {
-        //         DatabaseShardingState::get(db).checkDbVersion(opCtx);
-        //     }
-
-        //     uassert(28551, "database dropped during index build", db);
-        //     uassert(28552, "collection dropped during index build", db->getCollection(opCtx,
-        //     ns));
-        // }
-
-        writeConflictRetry(opCtx, kCommandName, ns.ns(), [&] {
-            WriteUnitOfWork wunit(opCtx);
-
-            indexer.commit([opCtx, &ns, collection](const BSONObj& spec) {
-                opCtx->getServiceContext()->getOpObserver()->onCreateIndex(
-                    opCtx, ns, collection->uuid(), spec, false);
-            });
-
-            wunit.commit();
-        });
-
-        result.append("numIndexesAfter", collection->getIndexCatalog()->numIndexesTotal(opCtx));
+        result.append("numIndexesAfter", indexBuildResult.numIndexesAfter);
 
         return true;
     }
 
 private:
+    struct IndexBuildResult {
+        int numIndexesBefore;
+        int numIndexesAfter;
+        bool allIndexesAlreadyExist;
+        bool someIndexesAlreadyExist;
+    };
+
+    static Database* getDatabase(OperationContext* opCtx, const NamespaceString& ns) {
+        // writeConflictRetry is intentionally unbounded. This explicit check keeps
+        // maxTimeMS observable even though lock acquisition is uninterruptible here.
+        opCtx->checkForInterrupt();
+
+        auto& databaseHolder = DatabaseHolder::getDatabaseHolder();
+        Database* db = databaseHolder.get(opCtx, ns.db());
+        if (!db) {
+            db = databaseHolder.openDb(opCtx, ns.db());
+        }
+        DatabaseShardingState::get(db).checkDbVersion(opCtx);
+        return db;
+    }
+
+    static Status createCollectionAttempt(OperationContext* opCtx,
+                                          const NamespaceString& ns) {
+        Database* db = getDatabase(opCtx, ns);
+        WriteUnitOfWork wunit(opCtx);
+
+        try {
+            Collection* createdCollection =
+                db->createCollection(opCtx, ns.ns(), CollectionOptions());
+            invariant(createdCollection);
+        } catch (const DBException& ex) {
+            // DatabaseImpl uses 17399 while Eloq's catalog RecordStore returns NamespaceExists.
+            if (ex.code() == ErrorCodes::NamespaceExists || ex.code() == 17399) {
+                return ex.toStatus();
+            }
+            throw;
+        }
+
+        try {
+            wunit.commit();
+        } catch (const ExceptionFor<ErrorCodes::WriteConflict>&) {
+            throw WriteConflictException();
+        }
+        return Status::OK();
+    }
+
+    static IndexBuildResult buildMissingIndexes(
+        OperationContext* opCtx,
+        const NamespaceString& ns,
+        const std::vector<BSONObj>& requestedSpecs) {
+        Database* db = getDatabase(opCtx, ns);
+        Collection* latestCollection = db->getCollection(opCtx, ns, true);
+        uassert(28552, "collection dropped during index build", latestCollection);
+
+        // An UpsertTable attempt invalidates the cached Collection. Keep a private clone alive for
+        // this attempt, and rebuild it from the latest committed catalog after every write
+        // conflict.
+        auto collectionUptr = latestCollection->clone(opCtx);
+        Collection* collection = collectionUptr.get();
+        auto attemptSpecs =
+            resolveDefaultsAndRemoveExistingIndexes(opCtx, collection, requestedSpecs);
+
+        const int numIndexesBefore =
+            collection->getIndexCatalog()->numIndexesTotal(opCtx);
+        if (attemptSpecs.empty()) {
+            return IndexBuildResult{
+                numIndexesBefore, numIndexesBefore, true, false};
+        }
+
+        for (const BSONObj& spec : attemptSpecs) {
+            if (spec["unique"].trueValue()) {
+                uassertStatusOK(checkUniqueIndexConstraints(opCtx, ns, spec["key"].Obj()));
+            }
+        }
+
+        MultiIndexBlock indexer(opCtx, collection);
+        indexer.allowBackgroundBuilding();
+        indexer.allowInterruption();
+
+        // Keep init and commit in one top-level RecoveryUnit transaction. If CommitTx loses a
+        // catalog race, rollback clears both MultiIndexBlock state and Eloq's staged unready
+        // metadata before writeConflictRetry starts a fresh attempt.
+        WriteUnitOfWork wunit(opCtx);
+        auto initResult = indexer.init(attemptSpecs);
+        if (!initResult.isOK() &&
+            initResult.getStatus().code() == ErrorCodes::WriteConflict) {
+            throw WriteConflictException();
+        }
+        uassertStatusOK(std::move(initResult));
+
+        const auto collectionUUID = collection->uuid();
+        indexer.commit([opCtx, &ns, collectionUUID](const BSONObj& spec) {
+            opCtx->getServiceContext()->getOpObserver()->onCreateIndex(
+                opCtx, ns, collectionUUID, spec, false);
+        });
+        try {
+            wunit.commit();
+        } catch (const ExceptionFor<ErrorCodes::WriteConflict>&) {
+            throw WriteConflictException();
+        }
+
+        return IndexBuildResult{
+            numIndexesBefore,
+            collection->getIndexCatalog()->numIndexesTotal(opCtx),
+            false,
+            attemptSpecs.size() != requestedSpecs.size()};
+    }
+
     static Status checkUniqueIndexConstraints(OperationContext* opCtx,
                                               const NamespaceString& nss,
                                               const BSONObj& newIdxKey) {
