@@ -734,7 +734,16 @@ void execCommandDatabase(OperationContext* opCtx,
         // EloqDoc enables command level transaction.
         const bool whitelistCmd =
             sessionCheckoutWhitelist.find(command->getName()) != sessionCheckoutWhitelist.cend();
-        const bool atomicCmd = whitelistCmd && command->getName() != "applyOps";
+        bool batchUpdates = false;
+        if (command->getName() == "update" && canBatchUpdateMany(opCtx)) {
+            // Parse the actual request, including OP_MSG document sequences. Mixed commands
+            // execute each entry independently.
+            const auto update = UpdateOp::parse(request);
+            batchUpdates = std::any_of(update.getUpdates().begin(),
+                                       update.getUpdates().end(),
+                                       [](const auto& op) { return op.getMulti(); });
+        }
+        const bool atomicCmd = whitelistCmd && command->getName() != "applyOps" && !batchUpdates;
         const bool shouldCheckoutSession = static_cast<bool>(opCtx->getTxnNumber()) && whitelistCmd;
 
         // Parse the arguments specific to multi-statement transactions.
@@ -1263,6 +1272,11 @@ void receivedUpdate(OperationContext* opCtx, const NamespaceString& nsString, co
                                singleUpdate.getMulti(),
                                status.code());
     uassertStatusOK(status);
+
+    if (singleUpdate.getMulti() && canBatchUpdateMany(opCtx)) {
+        performUpdates(opCtx, updateOp);
+        return;
+    }
 
     // EloqDoc enables command level transaction.
     int retry = 0;

@@ -83,6 +83,15 @@ public:
                 Collection* collection,
                 PlanStage* child);
 
+    /** Enable only for a standalone multi-update whose executor owns the outer transaction. */
+    void enableWriteSetBatching();
+
+    /** Confirm consumed IDs and statistics only after a successful outer commit. */
+    void confirmBatch();
+
+    /** Rewind retained IDs and tentative statistics after a definitely aborted batch. */
+    void rewindBatch();
+
     bool isEOF() final;
     StageState doWork(WorkingSetID* out) final;
 
@@ -150,7 +159,9 @@ private:
      * memory, then commits these changes to the database. Returns a possibly unowned copy
      * of the newly-updated version of the document.
      */
-    BSONObj transformAndUpdate(const Snapshotted<BSONObj>& oldObj, RecordId& recordId);
+    // An empty optional is normal capacity exhaustion, before this document adds any writes.
+    boost::optional<BSONObj> transformAndUpdate(const Snapshotted<BSONObj>& oldObj,
+                                                RecordId& recordId);
 
     /**
      * Computes the document to insert and inserts it into the collection. Used if the
@@ -210,6 +221,16 @@ private:
     // So, no matter what, we keep track of where the doc wound up.
     typedef stdx::unordered_set<RecordId, RecordId::Hasher> RecordIdSet;
     const std::unique_ptr<RecordIdSet> _updatedRecordIds;
+
+    // Candidate IDs survive transaction changes; BSON and UpdateTickets never do. The scan
+    // remains after the last fetched candidate while retries replay only this unconfirmed list.
+    bool _writeSetBatching = false;
+    std::vector<RecordId> _pendingRecordIds;
+    RecordIdSet _queuedRecordIds;
+    size_t _pendingPosition = 0;
+    UpdateStats _confirmedStats;
+    boost::optional<long long> _confirmedKeysInserted;
+    boost::optional<long long> _confirmedKeysDeleted;
 
     // These get reused for each update.
     mutablebson::Document& _doc;
