@@ -976,8 +976,18 @@ Each `getMore`:
    never at once. So is an empty page with `!has_more` that came back
    before its `wait_ms` elapsed: the logger may answer early (a full parked
    list, §5.8, or a logger without the long poll), and re-issuing at once
-   would turn an idle stream into a tight loop against the logger. The
-   backoff is bounded by the remaining `maxTimeMS`, like the wait itself.
+   would turn an idle stream into a tight loop against the logger. A page
+   counts as held only if it took at least half its `wait_ms`, and a
+   `wait_ms` under 20 ms never does, since timer granularity makes such a
+   wait indistinguishable from an early answer and back-to-back short scans
+   are a loop either way; for the same reason no scan is issued with less
+   than 20 ms of `maxTimeMS` left, except the first scans of a pull. A
+   redirect to another node is followed at once only if the previous
+   redirect was not followed within one backoff period; otherwise it is
+   followed after the backoff. Two nodes that name each other during an
+   election match neither test above, and would otherwise be bounced
+   between for as long as the election lasts. The backoff is bounded by the remaining
+   `maxTimeMS`, like the wait itself.
    From each response record `arrival_complete_ts`, append the
    records to the group's buffer, store the continuation, and set the
    completeness boundary per §4.2: `scanned_ts = last_ts − 1` if

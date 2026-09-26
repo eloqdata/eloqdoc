@@ -428,6 +428,36 @@ env.CppUnitTest(
     ],
 )
 
+# CDC scan path (docs/cdc-change-stream.md §5.3 steps 1-2, §5.8): the per-cursor wait object, the
+# CdcScan client, and the record source that merges the log groups. It reaches the log service
+# only through the tx service's TxLog.
+env.Library(
+    target="cdc_scan",
+    source=[
+        "src/cdc/cdc_scan_client.cpp",
+        "src/cdc/cdc_scan_source.cpp",
+        "src/cdc/cdc_scan_transport.cpp",
+        "src/cdc/cdc_wait_object.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/base",
+        # CoroutineFunctors.
+        "$BUILD_DIR/mongo/db/service_context",
+    ],
+    SYSLIBDEPS=eloq_dependencies,
+)
+
+env.CppUnitTest(
+    target="cdc_scan_test",
+    source=[
+        "src/cdc/cdc_fake_log_service.cpp",
+        "src/cdc/cdc_scan_test.cpp",
+    ],
+    LIBDEPS=[
+        "cdc_scan",
+    ],
+)
+
 env.Library(
     target="storage_eloq",
     source=[

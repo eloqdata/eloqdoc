@@ -269,6 +269,9 @@ error_code("RepairedReplicaSetNode", 270);
 # EloqDoc change streams (docs/cdc-change-stream.md §5.3 step 4). Numbered as the same-named
 # upstream code so drivers classify it as non-resumable.
 error_code("ChangeStreamFatalError", 280)
+# A change stream asked for a position the log service no longer retains (docs/cdc-change-stream.md
+# §4.5); the consumer re-bootstraps. Numbered as the same-named upstream code.
+error_code("ChangeStreamHistoryLost", 286)
 
 # Error codes 4000-8999 are reserved.
 
