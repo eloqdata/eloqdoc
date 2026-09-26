@@ -682,7 +682,8 @@ void CollectionImpl::deleteDocument(OperationContext* opCtx,
         opDebug->additiveMetrics.incrementKeysDeleted(keysDeleted);
     }
 
-    _recordStore->deleteRecord(opCtx, loc);
+    // EloqDoc: pass the document so the record store need not read it again.
+    _recordStore->deleteRecordWithPreImage(opCtx, loc, doc.value());
 
     getGlobalServiceContext()->getOpObserver()->onDelete(
         opCtx, ns(), uuid(), stmtId, fromMigrate, deletedDoc);
@@ -791,8 +792,14 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
 
     args->preImageDoc = oldDoc.value().getOwned();
 
-    Status updateStatus = _recordStore->updateRecord(
-        opCtx, oldLocation, newDoc.objdata(), newDoc.objsize(), _enforceQuota(enforceQuota), this);
+    // EloqDoc: pass the old document so the record store need not read it again.
+    Status updateStatus = _recordStore->updateRecordWithPreImage(opCtx,
+                                                                 oldLocation,
+                                                                 oldDoc.value(),
+                                                                 newDoc.objdata(),
+                                                                 newDoc.objsize(),
+                                                                 _enforceQuota(enforceQuota),
+                                                                 this);
 
     if (updateStatus == ErrorCodes::NeedsDocumentMove) {
         return uassertStatusOK(_updateDocumentWithMove(

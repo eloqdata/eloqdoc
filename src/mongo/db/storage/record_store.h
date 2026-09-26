@@ -377,6 +377,23 @@ public:
 
     virtual void deleteRecord(OperationContext* opCtx, const RecordId& dl) = 0;
 
+    /**
+     * @brief Deletes a record whose current document the caller has already read.
+     *
+     * EloqDoc: lets a record store that maintains indexes itself (EloqDoc's indexes under
+     * construction) remove the document's keys without reading the document again. The default
+     * ignores the document and calls deleteRecord().
+     *
+     * @param opCtx Operation context.
+     * @param dl The record to delete.
+     * @param doc The record's current document, read in the caller's snapshot.
+     */
+    virtual void deleteRecordWithPreImage(OperationContext* opCtx,
+                                          const RecordId& dl,
+                                          const BSONObj& doc) {
+        deleteRecord(opCtx, dl);
+    }
+
     virtual StatusWith<RecordId> insertRecord(OperationContext* opCtx,
                                               const char* data,
                                               int len,
@@ -462,6 +479,33 @@ public:
                                 int len,
                                 bool enforceQuota,
                                 UpdateNotifier* notifier) = 0;
+
+    /**
+     * @brief Updates a record whose current document the caller has already read.
+     *
+     * EloqDoc: an update is read-for-write, so the caller holds the document being replaced.
+     * Passing it lets a record store that maintains indexes itself (EloqDoc's indexes under
+     * construction) remove the old document's keys without reading it again. The default ignores
+     * the old document and calls updateRecord().
+     *
+     * @param opCtx Operation context.
+     * @param oldLocation The record to update.
+     * @param oldDoc The document being replaced, read in the caller's snapshot.
+     * @param data The new document.
+     * @param len The new document's size in bytes.
+     * @param enforceQuota See updateRecord().
+     * @param notifier See updateRecord().
+     * @return See updateRecord().
+     */
+    virtual Status updateRecordWithPreImage(OperationContext* opCtx,
+                                            const RecordId& oldLocation,
+                                            const BSONObj& oldDoc,
+                                            const char* data,
+                                            int len,
+                                            bool enforceQuota,
+                                            UpdateNotifier* notifier) {
+        return updateRecord(opCtx, oldLocation, data, len, enforceQuota, notifier);
+    }
 
     /**
      * @return Returns 'false' if this record store does not implement

@@ -224,7 +224,19 @@ public:
 
     bool findRecord(OperationContext* opCtx, const RecordId& id, RecordData* out) const override;
 
+    /**
+     * @brief Deletes a record by id. While the table has indexes under construction, reads the
+     * document once to remove its keys from them.
+     */
     void deleteRecord(OperationContext* opCtx, const RecordId& id) override;
+
+    /**
+     * @brief Deletes a record whose current document the caller has already read; removes its
+     * keys from the indexes under construction without reading it again.
+     */
+    void deleteRecordWithPreImage(OperationContext* opCtx,
+                                  const RecordId& id,
+                                  const BSONObj& doc) override;
 
     StatusWith<RecordId> insertRecord(OperationContext* opCtx,
                                       const char* data,
@@ -246,12 +258,28 @@ public:
                                       size_t nDocs,
                                       RecordId* idsOut = nullptr) override;
 
+    /**
+     * @brief Updates a record by id. While the table has indexes under construction, reads the
+     * old document once to maintain them.
+     */
     Status updateRecord(OperationContext* opCtx,
                         const RecordId& id,
                         const char* data,
                         int len,
                         bool enforceQuota,
                         UpdateNotifier* notifier) override;
+
+    /**
+     * @brief Updates a record given the document being replaced; maintains the indexes under
+     * construction from it without reading it again.
+     */
+    Status updateRecordWithPreImage(OperationContext* opCtx,
+                                    const RecordId& id,
+                                    const BSONObj& oldDoc,
+                                    const char* data,
+                                    int len,
+                                    bool enforceQuota,
+                                    UpdateNotifier* notifier) override;
 
     bool updateWithDamagesSupported() const override;
 
@@ -298,6 +326,33 @@ private:
                           Record* records,
                           const Timestamp* timestamps,
                           size_t nRecords);
+
+    /**
+     * @brief Deletes a record and removes its keys from the indexes under construction.
+     *
+     * @param opCtx Operation context.
+     * @param id The record to delete.
+     * @param doc The record's current document, or nullptr to read it (only while the table has
+     * indexes under construction).
+     */
+    void _deleteRecord(OperationContext* opCtx, const RecordId& id, const BSONObj* doc);
+
+    /**
+     * @brief Updates a record and maintains the indexes under construction.
+     *
+     * @param opCtx Operation context.
+     * @param id The record to update.
+     * @param oldDoc The document being replaced, or nullptr to read it (only while the table has
+     * indexes under construction).
+     * @param data The new document.
+     * @param len The new document's size in bytes.
+     * @return The tx-service or index-maintenance error, if any.
+     */
+    Status _updateRecord(OperationContext* opCtx,
+                         const RecordId& id,
+                         const BSONObj* oldDoc,
+                         const char* data,
+                         int len);
 
     // Mongo use this as the identity for storage engine.
     // For Eloq, _ident equals to _tableName
