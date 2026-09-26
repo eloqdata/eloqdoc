@@ -432,6 +432,7 @@ env.Library(
     target="storage_eloq",
     source=[
         "src/eloq_init.cpp",
+        "src/eloq_test_commands.cpp",
     ],
     LIBDEPS=[
         # "$BUILD_DIR/mongo/db/db_raii",
@@ -442,6 +443,8 @@ env.Library(
         "storage_eloq_core",
     ],
     LIBDEPS_PRIVATE=[
+        "$BUILD_DIR/mongo/db/commands",
+        "$BUILD_DIR/mongo/db/commands/test_commands_enabled",
         "$BUILD_DIR/mongo/db/storage/storage_engine_common",
     ],
     LIBDEPS_DEPENDENTS=["$BUILD_DIR/mongo/db/serveronly"],

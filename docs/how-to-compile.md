@@ -115,6 +115,10 @@ Common data-store choices are:
 
 To make an AddressSanitizer build, add `-DELOQDOC_ENABLE_ASAN=ON`.
 
+To compile the Data Substrate's fault points in, add `-DWITH_FAULT_INJECT=ON` (the default for
+`Debug` builds). The `eloqFaultInject` test command arms them, and the `eloq_fault` jstest suite needs
+them; on a build without them `eloqFaultInject` fails with `CommandNotSupported`.
+
 ## 3. Build with SCons
 
 The SCons path first builds and installs the Eloq core libraries, then runs MongoDB's historical

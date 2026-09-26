@@ -128,7 +128,8 @@ jobs:
             -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 \
             -DWITH_LOG_SERVICE=ON \
             -DFORK_HM_PROCESS=ON \
-            -DSTATISTICS=ON
+            -DSTATISTICS=ON \
+            -DWITH_FAULT_INJECT=ON
 
       - name: Build server and all retained CMake tests
         id: cmake_build
@@ -162,7 +163,7 @@ jobs:
             bash .github/scripts/build_cmake_test_shell.sh \
               "$PWD/build/cmake-test-shell" "$PWD/build/cmake-test-client"
 
-      - name: Run eloq_basic and eloq_core against the CMake server
+      - name: Run eloq_basic, eloq_core and eloq_fault against the CMake server
         id: cmake_jstests
         if: ${{ !cancelled() && steps.cmake_shell.outcome == 'success' }}
         working-directory: eloqdoc
