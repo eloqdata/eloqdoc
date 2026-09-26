@@ -240,6 +240,19 @@ StatusWith<std::vector<BSONObj>> MultiIndexBlockImpl::init(const std::vector<BSO
 
         // Any foreground indexes make all indexes be built in the foreground.
         _buildInBackground = (_buildInBackground && info["background"].trueValue());
+
+        // EloqDoc: the tx service builds an index from the existing documents without
+        // detecting duplicate keys among them, so a unique secondary index is only built on
+        // an empty collection. Documents written once the build has started are refused
+        // until it finishes.
+        if (info["unique"].trueValue() && !IndexDescriptor::isIdIndexPattern(info["key"].Obj()) &&
+            _collection->getCursor(_opCtx)->next()) {
+            return Status(ErrorCodes::CannotCreateIndex,
+                          str::stream()
+                              << "Cannot build unique index " << info["name"].str() << " on " << ns
+                              << ": unique indexes can only be created on an empty "
+                                 "collection");
+        }
     }
 
     std::vector<BSONObj> indexInfoObjs;
