@@ -155,7 +155,7 @@ message CdcScanResponse {
   Status status             = 1;
   string redirect           = 2;   // leader address on NotLeader
   repeated CdcDataRecord data = 3; // ascending (commit_ts, ng, txn); all commit_ts <= arrival_complete_ts
-  repeated CdcDdlRecord  ddl  = 4; // ascending (ddl_ts, namespace, class, key); all ddl_ts <= arrival_complete_ts
+  repeated CdcDdlRecord  ddl  = 4; // ascending (ddl_ts, txn); all ddl_ts <= arrival_complete_ts
   uint64 arrival_complete_ts = 5;  // this group's min_ckpt_ts_, read before either scan
   uint64 retention_floor_ts  = 6;  // §4.5: history is complete above this; 0 = not tracked (v1)
   bytes  continuation        = 7;  // pass back to resume both streams without gaps or duplicates
@@ -170,7 +170,7 @@ rpc CdcScan(CdcScanRequest) returns (CdcScanResponse);
 
 - **One timestamp order for both streams.** Data records are scanned from the
   timestamp-ordered data CF (key `(commit_ts, ng, txn)`); DDL records from
-  the DDL store, keyed `(ddl_ts, namespace, class, key)` (§4.3). Both are
+  the DDL history, ordered by `(ddl_ts, txn)` (§4.3). Both are
   returned ascending by timestamp and **only at or below `arrival_complete_ts`**, where
   `arrival_complete_ts` is the group's `min_ckpt_ts_`. By F6 no data record at or below
   `arrival_complete_ts` can still arrive; by the §4.4 invariant no DDL record can either.
@@ -292,15 +292,34 @@ rpc CdcScan(CdcScanRequest) returns (CdcScanResponse);
 
 Schema ops today live in the in-memory `tx_catalog_ops_` map and are erased one
 hour after `min_ckpt_ts_` passes them. That is the wrong lifetime for CDC, so
-the logger keeps a separate ordered DDL store:
+the logger keeps a separate DDL history, also in memory:
 
-- **Key**: `(ddl_ts, namespace, class, key)` — the DDL's identity, with `ddl_ts`
-  the record's stream timestamp (§4.4), `class` the event class
-  (collection DDL or index DDL), and `key` the index name or empty. **Value**:
-  `(D, txn, SchemaOpMessage)`, with `D` the catalog version. Persisted in the
-  same RocksDB with the same retention as data records. No sequence counter:
-  append order carries no meaning the stream needs, and the §4.4 invariant
-  guarantees every record's `ddl_ts` is above `arrival_complete_ts` at append time.
+- **One record per schema op**: `(D, txn, SchemaOpMessage)`, with `D` the
+  catalog version, at the record's stream timestamp `ddl_ts` (§4.4). An
+  index op that adds or drops several indexes, as a `createIndexes` with
+  several specs does (the tx service builds them in one scan), is one
+  record and yields one event listing all of them (§5.4a).
+- **Position `(ddl_ts, txn)`**. DDLs on one table are serialized by its
+  catalog write lock (F7), so they have distinct timestamps; only DDLs on
+  different tables, hence of different transactions, can share one, and
+  the transaction number tells them apart. The two records of a
+  rolled-back add index share a transaction but not a timestamp (`D` and
+  `P`). The order among records at one timestamp carries no meaning; the
+  transaction number only makes it stable. There is no separate storage
+  key: the history is ordered by this position, and wherever the
+  continuation (§4.2) and tokens (§5.6) record a key for the data stream,
+  they record this position for the DDL stream, encoded
+  `be64 ddl_ts ‖ be64 txn`. That begins with the big-endian timestamp and
+  is longer than eight bytes, as the continuation's timestamp form
+  requires, and the runtime rebuilds it from the record's `ddl_ts` and
+  `txn_number`.
+- **Kept in memory and saved in the raft snapshot**, as `tx_catalog_ops_`
+  already is, so it survives a restart; DDLs are rare, so its size is
+  negligible. Trimmed at the CDC retention floor like data records (§4.5),
+  not an hour after the checkpoint.
+- No sequence counter: append order carries no meaning the stream needs,
+  and the §4.4 invariant guarantees every record's `ddl_ts` is above
+  `arrival_complete_ts` at append time.
 - **When a record is appended.** Depends on which phase of the DDL holds the
   catalog **write lock** (F7), because that is the phase whose timestamp is
   synchronized with the checkpoint (§4.4):
@@ -314,7 +333,7 @@ the logger keeps a separate ordered DDL store:
       kv table is created there), so it fails the op with no log and no
       event. After a violation the stream has already delivered
       `createIndexes`, so
-      the rollback is a second DDL event, a `dropIndexes` for the same index.
+      the rollback is a second DDL event, a `dropIndexes` for the same indexes.
     - *Decided:* the rolled-back add index writes its commit log with
       (a) a new commit timestamp `P`, computed from the commit-stage write
       locks as for drop (§4.4(b)), and (b) a flag marking the index dropped.
@@ -333,8 +352,10 @@ the logger keeps a separate ordered DDL store:
     after the DML of the old incarnation, which is what the source did; for
     create no DML can precede it.
 - **What is recorded.** Only `SchemaOpMessage`s with `table_engine == EloqDoc`
-  whose `table_op` is `CreateTable` or `DropTable`, or whose op is an
-  `index_op` (add/drop index). **Not recorded in v1:** `UpsertTableOp`s of
+  whose `table_op.op_type` is `CreateTable`, `DropTable`, `AddIndex` or
+  `DropIndex`. Index ops arrive as a `table_op` too, with their index names in
+  `alter_table_info_blob`; the `index_op` field is never set. **Not recorded
+  in v1:** `UpsertTableOp`s of
   `OperationType::Update`, which is how a `collMod` reaches the tx service
   (`src/eloq_recovery_unit.cpp`, the catalog-record update path; validator
   and TTL changes go through `KVCollectionCatalogEntry` and end there), and
@@ -1153,9 +1174,10 @@ Per data record within a transaction (F1–F3):
 
 Per DDL record: decode `SchemaOpMessage`; for `create`, decode
 `new_catalog_blob` through `MongoTableSchema` to recover the collection
-options; for `createIndexes`, the same for the new index's spec; for
-`dropIndexes`, decode `old_catalog_blob` to recover the dropped index's spec
-(at least its name and key pattern). One DDL record yields exactly one event.
+options; for `createIndexes`, the same for the spec of each index the op
+added (named in `alter_table_info_blob`); for `dropIndexes`, decode
+`old_catalog_blob` to recover the spec of each index it dropped (at least
+its name and key pattern). One DDL record yields exactly one event.
 
 ### 5.4a Event documents
 
@@ -1181,8 +1203,8 @@ Per operation type:
 | `delete` | DML `Delete` | `documentKey: {_id}` (canonical decoder, §5.4 step 3) |
 | `create` | collection DDL, `CreateTable` | `operationDescription: <collection options>` as `listCollections` would report them (`collation`, `validator`, …; never `capped`, which EloqDoc rejects outside `local`, §6.4); `idIndex` omitted |
 | `drop` | collection DDL, `DropTable` | none |
-| `createIndexes` | index DDL, `AddIndex` | `operationDescription: {indexes: [<index spec>]}`, exactly one spec: `{v, key, name, unique?, sparse?, partialFilterExpression?, collation?, expireAfterSeconds?, …}` as `listIndexes` would report it. The stream reports the source's spec faithfully, `unique` and `expireAfterSeconds` included; the consumer drops both when applying (§6.3, §6.4) |
-| `dropIndexes` | index DDL, `DropIndex` | `operationDescription: {indexes: [{v, key, name}]}`, exactly one entry |
+| `createIndexes` | index DDL, `AddIndex` | `operationDescription: {indexes: [<index spec>, …]}`, one spec per index the op added (a `createIndexes` with several specs is one op): `{v, key, name, unique?, sparse?, partialFilterExpression?, collation?, expireAfterSeconds?, …}` as `listIndexes` would report it. The stream reports the source's spec faithfully, `unique` and `expireAfterSeconds` included; the consumer drops both when applying (§6.3, §6.4) |
+| `dropIndexes` | index DDL, `DropIndex` | `operationDescription: {indexes: [{v, key, name}, …]}`, one entry per index the op dropped |
 | `invalidate` | `CdcInvalidate`, collection-level streams only, after the watched collection's `drop` | none; `_id` is the drop's position with token kind 2, usable with `startAfter` only |
 
 Not emitted in v1: `modify` (`collMod`: validator, TTL and other option
@@ -1240,13 +1262,13 @@ here: an event's **identity**, and the stream **position** a token records.
 | Event class | Logical object | `key` |
 |---|---|---|
 | 0 · Collection DDL (create, drop) | the collection | empty; the name is in `namespace` |
-| 1 · Index DDL (create/drop index) | an index of the collection | index name |
+| 1 · Index DDL (create/drop indexes) | the indexes of the collection one op added or dropped | their names |
 | 2 · DML (insert, replace, delete) | a document of the collection | the logged primary-key bytes (KeyString of `_id`) |
 
 `(timestamp, namespace, class, key)` identifies an event uniquely, because
 successive changes to one logical object always have distinct timestamps
 (F4 for documents, F7/§4.4 for schema). Identity is what the event
-document exposes (`ns`, `documentKey`, `clusterTime`, the index name) and
+document exposes (`ns`, `documentKey`, `clusterTime`, the index names) and
 what the incarnation filter (§5.5) and the consumer (§6) key on. It is
 **not** an ordering: the stream promises order per object across
 timestamps (C2) and promises nothing about the order of different objects
@@ -1286,7 +1308,7 @@ _data = 0x02                          // format version
           u32 log_group_id
           u8  form: 0 = resume AFTER this key; 1 = resume AT this key, after position (section, entry)
           u16 len ‖ data-stream key   (commit_ts, ng, txn)             — the data-CF key
-          u16 len ‖ ddl-stream key    (ddl_ts, namespace, class, key)  — the DDL-store key
+          u16 len ‖ ddl-stream key    be64 ddl_ts ‖ be64 txn           — the DDL record's position (§4.3)
           u32 section ‖ u32 entry      // form 1 only: last produced entry of this record
 ```
 
@@ -1356,10 +1378,10 @@ record itself, and the cursor recognizes it:
 
 1. Before resuming normally, if the token is an event token (kind 0) and
    some form-0 entry's DDL-stream key has `ddl_ts` equal to the token's
-   timestamp, class 0 (collection DDL) and `namespace` equal to the
-   watched collection, re-read that one record: scan the group with
-   `from_ts = ddl_ts` and take the DDL record whose key equals the entry's
-   key. If its `schema_op` is `DropTable`, the token is the drop's token.
+   timestamp, re-read that one record: scan the group with
+   `from_ts = ddl_ts` and take the DDL record at that position. If its
+   `schema_op` is a `DropTable` of the watched collection, the token is the
+   drop's token.
    (A kind-2 token is never checked: it already denotes the position
    after the `invalidate`.)
 2. In that case emit a single `invalidate` event whose `_id` is the same
@@ -1549,7 +1571,7 @@ loop:
         drop           → collection.drop()          (ignore NamespaceNotFound)
         create         → createCollection(options)  (ignore NamespaceExists)
         createIndexes  → createIndexes(specs minus unique, expireAfterSeconds)  (ignore IndexAlreadyExists)
-        dropIndexes    → dropIndex(name)            (ignore IndexNotFound)
+        dropIndexes    → dropIndex(name) per entry  (ignore IndexNotFound)
       save_token(e.token)
     else:
       slots[slot(e)].enqueue(e)            // insert/replace → replaceOne({_id}, fullDocument, upsert=true)
