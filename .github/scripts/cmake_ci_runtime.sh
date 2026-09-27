@@ -34,7 +34,7 @@ case "$phase" in
     test_shell=${ELOQDOC_TEST_SHELL:?Set ELOQDOC_TEST_SHELL to eloqdoc-cli}
     test_shell=$(realpath "$test_shell")
     export PATH="$(dirname "$test_shell"):$PATH"
-    suites=eloq_basic,eloq_core
+    suites=eloq_basic,eloq_core,eloq_cdc
     # eloq_fault arms data substrate fault points, which only a WITH_FAULT_INJECT build has.
     if [ "$(cache_value WITH_FAULT_INJECT)" = ON ]; then
       suites="$suites,eloq_fault"

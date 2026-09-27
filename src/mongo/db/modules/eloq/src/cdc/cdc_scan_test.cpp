@@ -56,7 +56,7 @@ namespace {
 
 using Completion = CdcFakeLogService::Completion;
 
-/// Tests block the calling thread instead of yielding a coroutine.
+/** Tests block the calling thread instead of yielding a coroutine. */
 const CoroutineFunctors& kNoCoro = CoroutineFunctors::Unavailable;
 
 /**
@@ -143,18 +143,18 @@ public:
     FakeCoroutine(const FakeCoroutine&) = delete;
     FakeCoroutine& operator=(const FakeCoroutine&) = delete;
 
-    /// The functors to pass as a coroutine's.
+    /** The functors to pass as a coroutine's. */
     const CoroutineFunctors& functors() const {
         return _functors;
     }
 
-    /// How many times the coroutine yielded.
+    /** How many times the coroutine yielded. */
     int yields() const {
         std::lock_guard<std::mutex> lk(_mutex);
         return _yields;
     }
 
-    /// How many times it was resumed.
+    /** How many times it was resumed. */
     int resumes() const {
         std::lock_guard<std::mutex> lk(_mutex);
         return _resumes;
@@ -926,6 +926,32 @@ TEST(CdcScanClient, TransportErrorRefreshesAndBacksOff) {
     f.log->failNext(0);
     ASSERT_GTE(f.timeToRecord(), RetryFixture::kBackoff - Milliseconds(10));
     ASSERT_EQ(f.log->refreshCount(0), 1);
+}
+
+TEST(CdcScanSource, LogStateWithoutHistoryFailsTheStream) {
+    // The MEMORY log state answers every scan with ENOMETHOD; retrying would never succeed, so
+    // the stream fails at once instead of waiting out its deadline.
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    log->setBound(0, 10);
+    log->setFailureCode(0, brpc::ENOMETHOD);
+    CdcScanSource source(log, fastOptions());
+    source.startAllAt(1);
+    const Date_t start = Date_t::now();
+    ASSERT_THROWS_CODE(source.next(start + Seconds(10), kNoCoro),
+                       AssertionException,
+                       ErrorCodes::CommandNotSupported);
+    ASSERT_LT(Date_t::now() - start, Seconds(5));
+}
+
+TEST(CdcScanSource, LogStateWithoutHistoryFailsTheOpen) {
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    log->setFailureCode(0, brpc::ENOMETHOD);
+    CdcScanSource source(log, fastOptions());
+    const Date_t start = Date_t::now();
+    ASSERT_THROWS_CODE(source.fixStart(start + Seconds(10), kNoCoro),
+                       AssertionException,
+                       ErrorCodes::CommandNotSupported);
+    ASSERT_LT(Date_t::now() - start, Seconds(5));
 }
 
 TEST(CdcScanSource, PositionBelowTheRetentionFloorLosesHistory) {

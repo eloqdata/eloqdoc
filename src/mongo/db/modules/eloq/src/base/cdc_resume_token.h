@@ -14,6 +14,11 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ * The change stream's resume token and its per-log-group entries (docs/cdc-change-stream.md §5.6).
+ */
+
 #pragma once
 
 #include <cstdint>
@@ -27,35 +32,53 @@
 namespace mongo {
 
 /**
- * One log group's position inside a resume token: where that group's two scans resume
- * (docs/cdc-change-stream.md, §5.6). The two keys are exactly the `continuation` the logger
- * returns, so an entry is a continuation plus a form and, for form 1, a position inside a record.
+ * @brief One log group's position inside a resume token: where that group's two scans resume
+ * (docs/cdc-change-stream.md, §5.6).
+ *
+ * The two keys are exactly the `continuation` the logger returns, so an entry is a continuation
+ * plus a form and, for form 1, a position inside a record.
  */
 struct CdcResumeTokenEntry {
+    /**
+     * @brief How the group resumes relative to its keys.
+     */
     enum class Form : uint8_t {
-        // Resume after this key: every entry of the record it names has been produced.
+        /** Resume after this key: every entry of the record it names has been produced. */
         kAfterKey = 0,
-        // Resume at this key and skip through (section, entry): the record it names is the one
-        // the event came from and only part of it has been produced.
+        /**
+         * Resume at this key and skip through (section, entry): the record it names is the one
+         * the event came from and only part of it has been produced.
+         */
         kAtKeyAfterPosition = 1,
     };
 
-    uint32_t logGroupId = 0;
-    Form form = Form::kAfterKey;
-    // Storage keys, opaque here: (commit_ts, ng, txn) for the data stream, (ddl_ts, namespace,
-    // class, key) for the DDL stream. Either may be empty when that stream produced nothing.
+    uint32_t logGroupId = 0;      ///< The log group.
+    Form form = Form::kAfterKey;  ///< How it resumes.
+    /**
+     * The data stream's position, opaque here: the storage key (commit_ts, ng, txn), big-endian.
+     * Empty when that stream produced nothing.
+     */
     std::string dataKey;
+    /**
+     * The DDL stream's position, opaque here: the record's (ddl_ts, txn), big-endian (§4.3).
+     * Empty when that stream produced nothing.
+     */
     std::string ddlKey;
-    // Form 1 only: the last entry produced from the record at 'dataKey', as the ordinal of its
-    // section in the blob and of the entry within that section.
+    /**
+     * Form 1 only: the ordinal, in the blob, of the section of the last entry produced from the
+     * record at 'dataKey'.
+     */
     uint32_t section = 0;
+    /** Form 1 only: the ordinal of that entry within its section. */
     uint32_t entry = 0;
 };
 
 /**
- * A change-stream resume token. MongoDB's 4.0 ResumeToken is keyed on the collection UUID, which
- * this design rules out (§5.4), so only the wire shape drivers expect is kept: the token travels
- * as {_data: <hex string>} and is opaque to clients. The bytes are built only from immutable log
+ * @brief A change-stream resume token.
+ *
+ * MongoDB's 4.0 ResumeToken is keyed on the collection UUID, which this design rules out (§5.4),
+ * so only the wire shape drivers expect is kept: the token travels as {_data: <hex string>} and
+ * is opaque to clients. The bytes are built only from immutable log
  * information, and are not order-preserving: tokens are decoded and interpreted per group, never
  * compared as bytes.
  *
@@ -76,72 +99,125 @@ struct CdcResumeTokenEntry {
  */
 class CdcResumeToken {
 public:
+    /**
+     * @brief What a token records a position after.
+     */
     enum class Kind : uint8_t {
-        // After a specific event. Valid for resumeAfter and startAfter.
+        /** After a specific event. Valid for resumeAfter and startAfter. */
         kEvent = 0,
-        // Everything through 'timestamp' has been consumed. Issued when the source drains.
+        /** Everything through 'timestamp' has been consumed. Issued when the source drains. */
         kWatermark = 1,
-        // After the watched collection's drop and the invalidate that followed it. Accepted by
-        // startAfter only, as in MongoDB.
+        /**
+         * After the watched collection's drop and the invalidate that followed it. Accepted by
+         * startAfter only, as in MongoDB.
+         */
         kInvalidate = 2,
     };
 
-    // constexpr, not const: both are passed by reference (to str::stream and the BSON builder),
-    // which odr-uses them, and only a constexpr static member is implicitly inline.
+    /**
+     * @brief The format version the token's first byte carries.
+     *
+     * constexpr, not const, as kDataFieldName: both are passed by reference (to str::stream and
+     * the BSON builder), which odr-uses them, and only a constexpr static member is implicitly
+     * inline.
+     */
     static constexpr uint8_t kFormatVersion = 0x02;
-    static constexpr StringData kDataFieldName = "_data"_sd;
+    static constexpr StringData kDataFieldName = "_data"_sd;  ///< The wire field holding the hex.
 
     CdcResumeToken() = default;
+
+    /**
+     * @brief A token of the given kind.
+     *
+     * @param timestamp The event's timestamp, or emit_bound for a watermark.
+     * @param kind What the token records a position after.
+     * @param entries The groups' positions.
+     */
     CdcResumeToken(uint64_t timestamp, Kind kind, std::vector<CdcResumeTokenEntry> entries)
         : _timestamp(timestamp), _kind(kind), _entries(std::move(entries)) {}
 
     /**
-     * A watermark with no entries, which is what a stream issues before it has produced anything
-     * (§5.1): resuming from it starts every group at 'timestamp' + 1.
+     * @brief A watermark; with no entries, what a stream issues before it has produced anything
+     * (§5.1), from which resuming starts every group at 'timestamp' + 1.
+     *
+     * @param timestamp emit_bound.
+     * @param entries The groups' emit cursors.
+     * @return The token.
      */
     static CdcResumeToken makeWatermark(uint64_t timestamp,
                                         std::vector<CdcResumeTokenEntry> entries = {}) {
         return CdcResumeToken(timestamp, Kind::kWatermark, std::move(entries));
     }
 
+    /** The token's timestamp, in microseconds. */
     uint64_t timestamp() const {
         return _timestamp;
     }
+    /** What it records a position after. */
     Kind kind() const {
         return _kind;
     }
+    /** The groups' positions, in log-group order. */
     const std::vector<CdcResumeTokenEntry>& entries() const {
         return _entries;
     }
 
     /**
-     * The entry for 'logGroupId', or nullptr when the token has none, which means that group had
-     * produced nothing since the stream started or last resumed. Such a group is positioned from
-     * the token's timestamp; see startTimestampForAbsentGroup(). A group named in a token but no
-     * longer in the cluster is ignored instead.
+     * @brief The entry for a log group.
+     *
+     * No entry means that group had produced nothing since the stream started or last resumed.
+     * Such a group is positioned from the token's timestamp; see startTimestampForAbsentGroup().
+     * A group named in a token but no longer in the cluster is ignored instead.
+     *
+     * @param logGroupId The group.
+     * @return The entry, or nullptr when the token has none.
      */
     const CdcResumeTokenEntry* entryFor(uint32_t logGroupId) const;
 
     /**
-     * Where a group with no entry restarts its scan. A watermark certifies its own timestamp
-     * consumed, so that group starts above it; an event or invalidate token does not, because
-     * records at the event's timestamp from other groups may not have been produced yet.
+     * @brief Where a group with no entry restarts its scan.
      *
-     * Throws for a watermark at the maximum timestamp, whose successor would wrap to 0 and
-     * silently restart the stream at the beginning of history. decode() rejects such a token, so
-     * this only fires on one constructed in process, which a real timestamp cannot reach.
+     * A watermark certifies its own timestamp consumed, so that group starts above it; an event
+     * or invalidate token does not, because records at the event's timestamp from other groups
+     * may not have been produced yet.
+     *
+     * @return The first timestamp to scan from, always at least 1.
+     * @throws for a watermark at the maximum timestamp, whose successor would wrap to 0 and
+     * silently restart the stream at the beginning of history, and for an event or invalidate
+     * token at timestamp 0, which no change can have. decode() rejects both, so this only fires
+     * on a token constructed in process.
      */
     uint64_t startTimestampForAbsentGroup() const;
 
-    /** The raw token bytes, as laid out above. */
+    /**
+     * @brief The raw token bytes, as laid out above.
+     *
+     * @return The bytes.
+     */
     std::string encode() const;
 
-    /** The driver-facing form, {_data: <hex>}, which is what an event's _id carries. */
+    /**
+     * @brief The driver-facing form, which is what an event's _id carries.
+     *
+     * @return {_data: <hex>}.
+     */
     BSONObj toBSON() const;
 
+    /**
+     * @brief Decodes raw token bytes.
+     *
+     * @param bytes The bytes.
+     * @return The token, or an error for bytes that are not a well-formed token.
+     */
     static StatusWith<CdcResumeToken> decode(StringData bytes);
 
-    /** Parses {_data: <hex>}; rejects anything else, as MongoDB does for its own tokens. */
+    /**
+     * @brief Parses the driver-facing form; rejects anything else, as MongoDB does for its own
+     * tokens.
+     *
+     * @param token {_data: <hex>}.
+     * @return The token, or an error.
+     */
     static StatusWith<CdcResumeToken> parse(const BSONObj& token);
 
 private:

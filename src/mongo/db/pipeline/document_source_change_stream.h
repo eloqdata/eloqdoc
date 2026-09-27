@@ -28,6 +28,9 @@
 
 #pragma once
 
+#include <functional>
+#include <list>
+
 #include "mongo/db/pipeline/document_source.h"
 #include "mongo/db/pipeline/document_source_match.h"
 #include "mongo/db/pipeline/document_source_single_document_transformation.h"
@@ -175,6 +178,31 @@ public:
      */
     static std::list<boost::intrusive_ptr<DocumentSource>> createFromBson(
         BSONElement elem, const boost::intrusive_ptr<ExpressionContext>& expCtx);
+
+    /**
+     * @brief Builds the stages a $changeStream expands into for a storage engine that supplies its
+     * own change streams instead of the oplog-based chain: EloqDoc's, which read its log service
+     * (docs/cdc-change-stream.md §5.2). createFromBson() adds the close-cursor stage after them.
+     */
+    using StageFactory = std::function<std::list<boost::intrusive_ptr<DocumentSource>>(
+        const DocumentSourceChangeStreamSpec& spec,
+        const boost::intrusive_ptr<ExpressionContext>& expCtx)>;
+
+    /**
+     * @brief Installs the storage engine's stage factory; called once at startup, before any
+     * command runs, and never again.
+     *
+     * @param factory The factory.
+     */
+    static void setStageFactory(StageFactory factory);
+
+    /**
+     * @brief Whether a storage engine installed a stage factory, in which case a change stream
+     * neither reads the oplog nor needs a majority snapshot.
+     *
+     * @return true if one is installed.
+     */
+    static bool hasStageFactory();
 
     /**
      * Given a BSON object containing an aggregation command with a $changeStream stage, and a

@@ -57,7 +57,7 @@ namespace mongo {
  */
 class CdcFakeLogService : public CdcScanTransport {
 public:
-    /// How a group's calls complete.
+    /** How a group's calls complete. */
     enum class Completion {
         kInline,  ///< Answered before scan() returns.
         kAsync,   ///< Answered on another thread shortly after.
@@ -100,6 +100,19 @@ public:
         uint32_t logGroupId, uint64_t commitTs, uint32_t ngId, uint64_t txn, size_t blobBytes = 16);
 
     /**
+     * @brief Adds a data record carrying the given blob, a node group's redo-log record as the
+     * tx service writes it.
+     *
+     * @param logGroupId The group.
+     * @param commitTs Its commit timestamp.
+     * @param ngId Its node group.
+     * @param txn Its transaction number.
+     * @param blob The blob.
+     */
+    void addDataBlob(
+        uint32_t logGroupId, uint64_t commitTs, uint32_t ngId, uint64_t txn, std::string blob);
+
+    /**
      * @brief Adds a DDL record to the group.
      *
      * @param logGroupId The group.
@@ -130,6 +143,15 @@ public:
      * @param logGroupId The group.
      */
     void failNext(uint32_t logGroupId);
+
+    /**
+     * @brief Makes every later answer of the group fail with the given brpc error code, as the
+     * MEMORY log state answers ENOMETHOD.
+     *
+     * @param logGroupId The group.
+     * @param errorCode The code; 0 answers normally again.
+     */
+    void setFailureCode(uint32_t logGroupId, int errorCode);
 
     /**
      * @brief Makes the group's next answer NotLeader with the given redirect.
@@ -246,13 +268,13 @@ public:
     void cancel(brpc::Controller* cntl) override;
 
 private:
-    /// A scripted answer that precedes the page.
+    /** A scripted answer that precedes the page. */
     struct Action {
         bool fail = false;     ///< A transport error; otherwise NotLeader.
         std::string redirect;  ///< The NotLeader redirect.
     };
 
-    /// A call that has not been answered.
+    /** A call that has not been answered. */
     struct PendingCall {
         brpc::Controller* cntl = nullptr;
         const txlog::CdcScanRequest* request = nullptr;
@@ -260,7 +282,7 @@ private:
         google::protobuf::Closure* done = nullptr;
     };
 
-    /// One group's script and observations.
+    /** One group's script and observations. */
     struct Group {
         std::map<std::string, txlog::CdcDataRecord> data;  ///< By storage key.
         std::map<std::string, txlog::CdcDdlRecord> ddl;    ///< By storage key.
@@ -269,6 +291,7 @@ private:
         std::deque<Action> actions;
         std::map<uint32_t, std::set<std::string>> nodes;  ///< Addresses by node ID.
         uint32_t leader = 0;
+        int failureCode = 0;  ///< Every answer fails with this brpc code while it is set.
         Completion mode = Completion::kInline;
         std::vector<PendingCall> held;
         std::vector<txlog::CdcScanRequest> requests;

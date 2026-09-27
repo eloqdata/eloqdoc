@@ -84,8 +84,7 @@ public:
 private:
     static Status short_(size_t wanted) {
         return Status(ErrorCodes::FailedToParse,
-                      str::stream() << "resume token ended before its next " << wanted
-                                    << " bytes");
+                      str::stream() << "resume token ended before its next " << wanted << " bytes");
     }
 
     const char* _pos;
@@ -96,6 +95,10 @@ private:
 
 uint64_t CdcResumeToken::startTimestampForAbsentGroup() const {
     if (_kind != Kind::kWatermark) {
+        uassert(ErrorCodes::FailedToParse,
+                "resume token is an event or invalidate token at timestamp 0, which no change "
+                "can have",
+                _timestamp != 0);
         return _timestamp;
     }
     uassert(ErrorCodes::FailedToParse,
@@ -154,8 +157,7 @@ StatusWith<CdcResumeToken> CdcResumeToken::decode(StringData bytes) {
     if (version != kFormatVersion) {
         return Status(ErrorCodes::FailedToParse,
                       str::stream() << "unsupported resume token version " << version
-                                    << "; this server writes version "
-                                    << kFormatVersion);
+                                    << "; this server writes version " << kFormatVersion);
     }
 
     uint64_t timestamp;
@@ -182,6 +184,13 @@ StatusWith<CdcResumeToken> CdcResumeToken::decode(StringData bytes) {
         return Status(ErrorCodes::FailedToParse,
                       "resume token is a watermark at the maximum timestamp, which has no "
                       "successor to resume from");
+    }
+    // An event or invalidate token records a change's own timestamp, and every commit timestamp
+    // is positive; at 0 it names no change, and a group it does not name would restart from 0.
+    if (kind != Kind::kWatermark && timestamp == 0) {
+        return Status(ErrorCodes::FailedToParse,
+                      "resume token is an event or invalidate token at timestamp 0, which no "
+                      "change can have");
     }
 
     uint16_t entryCount;
@@ -248,20 +257,17 @@ StatusWith<CdcResumeToken> CdcResumeToken::parse(const BSONObj& token) {
     if (dataElem.eoo()) {
         return Status(ErrorCodes::FailedToParse,
                       str::stream() << "resume token is missing the '" << kDataFieldName
-                                    << "' field: "
-                                    << token);
+                                    << "' field: " << token);
     }
     if (dataElem.type() != BSONType::String) {
         return Status(ErrorCodes::FailedToParse,
                       str::stream() << "resume token field '" << kDataFieldName
-                                    << "' must be a string, found "
-                                    << typeName(dataElem.type()));
+                                    << "' must be a string, found " << typeName(dataElem.type()));
     }
     if (token.nFields() != 1) {
         return Status(ErrorCodes::FailedToParse,
-                      str::stream() << "resume token must hold only '" << kDataFieldName
-                                    << "': "
-                                    << token);
+                      str::stream()
+                          << "resume token must hold only '" << kDataFieldName << "': " << token);
     }
 
     const StringData hex = dataElem.valueStringData();

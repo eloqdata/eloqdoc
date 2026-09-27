@@ -54,7 +54,7 @@ uint64_t readBigEndian(const char* data, int bytes) {
     return value;
 }
 
-/// Where each stream resumes, strictly after its key (log.proto, CdcScanRequest).
+/** Where each stream resumes, strictly after its key (log.proto, CdcScanRequest). */
 struct Position {
     std::string dataKey;
     std::string ddlKey;
@@ -141,14 +141,19 @@ std::string CdcFakeLogService::dataKey(uint64_t commitTs, uint32_t ngId, uint64_
 
 void CdcFakeLogService::addData(
     uint32_t logGroupId, uint64_t commitTs, uint32_t ngId, uint64_t txn, size_t blobBytes) {
-    txlog::CdcDataRecord record;
-    record.set_commit_ts(commitTs);
-    record.set_cc_ng_id(ngId);
-    record.set_txn_number(txn);
     std::string blob(blobBytes, '\0');
     for (size_t i = 0; i < blobBytes; ++i) {
         blob[i] = static_cast<char>((txn + i) & 0xff);
     }
+    addDataBlob(logGroupId, commitTs, ngId, txn, std::move(blob));
+}
+
+void CdcFakeLogService::addDataBlob(
+    uint32_t logGroupId, uint64_t commitTs, uint32_t ngId, uint64_t txn, std::string blob) {
+    txlog::CdcDataRecord record;
+    record.set_commit_ts(commitTs);
+    record.set_cc_ng_id(ngId);
+    record.set_txn_number(txn);
     record.set_blob(std::move(blob));
     std::lock_guard<std::mutex> lk(_mutex);
     _group(logGroupId).data[dataKey(commitTs, ngId, txn)] = std::move(record);
@@ -181,6 +186,11 @@ void CdcFakeLogService::failNext(uint32_t logGroupId) {
     Action action;
     action.fail = true;
     _group(logGroupId).actions.push_back(std::move(action));
+}
+
+void CdcFakeLogService::setFailureCode(uint32_t logGroupId, int errorCode) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    _group(logGroupId).failureCode = errorCode;
 }
 
 void CdcFakeLogService::notLeaderNext(uint32_t logGroupId, std::string redirect) {
@@ -360,6 +370,10 @@ void CdcFakeLogService::_answer(const std::lock_guard<std::mutex>& lk,
                                 Group& group,
                                 const PendingCall& call) {
     (void)lk;
+    if (group.failureCode != 0) {
+        call.cntl->SetFailed(group.failureCode, "scripted failure");
+        return;
+    }
     if (!group.actions.empty()) {
         Action action = std::move(group.actions.front());
         group.actions.pop_front();

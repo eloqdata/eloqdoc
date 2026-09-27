@@ -38,6 +38,19 @@ add_custom_target(eloqdoc-server-smoke
     DEPENDS eloqdoc
     USES_TERMINAL)
 
+# Opt-in change-stream driver scenarios (docs/cdc-change-stream.md §10.2, plan C13) through the
+# PyMongo, Node.js and Java drivers' watch(), each against fresh servers. The drivers are test-only
+# dependencies: PyMongo on PYTHONPATH, the other two fetched into the work directory, which needs
+# node, npm, java and javac on PATH.
+add_custom_target(eloqdoc-change-stream-drivers
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/change_stream_drivers.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/change-stream-diagnostics"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/change-stream-clients"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
 # Keep the production objects in archives for tests. Unlike the server executable, a unit test
 # should pull only the MongoDB objects it references; this avoids running unrelated global
 # initializers and keeps individual test binaries reasonably small.

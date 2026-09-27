@@ -85,11 +85,10 @@ TEST(CdcResumeToken, WatermarkWithNoEntries) {
 }
 
 TEST(CdcResumeToken, WatermarkWithEntries) {
-    CdcResumeToken token(
-        1758400000000123ULL,
-        Kind::kWatermark,
-        {makeEntry(0, Form::kAfterKey, "data-key-0", "ddl-key-0"),
-         makeEntry(3, Form::kAfterKey, "data-key-3", "")});
+    CdcResumeToken token(1758400000000123ULL,
+                         Kind::kWatermark,
+                         {makeEntry(0, Form::kAfterKey, "data-key-0", "ddl-key-0"),
+                          makeEntry(3, Form::kAfterKey, "data-key-3", "")});
     assertRoundTrips(token, "watermark with entries");
 }
 
@@ -171,6 +170,26 @@ TEST(CdcResumeToken, MaximumWatermarkIsRejectedRatherThanWrappingToZero) {
     // And an in-process token that somehow held it fails loudly instead of returning 0.
     ASSERT_THROWS_CODE(
         token.startTimestampForAbsentGroup(), AssertionException, ErrorCodes::FailedToParse);
+}
+
+TEST(CdcResumeToken, EventOrInvalidateAtTimestampZeroIsRejected) {
+    // Every commit timestamp is positive, so neither kind can name timestamp 0, and accepting one
+    // would restart the groups it does not name from 0, which the scan source refuses outright.
+    // The bytes come from a client, so this must be a parse error, never a server abort.
+    for (Kind kind : {Kind::kEvent, Kind::kInvalidate}) {
+        const CdcResumeToken token(0, kind, {});
+        ASSERT_EQ(CdcResumeToken::decode(token.encode()).getStatus().code(),
+                  ErrorCodes::FailedToParse);
+        ASSERT_EQ(CdcResumeToken::parse(token.toBSON()).getStatus().code(),
+                  ErrorCodes::FailedToParse);
+        ASSERT_THROWS_CODE(
+            token.startTimestampForAbsentGroup(), AssertionException, ErrorCodes::FailedToParse);
+    }
+    // The token from the report: version 2, timestamp 0, event kind, no entries.
+    ASSERT_EQ(CdcResumeToken::parse(BSON("_data" << "020000000000000000000000")).getStatus().code(),
+              ErrorCodes::FailedToParse);
+    // A watermark at 0 stays valid: it restarts at 1.
+    ASSERT_OK(CdcResumeToken::decode(CdcResumeToken::makeWatermark(0).encode()).getStatus());
 }
 
 TEST(CdcResumeToken, RestartTimestampAtTheBoundaryDoesNotWrap) {
@@ -269,8 +288,7 @@ TEST(CdcResumeToken, RejectsDuplicateLogGroup) {
         1,
         Kind::kEvent,
         {makeEntry(4, Form::kAfterKey, "a", "b"), makeEntry(4, Form::kAfterKey, "c", "d")});
-    ASSERT_EQ(CdcResumeToken::decode(token.encode()).getStatus().code(),
-              ErrorCodes::FailedToParse);
+    ASSERT_EQ(CdcResumeToken::decode(token.encode()).getStatus().code(), ErrorCodes::FailedToParse);
 }
 
 TEST(CdcResumeToken, RejectsUnknownEntryForm) {
@@ -298,10 +316,7 @@ TEST(CdcResumeTokenBson, RejectsMissingOrWrongTypedData) {
     ASSERT_EQ(CdcResumeToken::parse(BSONObj()).getStatus().code(), ErrorCodes::FailedToParse);
     ASSERT_EQ(CdcResumeToken::parse(BSON("_data" << 1)).getStatus().code(),
               ErrorCodes::FailedToParse);
-    ASSERT_EQ(CdcResumeToken::parse(BSON("other"
-                                         << "02"))
-                  .getStatus()
-                  .code(),
+    ASSERT_EQ(CdcResumeToken::parse(BSON("other" << "02")).getStatus().code(),
               ErrorCodes::FailedToParse);
 }
 
@@ -314,15 +329,9 @@ TEST(CdcResumeTokenBson, RejectsExtraFields) {
 }
 
 TEST(CdcResumeTokenBson, RejectsBadHex) {
-    ASSERT_EQ(CdcResumeToken::parse(BSON("_data"
-                                         << "0201020"))
-                  .getStatus()
-                  .code(),
+    ASSERT_EQ(CdcResumeToken::parse(BSON("_data" << "0201020")).getStatus().code(),
               ErrorCodes::FailedToParse);
-    ASSERT_EQ(CdcResumeToken::parse(BSON("_data"
-                                         << "02zz"))
-                  .getStatus()
-                  .code(),
+    ASSERT_EQ(CdcResumeToken::parse(BSON("_data" << "02zz")).getStatus().code(),
               ErrorCodes::FailedToParse);
 }
 

@@ -458,6 +458,51 @@ env.CppUnitTest(
     ],
 )
 
+# The change stream's event producer (docs/cdc-change-stream.md §5.3 step 3, §5.4, §5.4a, §5.6):
+# decodes the records the scan source releases into event documents with their resume tokens.
+env.Library(
+    target="cdc_stream",
+    source=[
+        "src/cdc/cdc_event_stream.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/db/namespace_string",
+        "$BUILD_DIR/mongo/db/pipeline/document_value",
+        "cdc_codec",
+        "cdc_scan",
+    ],
+)
+
+# EloqDoc's $changeStream stage (docs/cdc-change-stream.md §5.1, §5.2): the pipeline stage over the
+# event stream, and the factory storage_eloq installs so that $changeStream expands into it.
+env.Library(
+    target="cdc_change_stream",
+    source=[
+        "src/cdc/document_source_eloq_change_stream.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/db/pipeline/pipeline",
+        "$BUILD_DIR/mongo/db/query/query_common",
+        "$BUILD_DIR/mongo/db/server_parameters",
+        "cdc_stream",
+    ],
+    SYSLIBDEPS=eloq_dependencies,
+)
+
+env.CppUnitTest(
+    target="cdc_stream_test",
+    source=[
+        "src/cdc/cdc_event_stream_test.cpp",
+        "src/cdc/cdc_fake_log_service.cpp",
+    ],
+    LIBDEPS=[
+        # The tests build their blobs' primary keys with the real KeyString encoder.
+        "$BUILD_DIR/mongo/db/pipeline/document_value_test_util",
+        "$BUILD_DIR/mongo/db/storage/key_string",
+        "cdc_stream",
+    ],
+)
+
 env.Library(
     target="storage_eloq",
     source=[
@@ -476,6 +521,7 @@ env.Library(
         "$BUILD_DIR/mongo/db/commands",
         "$BUILD_DIR/mongo/db/commands/test_commands_enabled",
         "$BUILD_DIR/mongo/db/storage/storage_engine_common",
+        "cdc_change_stream",
     ],
     LIBDEPS_DEPENDENTS=["$BUILD_DIR/mongo/db/serveronly"],
 )

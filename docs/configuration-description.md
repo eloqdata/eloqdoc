@@ -144,6 +144,39 @@ Accepted Value: true|false
 Default: false
 Desc: Enable async fsync with io_uring. Available when [enableIOuring](#storageeloqtxserviceenableiouring) is enabled.
 
+## Change Stream Parameters
+
+Server parameters of EloqDoc's change streams (`$changeStream`, see `docs/cdc-change-stream.md`),
+set at startup with `--setParameter` or `setParameter:` in the configuration file, or at runtime
+with the `setParameter` command.
+
+#### cdc_open_wait_ms
+
+Type: Number
+Required: False
+Accepted Values: a positive number of milliseconds
+Default: 30000
+Desc: How long a change stream opened without a resume token may wait, when its `aggregate` has no
+`maxTimeMS`, for every log group to complete a checkpoint round. Until then no start position can
+be fixed, which happens at cluster start-up; past the wait the open fails with
+`ChangeStreamStartNotReady` (5000) and the client retries. Keep it at two or more checkpoint
+rounds: `checkpointer_interval` in the data substrate configuration, default 10 s, never below
+5 s. If an open fails without having waited longer than one round, the error says so and names
+the value to raise.
+
+#### cdc_scan_max_bytes
+
+Type: Number
+Required: False
+Accepted Values: 1 - 33554432 (32 MB, the log service's own cap)
+Default: 4194304 (4 MB)
+Desc: The page size, in bytes, a change stream asks the log service for in each scan. The log
+service stops filling a page before the record that would take it past this size; a page's first
+record always goes in. Each stream also reserves this much of its 64 MB read buffer per scan in
+flight. A `getMore` returns once it has an event, so one reply holds at most about one page per
+log group: a larger page means fewer scans and larger replies, at the cost of memory per stream.
+Read when a stream opens; a change applies to streams opened afterwards.
+
 ## EloqDoc-RocksDBCloud Parameters
 
 ### storage.eloq.txService

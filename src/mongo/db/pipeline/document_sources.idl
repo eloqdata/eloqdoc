@@ -78,6 +78,13 @@ structs:
               optional: true
               description: An object representing the point at which we should resume reporting
                            changes from.
+          startAfter:
+              cpp_name: startAfter
+              type: object
+              optional: true
+              description: An EloqDoc resume token after which the stream resumes, including an
+                           invalidate token (docs/cdc-change-stream.md §5.2, §5.6). At most one
+                           of resumeAfter and startAfter may be given.
           $_resumeAfterClusterTime:
               cpp_name: resumeAfterClusterTimeDeprecated
               type: ResumeTokenClusterTime

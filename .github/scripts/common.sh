@@ -150,7 +150,7 @@ EOF
   cat > "${run_dir}/data_substrate.cnf" <<EOF
 [local]
 core_number=2
-checkpoint_interval=10
+checkpointer_interval=10
 node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-4000}
 enable_data_store=true
 enable_wal=true
@@ -457,7 +457,7 @@ run_jstests() {
         PATH="${install_prefix}/bin:${PATH}" \
       python2 scripts/buildscripts/resmoke.py \
         --mongo="${install_prefix}/bin/eloqdoc-cli" \
-        --suites=eloq_basic,eloq_core \
+        --suites=eloq_basic,eloq_core,eloq_cdc \
         --shellPort=27017 \
         --continueOnFailure
 }

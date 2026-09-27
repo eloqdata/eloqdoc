@@ -420,6 +420,29 @@ list<intrusive_ptr<DocumentSource>> buildPipeline(
 
 }  // namespace
 
+namespace {
+
+/**
+ * @brief The storage engine's own $changeStream expansion, if it installed one.
+ *
+ * @return The factory slot; set once at startup, read-only afterwards.
+ */
+DocumentSourceChangeStream::StageFactory& stageFactory() {
+    static DocumentSourceChangeStream::StageFactory factory;
+    return factory;
+}
+
+}  // namespace
+
+void DocumentSourceChangeStream::setStageFactory(StageFactory factory) {
+    invariant(!stageFactory());
+    stageFactory() = std::move(factory);
+}
+
+bool DocumentSourceChangeStream::hasStageFactory() {
+    return static_cast<bool>(stageFactory());
+}
+
 list<intrusive_ptr<DocumentSource>> DocumentSourceChangeStream::createFromBson(
     BSONElement elem, const intrusive_ptr<ExpressionContext>& expCtx) {
     uassert(50808,
@@ -446,6 +469,24 @@ list<intrusive_ptr<DocumentSource>> DocumentSourceChangeStream::createFromBson(
             fullDocOption == "updateLookup"_sd || fullDocOption == "default"_sd);
 
     const bool shouldLookupPostImage = (fullDocOption == "updateLookup"_sd);
+
+    uassert(40674,
+            "Only one type of resume option is allowed, but multiple were found.",
+            !(spec.getResumeAfter() && spec.getStartAfter()));
+
+    if (hasStageFactory()) {
+        // Every event of the storage engine's own stream carries its full document, so
+        // 'updateLookup' needs no post-image lookup stage.
+        auto stages = stageFactory()(spec, expCtx);
+        if (!expCtx->needsMerge) {
+            stages.push_back(DocumentSourceCloseCursor::create(expCtx));
+        }
+        return stages;
+    }
+
+    uassert(ErrorCodes::InvalidOptions,
+            "The 'startAfter' option of $changeStream is not supported by this storage engine",
+            !spec.getStartAfter());
 
     auto stages = buildPipeline(expCtx, spec, fcv, elem);
     if (!expCtx->needsMerge) {

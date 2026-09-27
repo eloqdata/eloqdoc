@@ -38,20 +38,22 @@ namespace mongo {
  * @brief Limits and timing of a CdcScanSource; the defaults are the design's.
  */
 struct CdcScanSourceOptions {
-    /// Received-and-unconsumed bytes plus max_bytes per scan in flight, above which only the
-    /// lagging group is fetched (cdc_cursor_buffer_bytes, §5.8).
+    /**
+     * Received-and-unconsumed bytes plus max_bytes per scan in flight, above which only the
+     * lagging group is fetched (cdc_cursor_buffer_bytes, §5.8).
+     */
     int64_t bufferBytes = 64 * 1024 * 1024;
-    /// A scan's soft page size (cdc_scan_max_bytes).
+    /** A scan's soft page size (cdc_scan_max_bytes). */
     uint32_t maxBytesPerScan = 4 * 1024 * 1024;
-    /// Longest long poll requested of the log service (cdc_scan_max_wait_ms).
+    /** Longest long poll requested of the log service (cdc_scan_max_wait_ms). */
     Milliseconds maxWait{30000};
-    /// Added to a scan's wait_ms for the RPC timeout.
+    /** Added to a scan's wait_ms for the RPC timeout. */
     Milliseconds rpcSlack{5000};
-    /// First pause before re-scanning a group that answered an empty page early.
+    /** First pause before re-scanning a group that answered an empty page early. */
     Milliseconds idleBackoffInitial{100};
-    /// Cap on that pause, which doubles while the group stays idle.
+    /** Cap on that pause, which doubles while the group stays idle. */
     Milliseconds idleBackoffMax{1000};
-    /// Retry timing for a leader that cannot serve.
+    /** Retry timing for a leader that cannot serve. */
     CdcScanClient::Options client;
 };
 
@@ -60,7 +62,7 @@ struct CdcScanSourceOptions {
  */
 class CdcSourceRecord {
 public:
-    /// Which of the group's two streams the record belongs to.
+    /** Which of the group's two streams the record belongs to. */
     enum class Stream { kData, kDdl };
 
     /**
@@ -77,17 +79,17 @@ public:
                     int index)
         : _logGroupId(logGroupId), _page(std::move(page)), _stream(stream), _index(index) {}
 
-    /// The log group the record came from.
+    /** The log group the record came from. */
     uint32_t logGroupId() const {
         return _logGroupId;
     }
 
-    /// Which stream it belongs to.
+    /** Which stream it belongs to. */
     Stream stream() const {
         return _stream;
     }
 
-    /// Its stream timestamp: commit_ts for data, ddl_ts for DDL.
+    /** Its stream timestamp: commit_ts for data, ddl_ts for DDL. */
     uint64_t timestamp() const {
         return _stream == Stream::kData ? data().commit_ts() : ddl().ddl_ts();
     }
@@ -113,6 +115,14 @@ public:
      * @return The key; stream() must be kData.
      */
     std::string dataKey() const;
+
+    /**
+     * @brief The DDL record's position in the DDL stream: big-endian ddl_ts and txn_number, which
+     * is what the continuation and a resume token entry record for the DDL stream (§4.3).
+     *
+     * @return The position; stream() must be kDdl.
+     */
+    std::string ddlKey() const;
 
 private:
     uint32_t _logGroupId;
@@ -201,6 +211,7 @@ public:
      * @param deadline When to give up.
      * @param coro The calling coroutine's functors.
      * @return S, or none if some group still reported zero at the deadline.
+     * @throws CommandNotSupported if a log group keeps no history a scan can read.
      */
     boost::optional<uint64_t> fixStart(Date_t deadline, const CoroutineFunctors& coro);
 
@@ -226,6 +237,7 @@ public:
      * @param coro The calling coroutine's functors.
      * @return The record, or none at the deadline.
      * @throws ChangeStreamHistoryLost if a group's position is below its retention floor.
+     * @throws CommandNotSupported if a log group keeps no history a scan can read.
      */
     boost::optional<CdcSourceRecord> next(Date_t deadline, const CoroutineFunctors& coro);
 
@@ -296,7 +308,7 @@ private:
         Milliseconds idleBackoff{0};     ///< The next pause after an early empty page.
     };
 
-    /// A group's next unreleased record, if it has one.
+    /** A group's next unreleased record, if it has one. */
     struct Head {
         uint64_t ts = 0;
         CdcSourceRecord::Stream stream = CdcSourceRecord::Stream::kData;
@@ -319,8 +331,18 @@ private:
 
     /**
      * @brief Takes every completed scan and folds it into its group.
+     *
+     * @throws ChangeStreamHistoryLost or CommandNotSupported as next() does.
      */
     void _collectCompletions();
+
+    /**
+     * @brief Fails the stream because a log group keeps no history a scan can read.
+     *
+     * @param logGroupId The group.
+     * @throws CommandNotSupported always.
+     */
+    [[noreturn]] void _failUnsupported(uint32_t logGroupId);
 
     /**
      * @brief Folds a page into its group: bound, scanned_ts, continuation, buffer, idle pause.

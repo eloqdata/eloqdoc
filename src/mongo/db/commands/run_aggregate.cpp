@@ -45,6 +45,7 @@
 #include "mongo/db/pipeline/accumulator.h"
 #include "mongo/db/pipeline/document.h"
 #include "mongo/db/pipeline/document_source.h"
+#include "mongo/db/pipeline/document_source_change_stream.h"
 #include "mongo/db/pipeline/expression.h"
 #include "mongo/db/pipeline/expression_context.h"
 #include "mongo/db/pipeline/lite_parsed_pipeline.h"
@@ -376,15 +377,20 @@ Status runAggregate(OperationContext* opCtx,
         }
 
         if (liteParsedPipeline.hasChangeStream()) {
-            nss = NamespaceString::kRsOplogNamespace;
+            // A storage engine with its own change streams (EloqDoc reads its log service,
+            // docs/cdc-change-stream.md §5.2) keeps the stream on its own namespace and needs no
+            // majority snapshot: only the oplog-based chain reads the oplog.
+            if (!DocumentSourceChangeStream::hasStageFactory()) {
+                nss = NamespaceString::kRsOplogNamespace;
 
-            // If the read concern is not specified, upgrade to 'majority' and wait to make sure we
-            // have a snapshot available.
-            auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
-            if (!readConcernArgs.hasLevel()) {
-                readConcernArgs =
-                    repl::ReadConcernArgs(repl::ReadConcernLevel::kMajorityReadConcern);
-                uassertStatusOK(waitForReadConcern(opCtx, readConcernArgs, true));
+                // If the read concern is not specified, upgrade to 'majority' and wait to make
+                // sure we have a snapshot available.
+                auto& readConcernArgs = repl::ReadConcernArgs::get(opCtx);
+                if (!readConcernArgs.hasLevel()) {
+                    readConcernArgs =
+                        repl::ReadConcernArgs(repl::ReadConcernLevel::kMajorityReadConcern);
+                    uassertStatusOK(waitForReadConcern(opCtx, readConcernArgs, true));
+                }
             }
 
             if (!origNss.isCollectionlessAggregateNS()) {

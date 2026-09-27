@@ -169,6 +169,10 @@ boost::optional<CdcScanClient::Completion> CdcScanClient::takeCompleted(uint32_t
     completion.completedAt = call->completedAt;
 
     if (call->cntl.Failed()) {
+        if (call->cntl.ErrorCode() == brpc::ENOMETHOD) {
+            completion.status = Completion::Status::kUnsupported;
+            return completion;
+        }
         _transport->requestLeaderRefresh(logGroupId);
         _backOff(group);
         completion.status = Completion::Status::kRetry;

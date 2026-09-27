@@ -83,6 +83,8 @@ public:
             kRetry,              ///< Nothing usable; scan again from the same position once
                                  ///< readyAt() is reached.
             kPositionTruncated,  ///< The position is at or below the group's retention floor.
+            kUnsupported,        ///< The log service keeps no history a scan can read (the
+                                 ///< MEMORY log state answers ENOMETHOD); retrying cannot help.
         };
         Status status = Status::kRetry;
         std::shared_ptr<const txlog::CdcScanResponse> response;  ///< Set for kOk.

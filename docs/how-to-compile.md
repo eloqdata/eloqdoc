@@ -262,7 +262,8 @@ the fixture.
 GitHub's CMake job explicitly enables `ELOQDOC_REGISTER_INTEGRATION_TESTS`. It runs unit and
 integration-startup checks first, then runs the actual C++ integration suites against a managed
 CMake-built server. These suites execute serially because they modify shared server parameters
-and failpoints. The same job runs the existing `eloq_basic` and `eloq_core` JavaScript suites,
+and failpoints. The same job runs the `eloq_basic`, `eloq_core` and `eloq_cdc` (change streams)
+JavaScript suites,
 the same two-warehouse transactional TPCC workload as SCons CI, and the wire-protocol smoke tests.
 The CI matrix remains one amd64 RelWithDebInfo EloqStore/S3 configuration for CMake.
 
@@ -292,7 +293,7 @@ The fixture interpreter defaults to `/usr/bin/python3` and can be selected with
 environment. The JavaScript and TPCC phases reserve port 27017 and refuse to reuse an existing
 server on that port. No Data Substrate/data-store test suites are added.
 
-The existing `eloq_basic` and `eloq_core` JavaScript suites can also run against the CMake
+The `eloq_basic`, `eloq_core` and `eloq_cdc` JavaScript suites can also run against the CMake
 server using an EloqDoc shell. Put the shell directory on `PATH` as well as passing resmoke's
 `--mongo` option, because some tests spawn `eloqdoc-cli` by name. `set_param1.js` always runs
 its generic parameter checks and runs its oplog-fetcher checks only when the server advertises

@@ -114,7 +114,7 @@ class ServerFixtureTest(unittest.TestCase):
         for phase in ("integration", "jstests", "tpcc"):
             self.assertIn("cmake_ci_runtime.sh build/cmake-ci " + phase, commands)
         runtime = (source / ".github/scripts/cmake_ci_runtime.sh").read_text()
-        self.assertIn("suites=eloq_basic,eloq_core", runtime)
+        self.assertIn("suites=eloq_basic,eloq_core,eloq_cdc", runtime)
         self.assertIn('suites="$suites,eloq_fault"', runtime)
         self.assertIn('"--suites=$suites"', runtime)
         self.assertIn("--no-tests=error", runtime)

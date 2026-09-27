@@ -28,10 +28,12 @@
 namespace mongo {
 namespace {
 
-/// The shortest long poll worth asking for. Below it a held scan cannot be told from an early
-/// answer (timer and clock granularity on both sides), and reissuing such scans back to back would
-/// be a tight loop whether the logger holds them or not; so, after a call's first pass, no scan
-/// goes out with less time than this left, and a scan that asked for less never counts as held.
+/**
+ * The shortest long poll worth asking for. Below it a held scan cannot be told from an early
+ * answer (timer and clock granularity on both sides), and reissuing such scans back to back would
+ * be a tight loop whether the logger holds them or not; so, after a call's first pass, no scan
+ * goes out with less time than this left, and a scan that asked for less never counts as held.
+ */
 const Milliseconds kShortestLongPoll{20};
 
 /**
@@ -65,6 +67,15 @@ std::string CdcSourceRecord::dataKey() const {
     key.reserve(20);
     appendBigEndian(key, record.commit_ts(), 8);
     appendBigEndian(key, record.cc_ng_id(), 4);
+    appendBigEndian(key, record.txn_number(), 8);
+    return key;
+}
+
+std::string CdcSourceRecord::ddlKey() const {
+    const txlog::CdcDdlRecord& record = ddl();
+    std::string key;
+    key.reserve(16);
+    appendBigEndian(key, record.ddl_ts(), 8);
     appendBigEndian(key, record.txn_number(), 8);
     return key;
 }
@@ -131,6 +142,10 @@ boost::optional<uint64_t> CdcScanSource::fixStart(Date_t deadline, const Corouti
         for (size_t i = 0; i < _groups.size(); ++i) {
             Group& group = _groups[i];
             boost::optional<CdcScanClient::Completion> completion = _client.takeCompleted(group.id);
+            if (completion &&
+                completion->status == CdcScanClient::Completion::Status::kUnsupported) {
+                _failUnsupported(group.id);
+            }
             if (!completion || completion->status != CdcScanClient::Completion::Status::kOk) {
                 // A failed probe was scheduled for a retry by the client; a probe from the maximum
                 // timestamp cannot be below a retention floor.
@@ -195,6 +210,14 @@ boost::optional<CdcSourceRecord> CdcScanSource::next(Date_t deadline,
         }
         _waitObject->waitUntil(std::min(deadline, _earliestDeferredReady()), coro);
     }
+}
+
+void CdcScanSource::_failUnsupported(uint32_t logGroupId) {
+    uasserted(ErrorCodes::CommandNotSupported,
+              str::stream() << "$changeStream is not supported by this deployment: log group "
+                            << logGroupId
+                            << " keeps no history a change stream can read (the MEMORY log "
+                               "state); use the RocksDB or RocksDB-Cloud log state");
 }
 
 uint64_t CdcScanSource::emitBound() const {
@@ -288,6 +311,8 @@ void CdcScanSource::_collectCompletions() {
                 uasserted(ErrorCodes::ChangeStreamHistoryLost,
                           str::stream() << "log group " << group.id
                                         << " no longer retains the change stream's position");
+            case CdcScanClient::Completion::Status::kUnsupported:
+                _failUnsupported(group.id);
         }
     }
 }

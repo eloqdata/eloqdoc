@@ -90,13 +90,12 @@ migration between EloqDoc nodes, rename collection, capped collections
  EloqDoc node (mongod)                         log groups (braft, one leader each)
  ┌───────────────────────────────┐             ┌──────────────┐
  │ aggregate {$changeStream}     │  CdcScan    │ LogInstance  │ data CF  (ts,ng,txn) → blob
- │  ┌─────────────────────────┐  │────────────▶│   + LogState │ ddl store (ddl_ts,ns,class,key) → (D, op)
+ │  ┌─────────────────────────┐  │────────────▶│   + LogState │ ddl history, in memory (ddl_ts,txn) → (D, op)
  │  │ internal stages §5.2    │  │◀────────────│              │ arrival_complete_ts = min_ckpt_ts_
  │  │  per-logger positions   │  │  records,   └──────────────┘
  │  │  pull lowest-ts head    │  │  arrival_complete_ts … one per log group …
  │  │  emit T once others     │  │
  │  │   scanned ≥ T−1  (§4.2) │  │
- │  │  incarnation filter     │  │
  │  └────────┬────────────────┘  │
  │  decoded events               │
  │  ┌────────▼────────────────┐  │
@@ -784,11 +783,14 @@ narrowed with its own `$match` on `ns`.
   with a clear error when the node cannot provide the guarantees the stream
   rests on: no log service configured, or `txservice_skip_wal` set (no redo
   records exist, F1); the `MEMORY` log state (not durable, no retention;
-  RocksDB and RocksDB-Cloud are both supported, §4.6); checkpointing
-  disabled or `checkpointer_interval` zero
-  (`arrival_complete_ts` would never advance, F6, and nothing would ever be
-  emitted). These are static properties of the deployment, so the check is
-  once per open.
+  RocksDB and RocksDB-Cloud are both supported, §4.6). These are static
+  properties of the deployment, so the check is once per open. Checkpoint
+  rounds, which advance `arrival_complete_ts` (F6), need no check at open,
+  because the data substrate guarantees them on any node that can serve a
+  stream: it refuses to start with WAL enabled and no data store (the only
+  setup without a checkpointer), rejects a negative `checkpointer_interval`
+  at start-up (stored unsigned, it would become an interval of about 136
+  years), and raises an interval below 5 s to 5 s.
 - *Starting position without a token.* MongoDB semantics: a stream opened
   with neither `resumeAfter` nor `startAfter` starts "now" and reports only
   later changes. Here "now" is the arrival-complete bound at open: the
@@ -814,8 +816,12 @@ narrowed with its own `$match` on `ns`.
   bounded by the command's `maxTimeMS` if given, else by
   `cdc_open_wait_ms` (default 30 s, i.e. at least two
   `checkpointer_interval` rounds at the default 10 s); on expiry the open
-  fails with `ChangeStreamStartNotReady` (new EloqDoc error code) and a
-  message naming the cause, and the client retries the open. Drivers do
+  fails with `ChangeStreamStartNotReady` (new EloqDoc error code 5000, in EloqDoc's own range above upstream's sequential codes) and a
+  message giving how long it waited and the configured round interval. If
+  the wait was not longer than one round, the message names the value to
+  raise (`maxTimeMS` or `cdc_open_wait_ms`); otherwise it says the delay
+  is expected only right after cluster start-up and points at the server
+  log if it persists. The client retries the open. Drivers do
   not retry a failed `aggregate` on their own, so the consumer treats this
   code as retriable (§6.1). A token-based open never waits: its opening
   reply carries the supplied token as `postBatchResumeToken` (the
@@ -842,11 +848,11 @@ narrowed with its own `$match` on `ns`.
 ### 5.2 Pipeline
 
 The `$changeStream` stage expands into EloqDoc's own chain of internal
-stages, which fetch, decode, order, and format the events, followed by the
+stages, which fetch, decode, and format the events, followed by the
 user's stages:
 
 ```text
-[EloqDoc internal stages: scan → decode → order → format (→ invalidate → close)]  →  user stages
+[EloqDoc internal stages: scan → decode → format (→ invalidate → close)]  →  user stages
 ```
 
 **What is reused from the 4.0 machinery (F10):** the `$changeStream` stage
@@ -902,31 +908,65 @@ design replaces:
 What would remain reusable after removing all of that is the shaping of
 `insert`/`replace`/`delete` documents, a few dozen lines. Extending the old
 formatter is therefore not worth the coupling. EloqDoc's `$changeStream`
-expands into its **own chain of internal stages**, decomposed the way MongoDB's is so that each piece is
-testable on its own:
+expands into **one pipeline stage of its own**, `DocumentSourceEloqChangeStream`,
+followed only by MongoDB's `DocumentSourceCloseCursor` and the user's stages.
+Inside that stage the work is decomposed the way MongoDB's chain is, so that
+each piece is testable on its own, but the pieces are plain C++ components
+the stage drives, not pipeline stages:
 
 ```text
-CdcScanSource → CdcDecode → CdcOrder → CdcFormat → [CdcInvalidate → CloseCursor] → user stages
+DocumentSourceEloqChangeStream{ CdcScanSource → decode → format [→ invalidate] }  →  CloseCursor  →  user stages
 ```
 
-| Stage | Owns | Input → output | Detail |
+One stage rather than a chain because the pieces share state that pipeline
+stages cannot: every event's token (§5.6) describes every log group's emit
+cursor, which the decode step advances but the format step writes, and the
+watermark the batch loop asks for at `IS_EOF` needs both the scan source's
+`emit_bound` and those cursors. A `DocumentSource` holds only its upstream
+neighbour and could reach that state only through a side channel. As one
+stage it is both the pipeline's first stage and the last one that writes an
+`_id`, so it answers both of the batch loops' token questions itself
+(`PostBatchResumeTokenProvider`): the watermark or opening token, and the
+`_id` it last emitted, which `PipelineProxyStage` compares with the delivered
+one (§5.3 step 4). No data is copied between the pieces; the one copy is a
+logged document's BSON, from the scan page into the event.
+
+| Component | Owns | Input → output | Detail |
 |---|---|---|---|
-| `CdcScanSource` | per-logger continuation, buffers, `arrival_complete_ts`, completeness boundary `scanned_ts`; `emit_bound`; `last_produced` and `drained` (§5.3); the in-flight RPC state and wait object of §5.8 | — → *records*, one at a time, in pull order merged across groups by timestamp | issues `CdcScan` asynchronously and yields on the wait object (F11, §5.8); long-poll clamped to `maxTimeMS`; releases a record at `T` only when every other group's boundary is at least `T − 1` (§4.2 emission rule, §5.3 step 2) |
-| `CdcDecode` | the current record and the position `(section, entry)` reached in it; per group, the set of entries produced at the group's current timestamp (§5.5) | record → events, in decode order | decodes one record at a time in storage order, skipping sections outside the stream's scope by their length (§5.4 step 1), suppresses forward-write duplicate entries (§5.5), applies the canonical delete-key decoder (§5.4 step 3); no catalog access |
-| `CdcOrder` | per-table incarnation boundaries | events in pull order → the same events, filtered | incarnation filter and its sanity check (§5.5); **no sorting** (order within a timestamp is pull order, §5.6) and no dedup |
-| `CdcFormat` | nothing | event → event document (§5.4a) with `_id` token (§5.6) | sets each document's `_id` to the *progress token* valid once that document is delivered; the `_id` is what the batch loop records at append time (§5.3 step 4), since nothing outside the BSON document survives to the batch builder; the stage does **not** decide what has been delivered |
-| `CdcInvalidate` | whether the watched collection has been dropped | events → events, plus an `invalidate` after the watched collection's `drop` | **collection-level streams only**; the `invalidate` token is the vector recorded after the drop, kind 2, set as the synthesized document's `_id` exactly as `CdcFormat` does for events, so the batch loop records it at append time (§5.3 step 4); on resume from the drop's token it re-reads the referenced drop record and emits the pending `invalidate` before anything else (§5.6) |
-| `CloseCursor` | — | closes the cursor once `invalidate` has been delivered | MongoDB's `DocumentSourceCloseCursor` is reusable as is: it only checks `operationType == "invalidate"` |
+| `CdcScanSource` (`src/cdc/cdc_scan_source.*`) | per-logger continuation, buffers, `arrival_complete_ts`, completeness boundary `scanned_ts`; `emit_bound`; `drained` (§5.3); the scan client's in-flight RPC state and the wait object of §5.8 | — → *records*, one at a time, in pull order merged across groups by timestamp | issues `CdcScan` asynchronously and yields on the wait object (F11, §5.8); long-poll clamped to the batch's deadline; releases a record at `T` only when every other group's boundary is at least `T − 1` (§4.2 emission rule, §5.3 step 2) |
+| decode (`CdcEventStream`, `src/cdc/cdc_event_stream.*`) | the current record and the position `(section, entry)` reached in it; per group, the emit cursor and the set of entries produced at the group's current timestamp (§5.5); the resume skip (§5.6) | record → changes, in decode order | decodes one record at a time in storage order, skipping sections outside the stream's scope by their length (§5.4 step 1), suppresses forward-write duplicate entries (§5.5), consumes without producing what a resume token covers (§5.6), applies the canonical delete-key decoder (§5.4 step 3); no catalog access |
+| format (`CdcEventStream`) | nothing | change → event document (§5.4a) with `_id` token (§5.6) | sets each document's `_id` to the *progress token* valid once that document is delivered; the `_id` is what the batch loop records at append time (§5.3 step 4), since nothing outside the BSON document survives to the batch builder; it does **not** decide what has been delivered |
+| invalidate | whether the watched collection has been dropped | events → events, plus an `invalidate` after the watched collection's `drop` | **collection-level streams only**, with the DDL events (plan C10); the `invalidate` token is the vector recorded after the drop, kind 2, set as the synthesized document's `_id` exactly as format does for events; on resume from the drop's token it re-reads the referenced drop record and emits the pending `invalidate` before anything else (§5.6) |
+| `CloseCursor` (a stage) | — | closes the cursor once `invalidate` has been delivered | MongoDB's `DocumentSourceCloseCursor`, reused as is: it only checks `operationType == "invalidate"` |
+
+**How it is wired.** The storage engine installs its expansion at startup
+(`DocumentSourceChangeStream::setStageFactory`, called when the eloq storage
+engine is registered), so the pipeline library does not depend on the eloq
+module and the oplog-based chain stays intact where no factory is installed.
+With a factory installed, `run_aggregate` keeps a change stream on its own
+namespace and read concern, since only the oplog-based chain reads the oplog
+and needs a majority snapshot, and the stage declares
+`requiresInputDocSource = false`, so no oplog cursor is put in front of it.
+The stage opens the stream when it is created, which is before the cursor is
+registered, as the registration's token check requires (§5.1 opening
+protocol). Its batch deadline follows §5.3: an awaitData `getMore` has no
+operation deadline, its `maxTimeMS` (default 1 s) being in the operation's
+awaitData state, and the `aggregate` never sets that state, so the stage
+waits until the `getMore`'s deadline and does not wait at all for the opening
+batch. It serializes as `{$changeStream: …}` with its opening token as the
+resume point, so a re-parsed pipeline (debug builds round-trip every one)
+reopens at the same place without waiting. `startAtOperationTime` and
+`$_resumeAfterClusterTime` are refused: an EloqDoc stream starts fresh or
+from a token.
 
 The user's own stages (`$match`, `$project`, …) follow. Pushing a user
-`$match` on `ns` down into `CdcDecode`'s section skip is an optimization
+`$match` on `ns` down into the decode step's section skip is an optimization
 for later.
 
 ### 5.3 Cursor state and the per-`getMore` algorithm
 
-The state below is split across the internal stages of §5.2 (`CdcScanSource`
-holds everything except the incarnation boundaries, which belong to
-`CdcOrder`); it is listed together because the algorithm is easiest to read
+The state below is split across the components of §5.2 (`CdcScanSource`
+holds the fetch state, the decode step the emit cursors); it is listed together because the algorithm is easiest to read
 as one loop. All of it lives in memory, owned by the cursor manager between
 `getMore`s:
 
@@ -946,16 +986,16 @@ as one loop. All of it lives in memory, owned by the cursor manager between
   advances whether or not any event exists in the interval, since an
   exhausted scan proves the interval up to its bound empty (§4.2);
 - `last_produced`: the token (§5.6) describing every group's emit cursor
-  after the last event document the source handed downstream; it is the
-  value `CdcFormat` writes into that document as its `_id`, and the batch
+  (a cursor the token's own timestamp covers is left implicit) after the
+  last event document the source handed downstream; it is the
+  value the format step writes into that document as its `_id`, and the batch
   loop never reads it from the source directly (step 4).
   `drained`: true when the source has been asked for a next event and no
   group has an emittable one, false again as soon as it produces one. The
   source knows what it has *produced*; it does not know what has been
   *delivered*, because a produced document can still be filtered by a
   user stage or stashed by the batch loop (step 4). Delivery is the batch
-  loop's knowledge;
-- per-table incarnation boundaries (§5.5).
+  loop's knowledge.
 
 Each `getMore`:
 
@@ -1005,11 +1045,11 @@ Each `getMore`:
    every group's fetch is either in flight or exhausted at its bound, set
    `drained = true` (nothing can be released until a scan returns).
 3. **Decode and produce.** Decode the chosen record on its own (§5.4),
-   drop entries and events that fail the filters (§5.5), and produce the
+   suppress duplicate entries (§5.5), and produce the
    rest **one per pull, in decode order**, advancing the group's emit
    cursor (the `(section, entry)` position) per event; the token
    describing the cursors after each event becomes `last_produced` and,
-   in `CdcFormat`, that event's `_id`. No sorting happens anywhere: order within a timestamp
+   in the format step, that event's `_id`. No sorting happens anywhere: order within a timestamp
    is whatever the pulls produced, and it is not stable across runs, which
    is why the token records positions rather than an order (§5.6).
 4. **Batch construction owns delivery.** MongoDB's `getMore` loop
@@ -1024,7 +1064,7 @@ Each `getMore`:
    stashed (delivered only next time). The rule that keeps
    `postBatchResumeToken` honest follows the loop's own structure:
    - Every event document carries its own progress token **as its `_id`**
-     (§5.4a, §5.6): `CdcFormat` sets it on each event, and `CdcInvalidate`
+     (§5.4a, §5.6): the format step sets it on each event, and the invalidate step
      sets the kind-2 token on the `invalidate` document it synthesizes.
      The token travels *inside* the document, not beside it: the
      pipeline-to-BSON conversion in front of the batch builder discards
@@ -1055,8 +1095,8 @@ Each `getMore`:
      input, so the document leaving the pipeline always derives from the
      last document the internal stages emitted; `PipelineProxyStage`
      compares the delivered `_id` byte for byte with the token those
-     stages assigned — `CdcFormat` keeps the `_id` it wrote, and
-     `CdcInvalidate` the one it synthesized, in the stage itself, where no
+     stages assigned — the stage keeps the `_id` its format step wrote, or
+     its invalidate step synthesized, in itself, where no
      user stage can reach it — and fails the
      command with `ChangeStreamFatalError` (code 280, which drivers treat
      as non-resumable) on any difference. Rejecting an obviously broken
@@ -1096,7 +1136,7 @@ logger returns at `wait_ms` regardless.
 them as separate records `(commit_ts, ng, txn)` (F1, F5). Those records
 share the transaction's timestamp but are **not adjacent** in storage
 order: another transaction that committed in the same microsecond and
-maps to the same log group sorts between them by `ng`. `CdcDecode`
+maps to the same log group sorts between them by `ng`. The decode step
 therefore never assembles a transaction; it decodes each record on its
 own, in the order the group returns them, which keeps the emit cursor a
 single storage key plus a position inside one record (§5.6). The one
@@ -1191,7 +1231,7 @@ its name and key pattern). One DDL record yields exactly one event.
 
 ### 5.4a Event documents
 
-`CdcFormat` emits these documents. Field names follow MongoDB's change
+The format step emits these documents. Field names follow MongoDB's change
 events; the DDL shapes follow the 6.0 expanded events, which is where
 `create`, `createIndexes`, and `dropIndexes` are defined. Common to every
 event:
@@ -1215,7 +1255,7 @@ Per operation type:
 | `drop` | collection DDL, `DropTable` | none |
 | `createIndexes` | index DDL, `AddIndex` | `operationDescription: {indexes: [<index spec>, …]}`, one spec per index the op added (a `createIndexes` with several specs is one op): `{v, key, name, unique?, sparse?, partialFilterExpression?, collation?, expireAfterSeconds?, …}` as `listIndexes` would report it. The stream reports the source's spec faithfully, `unique` and `expireAfterSeconds` included; the consumer drops both when applying (§6.3, §6.4) |
 | `dropIndexes` | index DDL, `DropIndex` | `operationDescription: {indexes: [{v, key, name}, …]}`, one entry per index the op dropped |
-| `invalidate` | `CdcInvalidate`, collection-level streams only, after the watched collection's `drop` | none; `_id` is the drop's position with token kind 2, usable with `startAfter` only |
+| `invalidate` | the invalidate step, collection-level streams only, after the watched collection's `drop` | none; `_id` is the drop's position with token kind 2, usable with `startAfter` only |
 
 Not emitted in v1: `modify` (`collMod`: validator, TTL and other option
 changes on an existing collection or index; see §4.3 and §6.4), `rename`,
@@ -1226,12 +1266,12 @@ Deployment-level streams, the CDC mode, are never invalidated.
 
 ### 5.5 Filters
 
-- **Dedup happens on logged entries in `CdcDecode`.** During bucket
+- **Dedup happens on logged entries in the decode step.** During bucket
   migration a write-set entry with a forward address is appended to both
   node groups' blobs of the same tx (`FillDataLogRequest`, the
   `forward_addr_` loop), so the same `(txn, table, key)` entry, byte for
   byte, appears in two records of one transaction, both at the
-  transaction's timestamp in the same group (§5.4). `CdcDecode` keeps,
+  transaction's timestamp in the same group (§5.4). The decode step keeps,
   per group, the set of `(txn, table, key)` entries it has produced at the
   group's *current* timestamp, clears it when the group moves to the next
   timestamp, and suppresses an entry already in the set. The set can
@@ -1241,24 +1281,23 @@ Deployment-level streams, the CDC mode, are never invalidated.
   deduplicates, and nothing downstream sorts (§5.6). The set is bounded
   (§5.8); when it overflows, a duplicate may be emitted twice, which the
   consumer absorbs as an idempotent re-application in the same slot.
-- **Incarnation filter, keyed on `ddl_ts` only.** From DDL records the cursor
-  keeps, per table, the ordered list of `(ddl_ts, kind)` for creates and drops,
-  where `ddl_ts` is the DDL's stream timestamp of §4.4(b): for create and drop
-  the commit-stage re-assigned timestamp `P`, never the prepare-stage `D`.
-  A data entry at `T` on table `X` is emitted only if the latest boundary
-  with `ddl_ts < T` is not a drop. The prepare-stage `D` plays no part here; it
-  would give a different and wrong answer, because DML of the old
+- **No incarnation filter; the stream order is enough.** A data record names
+  its table but not which incarnation of the name it belongs to (F9), and the
+  stream never needs to know: DDL and DML are merged into one timestamp
+  order, so a write belongs to the incarnation whose create precedes it and
+  whose drop follows it. That order is true because of the drop's position
+  rule, §4.4(b), which makes two guarantees: every write of the old
+  incarnation is below `P_drop` (drained by the commit-stage lock and
+  published into `LastReadTs`), and the next create's `ddl_ts` is above
+  `P_drop` (its `D2` is forced above the catalog entry's commit timestamp,
+  which `PostCommit` set to `P_drop`), with every write of the new
+  incarnation above that. So no data entry falls in `(P_drop, pos_create)`.
+  The prepare-stage `D` would not give this order: DML of the old
   incarnation legitimately commits between `D_drop` and `P_drop` (F7) and
-  belongs *before* the drop, which is exactly where `P` places it.
-- **Why the filter should never fire.** §4.4(b) makes two guarantees: every
-  write of the old incarnation is below `P_drop` (drained by the
-  commit-stage lock and published into `LastReadTs`), and the next create's
-  `ddl_ts` is above `P_drop` (its `D2` is forced above the catalog entry's
-  commit timestamp, which `PostCommit` set to `P_drop`), with every write of
-  the new incarnation above that. So no data entry can fall in
-  `(P_drop, pos_create)`. The filter is therefore a sanity check: an entry
-  that lands there indicates a bug in the position rule; log it and drop it.
-  Replay on the source discards the same records by name (F9).
+  belongs *before* the drop, which is where `P` places it. The cursor keeps
+  no per-table boundaries and drops nothing by incarnation. A runtime check
+  that dropped an entry landing in the gap would only hide a broken position
+  rule, so the rule is asserted by the fault tests instead (§10 item 6).
 - **No pending state.** Create records exist only once committed (§4.3), so
   the cursor never withholds a DDL for its outcome.
 
@@ -1279,7 +1318,7 @@ here: an event's **identity**, and the stream **position** a token records.
 successive changes to one logical object always have distinct timestamps
 (F4 for documents, F7/§4.4 for schema). Identity is what the event
 document exposes (`ns`, `documentKey`, `clusterTime`, the index names) and
-what the incarnation filter (§5.5) and the consumer (§6) key on. It is
+what the consumer (§6) keys on. It is
 **not** an ordering: the stream promises order per object across
 timestamps (C2) and promises nothing about the order of different objects
 within one timestamp, which is whatever the pulls produced (§5.3 step 3)
@@ -1335,8 +1374,17 @@ from, the entry is form 1 with the key of the record being decoded and the
 position of the entry that produced the event: the ordinal of its section
 in the blob and of the entry within that section (F1). The position is a
 property of the record alone, independent of every filter, so a token is
-valid for any stream scope. For every other group the entry is form 0 with
-the last key whose entries were all produced. A DDL record yields one
+valid for any stream scope. Every other group gets a form-0 entry with the
+last key whose entries were all produced, but only if that key lies beyond
+what the token's own timestamp covers: at or above an event's timestamp, or
+above a watermark's. A group whose keys are covered is left out and resumes
+by the rule for a group without an entry, which is exact for it. A
+watermark is issued only once the source drained, when every group's
+records at or below it have been produced, and an event at `T` only after
+every group's records below `T`, since the merge releases the lowest
+timestamp first (§4.2). Carrying such a key would send the resume below the
+token, into history the log may have purged (§4.5) although the token covers
+it. A DDL record yields one
 event, so a DDL event's own group uses form 0. The byte layout is not
 order-preserving and nothing compares token bytes; tokens are decoded and
 interpreted per group. Because entries are keyed by `log_group_id` and
@@ -1371,8 +1419,10 @@ lossless for microsecond timestamps.
   event or invalidate token (kind 0 or 2), since records at the event's
   timestamp from other groups may not have been produced yet, and at
   `from_ts = R.timestamp + 1` for a watermark (kind 1), since a watermark
-  certifies its timestamp consumed. Ignore an entry for a group that no
-  longer exists.
+  certifies its timestamp consumed. An entry whose `T_K` is below that
+  start is treated the same way, for the reason given above; a token this
+  server issues never carries one, but a token written otherwise may.
+  Ignore an entry for a group that no longer exists.
 
 The first watermark of a fresh stream (§5.1) has no entries, so it starts
 every group at `S + 1`, as stated there.
@@ -1476,7 +1526,7 @@ for exceeding it, so the stream can always make progress.
 | Object | Bound | Rule when exceeded |
 |---|---|---|
 | One stored record (a tx's per-ng blob) | it was written through one `WriteLog` RPC, so it fits brpc's `max_body_size` (data_substrate sets it to 512 MB) | cannot happen |
-| One `CdcScan` page | soft: `max_bytes` (default 4 MB); hard: brpc `max_body_size` | the logger always returns **at least one record** even if it alone exceeds `max_bytes`; the hard cap cannot be hit by one record (row above), and the page is cut before it would be by more |
+| One `CdcScan` page | soft: `max_bytes`, from the server parameter `cdc_scan_max_bytes` (default 4 MB, at most 32 MB, the logger's own cap), read when a stream opens; hard: brpc `max_body_size`. A group is scanned again only once its buffered records are consumed, and a `getMore` stops waiting at its first result, so one reply holds at most about one page per log group | the logger always returns **at least one record** even if it alone exceeds `max_bytes`; the hard cap cannot be hit by one record (row above), and the page is cut before it would be by more |
 | Per-cursor buffered records, all groups | soft: `cdc_cursor_buffer_bytes` (default 64 MB), counted as **received-and-unconsumed bytes plus `max_bytes` reserved per scan in flight** | a new `CdcScan` is issued only while that count is below the cap, **except** the scans needed to release the lowest unemitted record: a group whose boundary is behind is always fetched (§5.3 step 1), because its lag blocks every other group. Every response that arrives is admitted in full; nothing is dropped. The peak is therefore not the cap: with `G` log groups the cursor can hold the cap **plus one page per group**, and a page is `max_bytes` unless a single record exceeds it (row above), so **peak ≤ `cdc_cursor_buffer_bytes` + `G` × max(`max_bytes`, largest record)**, plus the dedup sets (next row). With the defaults and four groups that is 64 + 4 × 4 = 80 MB for ordinary records, and 64 + 4 × 40 = 224 MB if every group happens to return a 40 MB record at once. Decoding one record at a time bounds decode-side memory only; it does not shrink responses already received, and the size-check at issue time is what keeps the `G` term from compounding |
 | Per-group dedup set (§5.5): the `(txn, table, key)` entries produced at the group's current timestamp | soft: `cdc_dedup_set_bytes` per group (default 4 MB); the set is cleared whenever the group moves to the next timestamp, so it holds at most the keys of one timestamp | when a group's set is full, further entries at that timestamp are produced without being recorded, so a forward-write duplicate among them may be emitted twice. That is harmless by construction: the two events are byte-identical, at the same timestamp, for the same key, and the consumer applies them in the same slot in order (§6.1), so the second is an idempotent re-application; the set exists to avoid the redundant event, not to protect correctness. The occurrence is counted (`cdc_dedup_set_overflow`) |
 | Long-poll wait | `wait_ms <= min(remaining maxTimeMS, cdc_scan_max_wait_ms (default 30 s))` | the logger completes the request at its deadline regardless |
@@ -1491,7 +1541,7 @@ for exceeding it, so the stream can always make progress.
 `BSONObjectTooLarge`, which would wedge a stream permanently at that event,
 and the split mechanism MongoDB added later (`$changeStreamSplitLargeEvent`)
 is not in this tree. Rule for v1: if the serialized event exceeds
-`BSONObjMaxUserSize`, `CdcFormat` emits it **without** `fullDocument` and
+`BSONObjMaxUserSize`, the format step emits it **without** `fullDocument` and
 with the EloqDoc extension field `fullDocumentOmitted: true`; everything
 else, including the token, is unchanged. The consumer treats such an event
 as MongoDB's `updateLookup` would: read the current document from EloqDoc by
@@ -2282,9 +2332,9 @@ capped collections on the sink (§9).
   re-assigned `P` through the catalog entry's commit timestamp, §4.4(b)) and
   follows every DML of the incarnation it ends, because `P` is derived from
   the commit-stage lock that drained them (§4.4(b)). No DML lies between a
-  drop's `ddl_ts` and the next create's `ddl_ts`; the incarnation filter of §5.5
-  is a guard against a violated position rule, not a mechanism the argument
-  relies on.
+  drop's `ddl_ts` and the next create's `ddl_ts`, so the stream order alone
+  places every write in its incarnation (§5.5); the fault tests of §10
+  item 6 assert it, and nothing at runtime filters by incarnation.
 - **C4 Resumability.** A token records every group's emit cursor, as a
   storage key plus, for one group, the position of the last produced entry
   in the current record (§5.6); the keys are immutable and the entry order
@@ -2323,7 +2373,7 @@ capped collections on the sink (§9).
 | Pages that take the cursor over its buffer cap | every in-flight response is admitted in full, prefetch pauses (§5.8) | memory peak is the cap plus one page per log group, where a page is `max_bytes` or one oversized record; a single record is bounded by the source's transaction limits (§5.8 gives the formula) |
 | Event document over 16 MB | delivered with `fullDocumentOmitted: true` (§5.8) | consumer point-reads the document from the source |
 | `killCursors` / idle timeout with scans in flight | in-flight RPCs cancelled, responses dropped, no blocking (§5.8) | none |
-| Stream opened before the first checkpoint round completes, and the bound is still zero after `cdc_open_wait_ms` | open fails with `ChangeStreamStartNotReady` (§5.1) | consumer retries the open; if it persists, the checkpointer is not running (`checkpoint_stall_rounds`) |
+| Stream opened before the first checkpoint round completes, and the bound is still zero after `cdc_open_wait_ms` | open fails with `ChangeStreamStartNotReady` (§5.1) | consumer retries the open; the message says whether the wait was shorter than one checkpoint round (raise `cdc_open_wait_ms` or `maxTimeMS`) or rounds are not completing (`checkpoint_stall_rounds`, server log) |
 
 Metrics to add: per-group `cdc_arrival_complete_ts`, per-cursor lag
 `(arrival_complete_ts − last emitted ts)`, fence rejections, parked-request count.
@@ -2392,8 +2442,10 @@ connector over the same scan RPC.
    prepare log re-runs the lock stage and re-derives it. Add a fault-injection test that
    runs a checkpoint round while the DDL's write lock is held and asserts
    `ckpt_ts < ddl_ts`, and one that commits DML between a drop's prepare and its
-   commit-stage lock and asserts the drop is emitted after every such DML and
-   that a following create is emitted after the drop.
+   commit-stage lock and asserts the drop is emitted after every such DML,
+   that a following create is emitted after the drop, and that no write to
+   the table is emitted between the drop and the create. The stream has no
+   runtime incarnation check behind these tests (§5.5).
 7. The canonical delete-key decoder (§5.4 step 3) and its round-trip test
    against the real `KeyString` encoder exist before any delete event is
    emitted; the stock `KeyString::toBson` must not be called with empty
@@ -2538,7 +2590,8 @@ connector over the same scan RPC.
 | `CdcScan` RPC, `CdcDdlRecord`, `CdcScanResponse`; `cluster_gate_log` content kind and `ClusterGateLogMessage` (§6.2) | `tx_service/tx-log-protos/log.proto` |
 | Scan handler, DDL store, long-poll parking, fence (fallback, §4.4(c)) | `eloq_log_service/` (RPC boundary only; see the data_substrate `CLAUDE.md` on proprietary internals) |
 | Leader cache reuse | `tx_service/tx-log-protos/log_agent.h/.cpp` |
-| Internal stages `CdcScanSource`, `CdcDecode`, `CdcOrder`, `CdcFormat`, `CdcInvalidate` (§5.2), replica-set check bypass, `$changeStream` expansion replacing `buildPipeline` | `src/mongo/db/pipeline/` in the EloqDoc tree |
+| `DocumentSourceEloqChangeStream` and its components `CdcScanSource`, `CdcScanClient`, `CdcWaitObject`, `CdcEventStream` (§5.2) | `src/mongo/db/modules/eloq/src/cdc/` in the EloqDoc tree |
+| `$changeStream` stage factory, `startAfter`, `run_aggregate`'s oplog and majority bypass | `src/mongo/db/pipeline/document_source_change_stream.*`, `document_sources.idl`, `src/mongo/db/commands/run_aggregate.cpp` |
 | Blob, key, record decoders | `src/mongo/db/modules/eloq/src/base/` (`eloq_key.h`, `eloq_record.h`, `eloq_table_schema.h`) |
 | Reference consumer | new tool under the EloqDoc repo |
 | Facts F1–F12 | files cited in §2 |

@@ -275,6 +275,15 @@ error_code("ChangeStreamHistoryLost", 286)
 
 # Error codes 4000-8999 are reserved.
 
+# EloqDoc's own codes, numbered upward from 5000. Upstream appends its named codes sequentially
+# (past 440 by now) and never allocates in its reserved 4000-8999, so a number here cannot collide
+# with a later upstream code; 4000-4999 are avoided because legacy assertion locations use them.
+
+# A change stream opened without a resume token could not fix its start position in time: some log
+# group reported no completed checkpoint round before maxTimeMS or cdc_open_wait_ms ran out
+# (docs/cdc-change-stream.md §5.1). The client retries the open.
+error_code("ChangeStreamStartNotReady", 5000)
+
 # Non-sequential error codes (for compatibility only)
 error_code("SocketException", 9001)
 error_code("OBSOLETE_RecvStaleConfig", 9996)

@@ -24,7 +24,7 @@ def substrate_config(root, tx_port, hm_port, data_store, log_state, environment,
         # S3 service; the smoke test never removes buckets from an externally supplied service.
         bucket = "eloqdoc-smoke-" + uuid.uuid4().hex
         cloud_local = (
-            "checkpoint_interval=10\nlogserver_snapshot_interval=60\n"
+            "checkpointer_interval=10\nlogserver_snapshot_interval=60\n"
             "txlog_rocksdb_cloud_bucket_prefix=\n"
             f"txlog_rocksdb_cloud_bucket_name={bucket}\n"
             "txlog_rocksdb_cloud_object_path=txlog\n"
