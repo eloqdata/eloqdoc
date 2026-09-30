@@ -369,6 +369,19 @@ public:
     void IndexesSetMultiKeyAttr(const std::vector<txservice::MultiKeyAttr>& indexes) override;
 
 private:
+    /**
+     * @brief Writes the base and index tables' real timestamps into the schema image.
+     *
+     * EloqDoc builds a DDL's image before the DDL has a timestamp, so a table the DDL creates is
+     * recorded without one (0, the unknown timestamp), which this constructor resolves to the
+     * version it builds the schema at.
+     * The tx service always builds a schema at a known timestamp, so every image serialized from
+     * a schema object carries real timestamps: a copy loaded at another version, as a later
+     * schema record version or on another node, keeps each table's own version. The image is
+     * regenerated only if a timestamp was resolved.
+     */
+    void RecordKeySchemasTs();
+
     const txservice::TableName base_table_name_;  // string owner
     std::string schema_image_;
 

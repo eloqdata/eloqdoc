@@ -50,6 +50,13 @@ class ServerSmokeConfigTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, key):
                     self.config(environment=environment)
 
+    def test_ddl_kv_retries_are_quick(self):
+        for data_store, log_state in (("ELOQDSS_ELOQSTORE", "ROCKSDB_CLOUD_S3"),
+                                      ("ELOQDSS_ROCKSDB", "ROCKSDB")):
+            with self.subTest(data_store=data_store):
+                config = self.config(data_store, log_state)
+                self.assertEqual("1", config["local"]["ddl_kv_retry_interval_seconds"])
+
     def test_local_rocksdb_needs_no_cloud_service(self):
         for data_store in ("ROCKSDB", "ELOQDSS_ROCKSDB"):
             with self.subTest(data_store=data_store):

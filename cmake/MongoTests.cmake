@@ -51,6 +51,17 @@ add_custom_target(eloqdoc-change-stream-drivers
     DEPENDS eloqdoc
     USES_TERMINAL)
 
+# Opt-in DDL crash-recovery scenarios (docs/cdc-change-stream.md §4.4(b), plan B3-B5): a create,
+# drop, ALTER or add index killed at a data substrate fault point is rolled forward after a restart. Needs a server
+# built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own fresh server.
+add_custom_target(eloqdoc-ddl-recovery
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/ddl_recovery.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/ddl-recovery-diagnostics"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
 # Keep the production objects in archives for tests. Unlike the server executable, a unit test
 # should pull only the MongoDB objects it references; this avoids running unrelated global
 # initializers and keeps individual test binaries reasonably small.

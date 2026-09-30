@@ -48,6 +48,8 @@ def substrate_config(root, tx_port, hm_port, data_store, log_state, environment,
         f"node_memory_limit_mb={memory_limit_mb}\n"
         f"enable_data_store=true\nenable_wal={'true' if cloud else 'false'}\n"
         "enable_mvcc=true\nevent_dispatcher_num=1\nbind_all=false\n"
+        # A DDL's failed data store step is retried after a second, not the default 30.
+        "ddl_kv_retry_interval_seconds=1\n"
         f"tx_ip=127.0.0.1\ntx_port={tx_port}\nhm_port={hm_port}\n"
         f"eloq_data_path={root / 'eloq'}\nlog_service_data_path={root / 'log'}\n"
         + cloud_local

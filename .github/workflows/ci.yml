@@ -242,6 +242,29 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Recover DDL killed mid-operation
+        id: cmake_ddl_recovery
+        if: ${{ !cancelled() && steps.cmake_build.outcome == 'success' }}
+        working-directory: eloqdoc
+        shell: bash
+        run: |
+          source .github/scripts/common.sh
+          trap 'stop_rustfs' EXIT
+          start_rustfs "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
+          PYTHONPATH="$PWD/build/cmake-ci/python" \
+            cmake --build build/cmake-ci --target eloqdoc-ddl-recovery
+
+      - name: Preserve failed DDL recovery logs
+        if: ${{ failure() && steps.cmake_ddl_recovery.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-ddl-recovery-amd64-${{ github.run_attempt }}
+          path: |
+            eloqdoc/build/cmake-ci/ddl-recovery-diagnostics/
+            /tmp/rustfs.log
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Preserve failed CMake smoke-test logs
         if: ${{ failure() && steps.cmake_smoke.outcome == 'failure' }}
         uses: actions/upload-artifact@v4

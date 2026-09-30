@@ -151,6 +151,7 @@ EOF
 [local]
 core_number=2
 checkpointer_interval=10
+ddl_kv_retry_interval_seconds=1
 node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-4000}
 enable_data_store=true
 enable_wal=true

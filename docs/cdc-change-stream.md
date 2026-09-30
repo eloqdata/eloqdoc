@@ -76,12 +76,12 @@ migration between EloqDoc nodes, rename collection, capped collections
 | F4 | Commit timestamps are microseconds. For one key they strictly increase in serialization order: the candidate is forced above the previous version's commit ts of every key in the write set, and the write lock is held until the log write returns. | `tx_execution.cpp` `Process(SetCommitTsOperation&)`; `standby_replication_protocol.md` P2 |
 | F5 | The log state stores data records under key `bswap64(commit_ts) ‖ bswap32(ng) ‖ bswap64(txn)`, so a range scan is timestamp-ordered. Arrival order is **not** timestamp order: a tx chooses its timestamp before the WriteLog RPC. | `10-log-service.md` §5 |
 | F6 | `ckpt_ts` is strictly below the earliest commit-pending write of a node group: `ActiveTxMinTs = min(wlock_ts) − 1` over lock-holding txs, meta tables excluded; a tx publishes its write-lock ts before receiving a commit ts. Hence every data record with `commit_ts <= ckpt_ts` is already in the log. Each log group holds `last_ckpt_ts` per ng and `min_ckpt_ts_` across ngs, replicated and snapshotted. | `07-durability-and-recovery.md` §3.2, §9; `eloq_log_service/include/log_state.h` `UpdateCkptTs` |
-| F7 | DDL ops differ in which phase holds the catalog **write lock**, the only lock that excludes DML (a write intent does not conflict with DML catalog read locks; `AcquireReadLock` ignores intents). *Create, drop, truncate* (`UpsertTableOp`): intent (`ReadForWrite`/OCC → `WriteIntent`) across the prepare log; write lock (`acquire_all_lock_op_`, `Write`/`Locking`) only before the commit log, released by `PostCommit`. *Index ops* (`UpsertTableIndexOp`): intent, then `upgrade_all_intent_to_lock_op_` to a write lock, then the prepare log; `D` is computed from the lock results; `PrepareCommit` downgrades back to an intent. In both groups the write lock drains DML read locks and refuses new ones; a DML that read the *old* schema can commit above the prepare-chosen `D` until that lock; a DML that reads the *new* schema commits above `D`, because a catalog read enters the read set at the catalog cc entry's commit ts and the entry carries `D` from then on (for index ops `PrepareCommit` installs it under the prepare-stage write lock, since PR 4; for create and drop `PostCommit` does); successive DDLs on one table get increasing `D`. The catalog map's reader-writer control block only rejects a second concurrent DDL (`AddReader` has no callers). | `tx_service/src/tx_operation.cpp` `UpsertTableOp` ctor and `Forward()`; `tx_service/src/tx_index_operation.cpp` ctor and `Forward()`; `tx_service/include/cc_protocol.h` `DeduceLockType`; `tx_service/src/cc/non_blocking_lock.cpp` `AcquireReadLock`, `AcquireWriteIntent`; `tx_service/include/cc/template_cc_map.h` `PrepareCommit` branch of `Execute(PostWriteAllCc&)` |
-| F8 | After the prepare log is flushed a DDL only rolls forward, with two exceptions in the current code. `CreateTable` may roll back on a kv-store error before any DML can exist (a commit log with `commit_timestamp == 0`); §4.4(b) moves create's kv write after the commit log, which removes that exception. `AddIndex` rolls back after the prepare log only when the index build hits a constraint violation (`PACK_SK_ERR`, e.g. a key over the size limit; `UNIQUE_CONSTRAINT` does not arise from EloqDoc, which for now refuses to build a unique secondary index on a non-empty collection, because the build does not detect duplicate keys among existing documents): `commit_ts_ = tx_op_failed_ts_`, commit log with `commit_timestamp == 0`, then `kv_rollback_create_index_op_` (`tx_index_operation.cpp`, `generate_sk_parallel_op_` branch). Since PR 4 add index creates the index's kv table before the prepare log (a failure there fails the op with no log) and writes the kv catalog only after the commit log, so no kv failure rolls it back after the prepare log. For the stream it is a second event; its commit log carries a commit-stage timestamp and a rolled-back flag instead of `commit_timestamp == 0` (§4.3, §4.4(b)). `TruncateTable` is EloqKV-only (asserted in the catalog map) and never issued by EloqDoc. | `tx_service/include/type.h` `PostWriteType::PrepareCommit`; `tx_service/src/tx_operation.cpp` `UpsertTableOp::Forward`, kv-error branch; `log_state.h` `UpsertSchemaOp`; `catalog_cc_map.h` `PostCommit` branch |
+| F7 | DDL ops differ in which phase holds the catalog **write lock**, the only lock that excludes DML (a write intent does not conflict with DML catalog read locks; `AcquireReadLock` ignores intents). *Create, drop, truncate* (`UpsertTableOp`): intent (`ReadForWrite`/OCC → `WriteIntent`) across the prepare log; write lock (`acquire_all_lock_op_`, `Write`/`Locking`) only before the commit log, released by `PostCommit`. *Index ops* (`UpsertTableIndexOp`): intent, then `upgrade_all_intent_to_lock_op_` to a write lock, then the prepare log; `D` is computed from the lock results; `PrepareCommit` downgrades back to an intent. In both groups the write lock drains DML read locks and refuses new ones; a DML that read the *old* schema can commit above the prepare-chosen `D` until that lock; a DML that reads the *new* schema commits above `D`, because a catalog read enters the read set at the catalog cc entry's commit ts and the entry carries `D` from then on (for index ops `PrepareCommit` installs it under the prepare-stage write lock, since PR 4; for create and drop `PostCommit` does); successive DDLs on one table get increasing `D`. The catalog map's reader-writer control block only rejects a second concurrent DDL (`AddReader` has no callers). | `tx_service/src/tx_upsert_table_operation.cpp` `UpsertTableOp` ctor, `RunUntilPrepareLog` and `AcquireWriteLocks`; `tx_service/src/tx_index_operation.cpp` ctor and `Forward()`; `tx_service/include/cc_protocol.h` `DeduceLockType`; `tx_service/src/cc/non_blocking_lock.cpp` `AcquireReadLock`, `AcquireWriteIntent`; `tx_service/include/cc/template_cc_map.h` `PrepareCommit` branch of `Execute(PostWriteAllCc&)` |
+| F8 | After the prepare log is flushed a DDL only rolls forward, with two exceptions in the current code. `CreateTable` rolls back on a kv-store error before any DML could exist (a commit log marked rolled back at `commit_timestamp == 0`, which leaves no change event); §4.4(b) creates the kv tables after the prepare log, not retried, and writes the catalog row after the commit log, retried until it succeeds, so a create rolls back when its kv tables or its sequence table update fail, and drops what it created first. `AddIndex` rolls back after the prepare log only when the index build hits a constraint violation (`PACK_SK_ERR`, e.g. a key over the size limit; `UNIQUE_CONSTRAINT` does not arise from EloqDoc, which for now refuses to build a unique secondary index on a non-empty collection, because the build does not detect duplicate keys among existing documents): `commit_ts_ = tx_op_failed_ts_`, commit log with `commit_timestamp == 0`, then `kv_rollback_create_index_op_` (`tx_index_operation.cpp`, `generate_sk_parallel_op_` branch). Since PR 4 add index creates the index's kv table before the prepare log (a failure there fails the op with no log) and writes the kv catalog only after the commit log, so no kv failure rolls it back after the prepare log. For the stream it is a second event; its commit log carries a commit-stage timestamp and a rolled-back flag instead of `commit_timestamp == 0` (§4.3, §4.4(b)). `TruncateTable` is EloqKV-only (asserted in the catalog map) and never issued by EloqDoc. | `tx_service/include/type.h` `PostWriteType::PrepareCommit`; `tx_service/src/tx_upsert_table_operation.cpp` `UpsertTableOp::CreateUntilCommitLog` and `AbandonCreate`; `log_state.h` `UpsertSchemaOp`; `catalog_cc_map.h` `RollBackSchema` |
 | F9 | Data log records carry no schema version (F1). Replay drops stale records two ways: (1) the table is resolved by name through `GetCcm`/`InitCcm`; a dropped table's catalog record is `Deleted`, so `InitCcm` fails and the record is skipped, and a dropped index table resolves to no cc map and is skipped; (2) if the table exists, a record whose `commit_ts` is below the map's `schema_ts_` is skipped as belonging to an earlier incarnation. (2) is exact because of two commit-path rules. A DML that read schema version `V` commits above `V`: the catalog entry's commit ts is the schema version (while an index op's dirty schema is installed, the index op's `D`, installed by its `PrepareCommit` since PR 4), the read-local stores it in the meta read set (`rw_set_.AddRead(addr, read_res.ts_, ...)`), and `Process(SetCommitTsOperation&)` raises the candidate above every meta read entry's `version_ts_`. And a DDL's `D` is raised above every DML whose post-read ran before the DDL's acquire-all: `PostReadCc` publishes the DML's commit ts into the shard's `LastReadTs` before releasing its catalog read lock, the acquire-all folds each core's `LastReadTs` into `last_vali_ts` (max across cores and node groups), and `D >= last_vali_ts + 1`. The second rule covers all earlier DML only when `D` is computed after a write lock that drained the read locks (index ops; and a create that follows a drop, since the drop's commit-stage lock drained the old incarnation). For the intent-only prepare of create and drop it covers only DML that had already post-read (F7). The stream cannot use (1), so it relies on (2)'s timestamp property alone (§5.5). | `tx_service/include/cc/cc_request.h` `ReplayLogCc::Execute`; `tx_service/src/cc/cc_shard.cpp` `InitCcm`; `tx_service/include/cc/template_cc_map.h` `Execute(ReplayLogCc&)`, `Execute(PostReadCc&)` |
 | F10 | The 4.0 change-stream machinery exists in the EloqDoc tree: `$changeStream` parsing, the oplog-entry-to-event transform, `ResumeToken`, invalidate and close-cursor stages. It refuses non-replica-set deployments with error 40573. Its `ResumeToken` is keyed on the collection UUID; its transform classifies every command other than `applyOps`/`drop`/`renameCollection`/`dropDatabase` as `invalidate`; its check-invalidate stage ends collection-level streams on drop. None of that is reused beyond the stage parsing, the cursor plumbing, and `DocumentSourceCloseCursor` (§5.2). | `src/mongo/db/pipeline/document_source_change_stream.cpp` `buildPipeline`; `document_source_change_stream_transform.cpp` command branch; `document_source_check_invalidate.cpp`; `resume_token.h` |
 | F11 | Every Mongo command in EloqDoc runs as a `boost::context` coroutine; blocking a worker thread is not acceptable. Async work yields with `yieldFuncPtr` and is resumed by a completion callback (the CDC path puts the wait object of §5.8 between callback and coroutine, because its callbacks can outlive the `getMore` that issued them). | `src/eloq_recovery_unit.cpp` (`coro.yieldFuncPtr` / `coro.resumeFuncPtr` uses) |
-| F12 | The schema timestamp is the DDL's `D`, end to end. `D` is the tx's `commit_ts_` (chosen at prepare for `UpsertTableOp`, after the lock upgrade for `UpsertTableIndexOp`); every `PostWriteAll` carries it as `req.CommitTs()`. `PrepareCommit` installs the dirty schema with `dirty_schema_version_ = D` (`CreateDirtyCatalog` → `CatalogEntry::SetDirtySchema`); `PostCommit` promotes it (`CommitDirtySchema`, `schema_version_ = D`) and, for drop/truncate, sets the cc map's `schema_ts_ = D` via `UpdateCcmSchema`; the kv catalog is written with the same `D` (`upsert_kv_table_op_.write_time_`, `UpsertCatalog(schema, commit_ts)`). `schema_ts_` is used by replay (F9) and by the runtime schema check on every DML request (`req.SchemaVersion() != schema_ts_` → rejected), which is what stops a DML that read the old schema from writing into the new incarnation after `PostCommit`. The prepare log's `SchemaOpMessage.catalog_ts` carries the *old* version. | `tx_service/src/tx_execution.cpp` `Process(PostWriteAllOp&)`; `tx_service/include/cc/catalog_cc_map.h` `PrepareCommit`/`PostCommit` branches; `tx_service/include/catalog_key_record.h` `SetDirtySchema`, `CommitDirtySchema`; `tx_service/src/cc/cc_shard.cpp` `UpdateCcmSchema`; `tx_service/include/cc/template_cc_map.h` `SchemaVersion()` checks; `tx_operation.cpp` `FillPrepareLogRequest` |
+| F12 | The schema timestamp is the DDL's `D`, end to end. `D` is the tx's `commit_ts_` (chosen at prepare for `UpsertTableOp`, after the lock upgrade for `UpsertTableIndexOp`); every `PostWriteAll` carries it as `req.CommitTs()`. `PrepareCommit` installs the dirty schema with `dirty_schema_version_ = D` (`CreateDirtyCatalog` → `CatalogEntry::SetDirtySchema`); `PostCommit` promotes it at the op's commit timestamp (`CommitDirtySchema(commit_ts)`, `schema_version_ = P` for create/drop/truncate, `D` for index ops, §4.4(b)) and, for truncate, sets the cc map's `schema_ts_` to it via `UpdateCcmSchema`; the kv catalog is written with the same timestamp (`upsert_kv_table_op_.write_time_`, `UpsertCatalog(schema, commit_ts)`). `schema_ts_` is used by replay (F9) and by the runtime schema check on every DML request (`req.SchemaVersion() != schema_ts_` → rejected), which is what stops a DML that read the old schema from writing into the new incarnation after `PostCommit`. The prepare log's `SchemaOpMessage.catalog_ts` carries the *old* version. | `tx_service/src/tx_execution.cpp` `Process(PostWriteAllOp&)`; `tx_service/include/cc/catalog_cc_map.h` `PrepareCommit`/`PostCommit` branches; `tx_service/include/catalog_key_record.h` `SetDirtySchema`, `CommitDirtySchema`; `tx_service/src/cc/cc_shard.cpp` `UpdateCcmSchema`; `tx_service/include/cc/template_cc_map.h` `SchemaVersion()` checks; `FillPrepareLogRequest` (`tx_upsert_table_operation.cpp`, `tx_index_operation.cpp`) |
 | F13 | Drivers implement the change-streams specification's opening rule: if the opening `aggregate` reply has an empty `firstBatch` and no `postBatchResumeToken`, and none of `resumeAfter`/`startAfter`/`startAtOperationTime` was given, the driver saves the reply's `operationTime` for a later `startAtOperationTime` resume, and **fails the open if it is absent** (PyMongo 4.8: `OperationFailure: Expected field 'operationTime' missing`). EloqDoc never emits `operationTime`: `appendClusterAndOperationTime` returns early unless the node runs in `modeReplSet` with the logical clock enabled. Hence the opening reply of a stream without a token **must carry a `postBatchResumeToken`**; later replies may omit it without breaking the driver, but every reply here carries one (§5.3 step 4). | `src/mongo/db/service_entry_point_common.cpp` `appendClusterAndOperationTime`, the `modeReplSet` test; the driver change-streams specification, "ChangeStream ... MUST save the operationTime" |
 
 ## 3. Architecture
@@ -344,10 +344,14 @@ the logger keeps a separate DDL history, also in memory:
     prepare log and take the write lock before the **commit** log. Appended at
     `CommitSchema` apply with `ddl_ts` = the commit log's timestamp, which the
     coordinator re-assigns under the write lock for create, drop, and
-    truncate alike (§4.4(b)). With create's kv write moved after the commit
-    log there is no rolled-back create any more; a commit log with
-    `commit_timestamp == 0` can still appear for other `UpsertTableOp` kinds
-    (logical alters) and appends nothing. For drop this places the record
+    truncate alike (§4.4(b)). **Rolled-back ops.** A commit log marked
+    rolled back (`SchemaOpMessage.rolled_back`) discards the op's dirty
+    schema; its timestamp decides the stream. At timestamp 0 the op's DDL
+    record is dropped at once and there is no event: a create whose kv tables
+    or sequence table update failed once, before its commit log (§4.4(b)), and
+    a logical alter whose catalog write failed write one. At a timestamp above 0 the
+    rollback is a separate event at that timestamp: the rolled-back add
+    index's `dropIndexes` at `P` (above). For drop this places the record
     after the DML of the old incarnation, which is what the source did; for
     create no DML can precede it.
 - **What is recorded.** Only `SchemaOpMessage`s with `table_engine == EloqDoc`
@@ -430,10 +434,13 @@ DDL lock holds `ckpt_ts` back. Two changes establish the invariant.
 
 With (a), a checkpoint computed while the write lock is held is below the
 tx's latest write-lock grant on that shard, which for a DDL is its catalog
-write lock, and the write-lock path already returns
-`last_vali_ts = max(LastReadTs(), Now())`, so a timestamp derived from the
-lock results is above the acquisition time (`template_cc_map.h`,
-`AcquireCceKeyLock`, the `SetWLockTs`/`last_vali_ts_` block).
+write lock. `AcquireAllCc`, which grants a DDL's catalog locks, returns
+`last_vali_ts = max(LastReadTs(), Now())` (`TemplateCcMap::Execute(AcquireAllCc&)`),
+as a DML's single-key write lock does, so a timestamp derived from the lock
+results is above the acquisition time. The last
+read ts covers a catalog reader only once it publishes its commit timestamp:
+a regular catalog read lock does on release (`PostReadCc`), and so does
+EloqKV's fast catalog read (`LocalCcHandler::ReleaseCatalogRead`).
 
 **(b) Position rule per DDL group.**
 
@@ -461,8 +468,8 @@ lock results is above the acquisition time (`template_cc_map.h`,
       violation* during the build, after the dirty schema is installed. It has
       a commit phase: it takes the commit-stage write lock first
       (`acquire_all_lock_op_`), computes `P` as above, writes a commit log
-      (today with `commit_timestamp == 0`), then runs a `PostCommit` that
-      releases the catalog lock.
+      at `P` (it used to carry `commit_timestamp == 0`), then runs a
+      `PostCommit` that releases the catalog lock.
     - *Index kv table before the prepare log (PR 4).* The op used to run
       `kv_create_index_op_` after the install: the index's initial range
       record and the new schema in the kv catalog, retried up to 100 times,
@@ -502,17 +509,54 @@ lock results is above the acquisition time (`template_cc_map.h`,
           dirty-schema install, DML reads the old schema and commits above
           `D` without maintaining the index, and the build's scan skips
           documents above `D`.
-    - The commit log carries `P` and a rolled-back flag in `SchemaOpMessage`.
-    - Everything that reads `commit_timestamp == 0` as "this op failed" must
-      read the flag instead:
-      - `LogState::UpsertSchemaOp` at `CommitSchema` (`log_state.h`);
-      - schema-op recovery from the log (`TransactionExecution`, the
-        `CommitSchema` rebuild);
-      - `UpsertTableIndexOp::Forward` itself, which keeps its in-memory
-        failure state in `commit_ts_ == tx_op_failed_ts_`.
-    - `PostCommit` installs `P` on the catalog entry, so a later DDL on the
-      table computes its timestamp above `P`, as for drop. The schema version
-      the rollback leaves in memory and in the kv catalog must agree (F12).
+    - *Done in PR 7.* The commit log carries `P` and a rolled-back mark
+      (`SchemaOpMessage.rolled_back`), and everything that read
+      `commit_timestamp == 0` as "this op failed" reads the mark instead:
+      the log state keeps it at `CommitSchema` (`LogState::UpsertSchemaOp`),
+      schema-op recovery hands it to the recovered op, catalog replay of the
+      commit log builds the table from the current schema at `P`, and
+      `UpsertTableIndexOp::Forward` keeps it in `rolled_back_`.
+    - After the commit log, under the write lock: the index's kv tables are
+      dropped and the catalog row is written with the table's current schema
+      at `P` (the kv rollback), retried until they succeed; then the
+      sequence-table cleanup and `clean_ccm_op_`.
+    - The second phase is a `Rollback` (`PostWriteType::Rollback`, also a
+      remote commit type) instead of a `PostCommit`. It drops the index's cc
+      maps, ranges and statistics, as the zero-timestamp commit did, and
+      keeps the table's current schema instead of promoting the dirty one.
+      The catalog entry's version and its cc entry's commit timestamp become
+      `P`: a later DDL on the table computes its timestamp above `P`, as for
+      drop, and memory and the kv catalog both hold version `P` (F12). No
+      schema object is rebuilt and no other cc map changes, since no table's
+      version does.
+    - The tables keep their own versions (see *Table versions* below): only
+      the schema record moves to `P`. Re-committing an image that still
+      recorded a table without its timestamp would have moved that table to
+      `P`, and replay after a restart would then have skipped the table's
+      earlier, not yet checkpointed writes as belonging to an older
+      incarnation; `ddl_recovery.py` (iv) is the regression test.
+- *Table versions and the schema record's version.* A collection is one
+  schema record, whose version is the timestamp of the last DDL that changed
+  it (the catalog row's timestamp and the catalog entry's commit timestamp:
+  `P` for create, drop and truncate, `D` for index ops), holding several
+  tables (the base table and one per index), each with its own version, the
+  timestamp it was created at. A table's cc map carries its table's version,
+  requests carry it, and replay skips a log record below it as belonging to
+  an older incarnation. The schema image records every table's version
+  (EloqDoc's `TableKeySchemaTs`). An engine builds a DDL's image before the
+  DDL has a timestamp and records a table it creates without one (0, the
+  unknown timestamp, which reads as the version the image is built at), so
+  the tx service
+  resolves the images once the prepare stage has chosen `D`, before anything
+  is logged or installed (`SchemaOp::ResolveSchemaImages`): it builds the new
+  schema at `D` and the current schema at its version, and keeps the
+  objects' images, in which the engine writes each table's real version
+  (`MongoTableSchema::RecordKeySchemasTs`; other engines keep their images).
+  No image with an unresolved table version is logged, stored or sent to
+  another node, and an image loaded at any version gives every table its own
+  version. A table create makes gets `D`; the one truncate makes gets `P`,
+  which B4 installs; a drop's does not matter. A CDC DDL event carries the
+  schema record's version, the op's commit timestamp.
 - *Drop*: the prepare-chosen `D` cannot be the position. A drop only excludes
   DML at its commit-stage write lock, so writes to the old incarnation
   legitimately commit in `(D, lock time)`; a stream with the drop at `D`
@@ -520,7 +564,7 @@ lock results is above the acquisition time (`template_cc_map.h`,
   also be below a checkpoint taken between prepare and the lock. *Decided:*
   **the drop's commit timestamp is re-assigned at the commit stage.** After
   `acquire_all_lock_op_` succeeds, for `DropTable` (and, per the next
-  bullet, `CreateTable` and `TruncateTable`), `UpsertTableOp::Forward` sets
+  bullet, `CreateTable` and `TruncateTable`), `UpsertTableOp::AssignCommitStageTs` sets
   `txm->commit_ts_ = max(commit_ts_, max over results of (last_vali_ts + 1, commit_ts + 1))`
   = `P`. Everything downstream already uses `commit_ts_`: the commit log
   (`FillCommitLogRequest`), the `PostCommit` post-write, and the DDL record
@@ -547,37 +591,85 @@ lock results is above the acquisition time (`template_cc_map.h`,
 - *Create (and truncate, EloqKV-only)*: **same rule as drop**, the commit
   timestamp is re-assigned to `P` under the write lock, with two additions
   because the table lives on and its version must agree everywhere (F12):
-  - **The kv catalog must carry `P`.** Truncate already writes the store
-    after the commit log with `write_time_ = commit_ts_`, so it gets `P` for
-    free. Create writes the store *before* the lock today
-    (`upsert_kv_table_op_` right after the dirty-schema install, then the
-    sequence-table step, then the lock). *Decided:* move create's kv write
-    to the **commit-log success branch, the same position as drop and
-    truncate**. Three consequences:
-    - The create rollback path (F8) disappears: after the commit log there
-      is no abort, so a kv failure must roll forward. Add `CreateTable` to
-      the retry branch that today covers only drop and truncate; the
-      zero-timestamp commit log is no longer produced for create. A
-      permanent store error therefore retries instead of failing the
-      command. **The retry runs under the catalog write lock, which is
-      retained until `PostCommit`.** Rule, for create, drop and truncate
-      alike:
+  - **The kv catalog must carry `P`.** A node that loads the table from the
+    store takes the catalog row's timestamp as the entry's commit timestamp,
+    so a row at `D` would let that node's DML commit in `(D, P)`, before the
+    create. Truncate writes its catalog row after the commit log, at
+    `commit_ts_`, so it gets `P` for free. Create used to write
+    the whole kv side before the lock (`upsert_kv_table_op_` right after the
+    dirty-schema install, then the sequence-table step, then the lock).
+    *Decided:* **split create's kv work around the two logs.**
+    - **The kv tables after the prepare log** (`create_kv_table_op_`,
+      `DataStoreHandler::CreateKvTable` for the base table and each index; on
+      the data store service, each range-partitioned table's initial range
+      record), at `D`, under the write intent. No log has decided the op
+      yet, so a failure is not retried: the create **gives up**: it removes
+      what it created (`UpsertTableOp::AbandonCreate`) through the store's
+      drop-table path over the dirty schema at `D` (kv tables, ranges, the
+      catalog key it never wrote), then writes the commit log
+      marked rolled back at timestamp 0; the post write, with the rollback
+      flag and timestamp 0, discards the dirty schema
+      and releases the intents, and the command fails with
+      `DATA_STORE_ERROR`. That is the failure path create had before, now
+      with a cleanup, and it appends no DDL record (§4.3). If
+      the cleanup fails too, the kv tables stay orphaned, which is accepted
+      as for a failed add index: they hold no data, no schema refers to
+      them, and a later create of the name writes them again
+      (`CreateKvTable` is idempotent). A node that recovers the op from its
+      prepare log tries the kv tables again, once. The sequence-table step
+      follows, also before the commit log, so a failure there makes the
+      create give up the same way; the sequence entries it wrote stay, and a
+      later create of the name writes them again. Then the commit-stage
+      lock.
+    - **The catalog row after the commit log**, at `P`: a catalog-only write
+      (`upsert_kv_table_op_` with op type `Update`), retried under the write
+      lock.
+    - The table's initial ranges stay at `D` in the store and in memory
+      (`PostCommit` initializes them at the prepare-stage version), so a node
+      that loads them from the store after a failover gets the same version.
+      Only the schema version and the catalog row move to `P`.
+    - A commit log that commits the create is written only once the kv
+      tables exist, so every state recovery can reach from it has them.
+      Replay of a committed create builds the table as committed, as before;
+      on non-shared storage it writes only the catalog row, since the kv
+      tables are there. Replay and recovery of a create that gave up (commit
+      timestamp 0) reject the dirty schema and write nothing to the store.
+    - Once the commit log commits a create, no data-store failure fails it.
+      The general rule, for index ops too: a data-store failure before the
+      op's point of no return (the commit log of create and drop; the
+      prepare log of add and drop index) rolls the op back at once, and one
+      after it is retried until the step succeeds. Truncate never rolls back
+      after its prepare log. On shared storage it empties the table under the
+      write lock before its commit log (the cc maps, the kv table, the
+      sequences), each step retried, so that a participant that recovers from
+      the commit log and takes writes into the emptied table finds no later
+      step that wipes them; only its catalog row follows the commit log
+      (`UpsertTableOp::TruncateUntilCommitLog`). Without shared storage each
+      node group truncates its own store after the commit log, and one that
+      recovers from the commit log truncates its store in the replay, before
+      it takes writes.
+      **Rule, for the data-store steps after the commit log of create, drop
+      and truncate alike:**
       1. Write the commit log with timestamp `P` (the DDL record is
          appended at its apply, `ddl_ts = P`).
-      2. Perform the data-store operation, retrying failures with backoff
-         while holding the write lock: a fast phase (for example one minute
-         of exponential backoff), then an unbounded slow phase (for example
-         every 10 s) with an error log on each attempt and a metric/alert
-         (`ddl_kv_retry_exhausted`, per table). The command's client stays
-         blocked; if it gives up, the op continues on the coordinator.
+      2. Perform the data-store operation (create's and truncate's catalog
+         row, drop's kv table and sequence table steps) while holding the
+         write lock, retrying a failure indefinitely, 30 seconds apart by
+         default (`ddl_kv_retry_interval_seconds`; the test fixtures use 1 s),
+         with a warning in the log naming the
+         table, the step and the error on each attempt. The command's client
+         stays blocked; if it gives up, the op continues on the coordinator.
+         Create's steps before the lock, the kv tables and the sequence
+         table, are not retried: a failure fails the create (above).
       3. On success, run `PostCommit`, which installs the new schema and
          releases the lock.
       4. If the coordinator fails at any point after step 1, recovery rolls
-         the committed operation forward from the commit log (F8), holding
-         the lock the same way. No path rolls back: reversing a durable
-         commit decision would need its own protocol, including recovery
-         behavior, and removing or altering the logger record is not that
-         protocol.
+         the committed operation forward from the commit log (F8), with the
+         timestamp the commit log recorded (the log state keeps the commit
+         log's timestamp, not the prepare log's). No path rolls back:
+         reversing a durable commit decision would need its own protocol,
+         including recovery behavior, and removing or altering the logger
+         record is not that protocol.
       **Why the lock is not downgraded during the retry.** A downgrade to an
       intent was considered and rejected. `DowngradeLock` commits nothing
       (`catalog_cc_map.h`, the `DowngradeLock` case): for drop and truncate
@@ -597,31 +689,50 @@ lock results is above the acquisition time (`template_cc_map.h`,
       stream and log truncation stall until the store recovers or the
       operator intervenes. This is the same availability trade-off as the
       existing behavior for a stuck write lock (§5.7), surfaces through the
-      same `checkpoint_stall_rounds` gauge plus `ddl_kv_retry_exhausted`,
-      and buys a single, consistent failure path.
-    - The coordinator's dirty schema object, built at prepare with version
-      `D`, must be rebuilt from the same image with version `P` before the
-      kv op, because the store client uses `schema->Version()` for range
-      initialization and `commit_ts` for the catalog row.
-    - `update_sequence_table_op_` now runs before the kv write instead of
-      after it. That is safe: it seeds the range-id and auto-increment
-      sequences from `Sequences::InitialRangePartitionIdOf` and the schema
-      through the `Sequences` module's own transaction, and reads nothing the
-      kv op writes.
+      same `checkpoint_stall_rounds` gauge plus a warning in the log for
+      every retry, and buys a single, consistent failure path. For create it applies only
+      to the catalog row, a single write; the kv tables are created before the
+      lock.
     In the normal case the write lock is held across the commit log and one
     kv write, milliseconds to seconds; nothing can wait on a create's
     catalog lock except another DDL on the same name. The checkpoint pin
     for that duration is the same one drop already imposes; only a failing
     store extends it (see the cost above).
-  - **`PostCommit` must promote `P`, not the prepare-stage version.** Today
-    it promotes `dirty_schema_version_` (`CommitDirtySchema`, and
-    `UpdateCcmSchema(..., dirty_schema_version_)` for truncate), which is
-    `D`. With the store at `P` and memory at `D`, a node that later loads the
-    catalog from the store would carry `P` against maps checking `D`, and the
-    per-request `SchemaVersion` check would reject its DML. Promote
-    `req.CommitTs()` instead and rebuild the schema object's key-schema
-    timestamp from it; `SetDirtySchema` already accepts a higher version, so
-    re-installing the dirty schema with `P` before promotion is one way.
+  - **`PostCommit` promotes `P`, not the prepare-stage version.** It used to
+    promote `dirty_schema_version_`, which is `D`. The catalog entry now takes
+    `req.CommitTs()` (`CommitDirtySchema(commit_ts)`) and so does its cc
+    entry's record, both the schema record's version. The schema object is
+    not rebuilt: the tables keep their own versions (see *Table versions*
+    below), a create's at `D`. Truncate's table is a new one whose version is
+    `P`, so core 0 rebuilds truncate's dirty schema at `P` before any core
+    builds cc maps from it; a post-write visits the cores in order, core 0
+    first.
+  - **The second phase fills its record from the node's catalog entry.** A
+    schema op ends with `PostCommit`, which promotes the dirty schema, or
+    `Rollback` (`PostWriteType::Rollback`), which discards it and keeps the
+    current schema. Core 0 of each node group sets the request's record
+    accordingly: the requester's own record for a local request, a record the
+    request owns for a remote one, which is sent none. The template installs
+    it in every core's cc entry, copy-on-write
+    (`VersionedPayload::SetCurrentPayload`: copied in place when the entry
+    holds its record alone, into a new record otherwise), and releases the
+    lock; `PostCommit` publishes the commit timestamp, and `Rollback` moves it
+    only if it is above 0. An op that failed before its prepare log installed
+    no dirty schema, so there is nothing to discard: its `Rollback` carries no
+    record and only releases the lock. Such an op may hold its write intents
+    on some cores only, core 0 or not, since it failed to acquire them; the
+    node's catalog entry having no dirty schema is what tells. The write
+    type, not the timestamp, says "discard":
+    every op that fails before or after its prepare log, a DML transaction
+    that aborts after taking catalog locks, the table-cache invalidation that
+    only releases its locks, and the add index rolled back at `P` end with a
+    `Rollback`. Its commit timestamp above 0 moves the catalog entry's version
+    there (the add index, at `P`) and 0 leaves it alone; a `PostCommit`'s is
+    always above 0. Every post-write at timestamp 0 is a `Rollback` (or a lock
+    downgrade), a range split that fails before its prepare log included.
+    The commit log carries the same mark (see
+    *Rolled-back ops* in §4.3): with it, timestamp 0 means no change event
+    and a timestamp above 0 a separate one.
   Result: the first insert into a created table, and the first write after a
   truncate, read version `P` and commit above it by the ordinary read-set
   rule. Exact, no clamp, no clock bump. For drop the same two steps are
@@ -1838,24 +1949,24 @@ DDL still while the catalog is copied:
       `Execute(ReadCc&)`), so the check below reads
       `cluster_conf_rec_.cluster_gate` and nothing else changes on the
       DDL side.
-  - *Check: new admissions only.* Both ops pass through
-    `lock_cluster_config_op_` more than once, and the branch taken after
-    it depends on whether the prepare log is already flushed
-    (`prepare_log_op_.hd_result_.IsFinished()`, `tx_operation.cpp`
-    `UpsertTableOp::Forward` and `tx_index_operation.cpp`
-    `UpsertTableIndexOp::Forward`, the `lock_cluster_config_op_` branch):
-    the prepared branch goes to `acquire_all_lock_op_`, and it is reached
-    by an index build that re-locks the config after its last batch
-    (`tx_index_operation.cpp`, the "Reach the end" branch), by a create or
-    alter that re-locks after its kv write (`tx_operation.cpp`, the
-    re-lock after `upsert_kv_table_op_`), and by recovery of any of them
-    from a prepare log. The gate check lives **only in the unprepared
-    branch**, immediately before `acquire_all_intent_op_`: there
-    `Forward()` reads `paused` from the record it just locked and, if it
+  - *Check: new admissions only.* A schema op takes the cluster config
+    read lock once, at its first step (`lock_cluster_config_op_`), holds it
+    through its last post write all and releases it right after
+    (`unlock_cluster_config_op_`, before the clean log;
+    `tx_upsert_table_operation.cpp` `RunEnding`, `tx_index_operation.cpp`
+    the `post_all_lock_op_` branch), so every step it sends to all node
+    groups reaches the same node groups. A recovered op resumes under a lock
+    its recovery tx took outside the op
+    (`LocalCcShards::CreateSchemaRecoveryTx`). The lock step is therefore
+    exactly where an op is admitted, and the gate check lives **only
+    there**, immediately before `acquire_all_intent_op_`
+    (`UpsertTableOp::RunUntilPrepareLog`, `UpsertTableIndexOp::Forward`).
+    There the op reads `paused` from the record it just locked and, if it
     is set, fails with a new `TxErrorCode::CLUSTER_GATED` through the
     existing error path; nothing has been acquired yet, so nothing is
-    undone. The prepared branch is never gated: those operations are
-    exactly what pause's drain (below) is waiting to finish, and
+    undone. An op past its lock step, or a recovered one, is never gated:
+    those operations are exactly what pause's drain (below) is waiting to
+    finish, and
     rejecting them there would make the drain wait on operations the gate
     itself blocks, and would turn a roll-forward that F8 guarantees into a
     stall. EloqDoc maps `CLUSTER_GATED` to a retriable error whose message
@@ -2361,7 +2472,8 @@ capped collections on the sink (§9).
 | Log group leader change | `NotLeader` on scan | Refresh leader, retry from the same continuation, which advances only on success (§5.8); nothing is lost or duplicated |
 | EloqDoc node serving the cursor dies | Cursor gone | Driver surfaces the error; consumer reopens with its token on any node |
 | Checkpoint stalls (stuck lock) | `arrival_complete_ts` stops, stream pauses | `checkpoint_stall_rounds` gauge; orphan-lock recovery unblocks it |
-| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `ddl_kv_retry_exhausted` and `checkpoint_stall_rounds` alerts; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails; no rollback path exists |
+| A create's kv tables fail (before its commit log) | the step is not retried: the create gives up at once, under its write intent, which pins nothing: it drops what it created and fails with `DATA_STORE_ERROR`; no event, no stall | the error log names the table; retry the create once the store is back; kv tables whose drop also failed stay orphaned, empty, and a later create of the name writes them again |
+| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `checkpoint_stall_rounds` alert and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores the write lock on the coordinator's node group; no rollback path exists |
 | Consumer down longer than retention | `PositionTruncated` → `ChangeStreamHistoryLost` once loggers track the history boundary (§4.5); **in v1 undetected**, the scan silently resumes at the smallest surviving key | Re-bootstrap (§6.2): drop the in-scope namespaces on the sink, then snapshot and replay from a new `T0`. In v1, prevent rather than detect: set `txlog_cdc_retention_seconds` (§4.5) above the worst-case consumer lag and alert on the lag metric |
 | Sink unreachable | Consumer stops acknowledging | Nothing happens on the source; retention is the budget |
 | DDL attempted while the bootstrap cluster gate is paused (mode `ddl`) | the DDL fails fast with a retriable error (§6.2) | expected; the operator scheduled the bootstrap window; retry after the copy |
@@ -2417,14 +2529,16 @@ connector over the same scan RPC.
    after the checkpointer resumes succeeds. Also confirm the drivers accept
    a `getMore` reply without `operationTime` when it carries a
    `postBatchResumeToken`.
-3. After moving create's kv write past the commit log, add `CreateTable` to
-   the roll-forward retry branch in `UpsertTableOp::Forward` (today only drop
-   and truncate retry; everything else rolls back with a zero-timestamp
-   commit log). The retry keeps the catalog write lock, as drop's loop
-   already does; do **not** downgrade it (§4.4(b)). Set the fast and slow
-   retry cadences and the `ddl_kv_retry_exhausted` alert, and document the
-   operator runbook for a prolonged store failure, since it stalls every
-   stream.
+3. *Done in PR 7.* Create's kv tables are created after the prepare log and
+   its catalog row is written after the commit log. A data-store failure
+   before the commit log (the kv tables, the sequence table) is not retried:
+   the create gives up, drops what it created and fails. The catalog row,
+   and drop's and truncate's kv and sequence table steps, come after the
+   commit log and retry until the store answers, 30 seconds apart by default, with a
+   warning in the log on each attempt; index ops apply the same rule with
+   the prepare log as the point of no return. The retry after the commit log
+   keeps the catalog write lock; it is **not** downgraded (§4.4(b)). Still to do: the operator runbook for a prolonged store failure,
+   since it stalls every stream (B7, PR 9).
 4. `SchemaOpMessage.new_catalog_blob` for EloqDoc carries the collection
    options needed for `create` events (collation, validator and similar;
    capped collections cannot exist in scope, §6.4).
@@ -2432,7 +2546,7 @@ connector over the same scan RPC.
    `eloq_kv_engine.cpp`); confirm and document the user-facing behavior.
 6. Implement §4.4(a) (registry: reset `wlock_ts_` on downgrade, count catalog
    write locks) and §4.4(b): re-assign `commit_ts_` after
-   `acquire_all_lock_op_` in `UpsertTableOp::Forward` for create, drop, and
+   `acquire_all_lock_op_` in `UpsertTableOp` (`AssignCommitStageTs`) for create, drop, and
    truncate; move create's `upsert_kv_table_op_` into the commit-log success
    branch and rebuild the coordinator's dirty schema with `P` before it;
    promote `req.CommitTs()` in the catalog map's `PostCommit`; update the
@@ -2524,8 +2638,8 @@ connector over the same scan RPC.
     after a newer `pause` has taken the lock, installed and released,
     and assert the entry still reads paused and the newer transaction's
     lock state is untouched; the `paused` check
-    in the unprepared branch of `UpsertTableOp::Forward` and
-    `UpsertTableIndexOp::Forward`, reading `cluster_conf_rec_` filled by
+    in `UpsertTableOp`'s `lock_cluster_config_op_` step and the unprepared
+    branch of `UpsertTableIndexOp::Forward`, reading `cluster_conf_rec_` filled by
     the existing read-local; the pause/resume op that takes the
     cluster-config write lock on every node group, then reads the record
     under that lock (acquire-all returns no record) and evaluates its
