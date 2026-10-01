@@ -53,7 +53,8 @@ add_custom_target(eloqdoc-change-stream-drivers
 
 # Opt-in DDL crash-recovery scenarios (docs/cdc-change-stream.md §4.4(b), plan B3-B5): a create,
 # drop, ALTER or add index killed at a data substrate fault point is rolled forward after a restart. Needs a server
-# built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own fresh server.
+# built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own fresh server and also checks the
+# log service's CDC DDL history (plan A3).
 add_custom_target(eloqdoc-ddl-recovery
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/ddl_recovery.py"
         --server "$<TARGET_FILE:eloqdoc>"

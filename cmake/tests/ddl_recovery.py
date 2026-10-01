@@ -15,13 +15,19 @@ its log decided:
   (v)   the same rollback, killed after its commit log: recovery drops the index;
   (vi)  a create whose kv tables keep failing gives up, killed after the commit log (timestamp 0)
         that fails it: recovery rejects the dirty schema and releases the name;
-  (vii) an ALTER (collMod), killed after its commit log: recovery finishes it under the write lock
-        replay restores on the coordinator, and the new metadata survives a restart.
+  (vii) an ALTER (collMod), killed after its commit log: recovery finishes it under the write
+        intent replay restores on the coordinator, and the new metadata survives a restart.
 
 After recovery the collection is used, then the node restarts once more and it is used again: the
 second restart loads the catalog from the store, so memory and store must agree on the table's
 version, or the node rejects the writes. Needs a server built with the fault points
 (WITH_FAULT_INJECT); skipped otherwise.
+
+Each scenario also reads the log service's CDC DDL history (§4.3; plan A3) through the eloqCdcScan
+test command: the DDL left one record per op, at the position the tx service committed it at. A
+recovered create's record lies at the version the catalog holds after recovery, the timestamp of
+its commit log; a rolled-back add index has a record at its prepare log's timestamp and a second
+one, marked rolled back, at its commit log's; a create that gave up and an ALTER leave none.
 
 The server backend comes from server_smoke_config (the CI backends), or from --substrate-config
 for any other local build. Requires pymongo.
@@ -47,6 +53,8 @@ from server_smoke_config import substrate_config  # noqa: E402
 COMMAND_NOT_SUPPORTED = 115
 KEY_TOO_LONG = 17280
 RECOVERY_TIMEOUT_S = 180
+# txservice::OperationType values in the DDL records.
+CREATE_TABLE, DROP_TABLE, ADD_INDEX = 5, 6, 8
 
 
 def free_port():
@@ -161,6 +169,50 @@ def wait_until(predicate, what):
     raise AssertionError(f"recovery never {what}")
 
 
+def catalog_version(node, coll_name):
+    """The version of the collection's committed schema in the catalog, or 0 if it has none."""
+    return node.client.admin.command(
+        {"eloqCatalogVersion": f"ddl_recovery.{coll_name}"})["schemaTs"]
+
+
+def ddl_history(node, coll_name, through_ts):
+    """The collection's records in the DDL history of log group 0, the single node's only group,
+    once the group's checkpoint has reached through_ts: a scan returns records only up to it."""
+    table = f"ddl_recovery.{coll_name}"
+    deadline = time.monotonic() + RECOVERY_TIMEOUT_S
+    while True:
+        records, bound, served = [], 0, True
+        command = {"eloqCdcScan": 0}
+        while True:
+            reply = node.client.admin.command(command)
+            if "rpcError" in reply or reply["status"] != "Success":
+                served = False  # a node that has just started may not lead or serve yet
+                break
+            records += [r for r in reply["ddl"] if r["table"] == table]
+            bound = reply["arrivalCompleteTs"]
+            if not reply["hasMore"]:
+                break
+            command = {"eloqCdcScan": 0, "continuation": reply["continuation"]}
+        if served and bound >= through_ts:
+            return records
+        assert time.monotonic() < deadline, f"log group 0 never scanned through {through_ts}"
+        time.sleep(0.5)
+
+
+def ops(records):
+    """(op type, rolled back) of each DDL record."""
+    return [(r["opType"], r["rolledBack"]) for r in records]
+
+
+def check_created_at_catalog_version(node, coll_name):
+    """The collection's one DDL record is its create, at the version the catalog committed."""
+    version = catalog_version(node, coll_name)
+    assert version > 0, f"{coll_name} has no committed schema"
+    records = ddl_history(node, coll_name, version)
+    assert ops(records) == [(CREATE_TABLE, False)], records
+    assert records[0]["ddlTs"] == version, (records, version)
+
+
 def check_usable(coll, label, docs=20):
     """The collection takes writes and an index, and reads back what it holds through it."""
     start = coll.count_documents({})
@@ -189,6 +241,7 @@ def scenario_create_after_prepare(node):
                  lambda: db.create_collection("after_prepare"))
     wait_until(lambda: "after_prepare" in node.client.ddl_recovery.list_collection_names(),
                "created the collection killed after its prepare log")
+    check_created_at_catalog_version(node, "after_prepare")
     use_across_restart(node, "after_prepare")
     print("PASS (i) a create killed after its prepare log was rolled forward", flush=True)
 
@@ -201,6 +254,7 @@ def scenario_create_after_commit(node):
                  lambda: db.create_collection("after_commit"))
     wait_until(lambda: "after_commit" in node.client.ddl_recovery.list_collection_names(),
                "created the collection killed after its commit log")
+    check_created_at_catalog_version(node, "after_commit")
     use_across_restart(node, "after_commit")
     print("PASS (ii) a create killed after its commit log was rolled forward", flush=True)
 
@@ -215,6 +269,12 @@ def scenario_drop_after_commit(node):
     # The name is free, and a collection created under it starts empty.
     node.client.ddl_recovery.create_collection("dropped")
     assert node.client.ddl_recovery.dropped.count_documents({}) == 0
+    # The first incarnation's create and drop, then the second's create at its catalog version.
+    version = catalog_version(node, "dropped")
+    records = ddl_history(node, "dropped", version)
+    assert ops(records) == [(CREATE_TABLE, False), (DROP_TABLE, False), (CREATE_TABLE, False)], \
+        records
+    assert records[0]["ddlTs"] < records[1]["ddlTs"] < records[2]["ddlTs"] == version, records
     use_across_restart(node, "dropped")
     print("PASS (iii) a drop killed after its commit log was rolled forward", flush=True)
 
@@ -235,9 +295,21 @@ def failed_index_build(coll):
 
 
 def check_rolled_back(node, coll_name):
-    """The index is absent and the collection keeps working across a restart."""
+    """The index is absent, the DDL history holds the add index at its prepare log's timestamp
+    and its rollback at its commit log's, and the collection keeps working across a restart. The
+    catalog's version is at least the commit log's timestamp: once the build has failed, the
+    server updates the collection's metadata, an ALTER that leaves no DDL record and moves the
+    version past it."""
     coll = node.client.ddl_recovery[coll_name]
     assert "big_1" not in coll.index_information(), coll.index_information()
+    assert coll.count_documents({}) == 51, coll.count_documents({})
+    version = catalog_version(node, coll_name)
+    records = ddl_history(node, coll_name, version)
+    assert ops(records) == [(CREATE_TABLE, False), (ADD_INDEX, False), (ADD_INDEX, True)], records
+    added, rolled_back = records[1], records[2]
+    assert added["ddlTs"] == added["catalogTs"] == rolled_back["catalogTs"], records
+    assert added["ddlTs"] < rolled_back["ddlTs"] <= version, (records, version)
+    assert added["txn"] == rolled_back["txn"], records
     use_across_restart(node, coll_name, preloaded=51)
 
 
@@ -283,6 +355,8 @@ def scenario_abandoned_create_after_commit(node):
                  lambda: db.create_collection("abandoned"))
     wait_until(lambda: create_when_free(node.client.ddl_recovery, "abandoned"),
                "released the name of the create that gave up")
+    # Only the create that succeeded afterwards left a record.
+    check_created_at_catalog_version(node, "abandoned")
     use_across_restart(node, "abandoned")
     print("PASS (vi) a create that gave up, killed after its commit log, stayed failed",
           flush=True)
@@ -304,6 +378,14 @@ def scenario_alter_after_commit(node):
                  lambda: db.command({"collMod": "altered", "validator": validator}))
     wait_until(lambda: validator_of(node.client.ddl_recovery, "altered") == validator,
                "applied the ALTER killed after its commit log")
+    # The documents written before the crash were replayed into the table.
+    altered = node.client.ddl_recovery.altered
+    assert altered.count_documents({}) == 10, altered.count_documents({})
+    # An ALTER leaves no record: only the create's, below the ALTER's version.
+    version = catalog_version(node, "altered")
+    records = ddl_history(node, "altered", version)
+    assert ops(records) == [(CREATE_TABLE, False)], records
+    assert records[0]["ddlTs"] < version, (records, version)
     use_across_restart(node, "altered", preloaded=10)
     assert validator_of(node.client.ddl_recovery, "altered") == validator
     print("PASS (vii) an ALTER killed after its commit log was rolled forward", flush=True)
@@ -321,6 +403,9 @@ def main():
     parser.add_argument("--port", type=int, help="Server port; default a free one")
     parser.add_argument("--diagnostics-dir", type=Path,
                         help="Copy a failed scenario's server log here")
+    parser.add_argument("--scenario", action="append",
+                        help="Run only this scenario (its label, e.g. index-rollback-commit); "
+                             "may be repeated")
     args = parser.parse_args()
     # Keep the server and its helpers within the user's CPU limit.
     if hasattr(os, "sched_getaffinity"):
@@ -333,6 +418,8 @@ def main():
                             ("index-rollback-commit", scenario_add_index_rollback_after_commit),
                             ("create-abandoned-commit", scenario_abandoned_create_after_commit),
                             ("alter-commit", scenario_alter_after_commit)):
+        if args.scenario and label not in args.scenario:
+            continue
         node = Node(args, label)
         ok = False
         try:

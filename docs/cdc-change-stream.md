@@ -314,8 +314,9 @@ the logger keeps a separate DDL history, also in memory:
   `txn_number`.
 - **Kept in memory and saved in the raft snapshot**, as `tx_catalog_ops_`
   already is, so it survives a restart; DDLs are rare, so its size is
-  negligible. Trimmed at the CDC retention floor like data records (§4.5),
-  not an hour after the checkpoint.
+  negligible. Trimmed with the data records: each purge of the data log
+  also drops the DDL records below its floor (§4.5), not an hour after the
+  checkpoint.
 - No sequence counter: append order carries no meaning the stream needs,
   and the §4.4 invariant guarantees every record's `ddl_ts` is above
   `arrival_complete_ts` at append time.
@@ -779,7 +780,11 @@ deployments without CDC are unaffected; CDC deployments set it above the
 worst-case consumer lag. The size limit and the interval then decide only
 how often a purge looks, not how much it keeps: the RocksDB state's disk
 holds about the write rate times the retention, whatever the limit says.
-The DDL store (§4.3) purges by the same floor.
+The DDL store (§4.3) is trimmed by the same purges, by the same floor, when
+they run, not at every checkpoint: a DDL record stays as long as the data
+records around it, so a consumer loses DDL records only where it loses data.
+Trimming at every checkpoint would drop each record as soon as a scan could
+return it unless a window is set.
 
 **What "history loss" means, precisely.** The smallest surviving key is
 *not* a usable boundary. Records arrive out of timestamp order (F5) and
@@ -2473,7 +2478,7 @@ capped collections on the sink (§9).
 | EloqDoc node serving the cursor dies | Cursor gone | Driver surfaces the error; consumer reopens with its token on any node |
 | Checkpoint stalls (stuck lock) | `arrival_complete_ts` stops, stream pauses | `checkpoint_stall_rounds` gauge; orphan-lock recovery unblocks it |
 | A create's kv tables fail (before its commit log) | the step is not retried: the create gives up at once, under its write intent, which pins nothing: it drops what it created and fails with `DATA_STORE_ERROR`; no event, no stall | the error log names the table; retry the create once the store is back; kv tables whose drop also failed stay orphaned, empty, and a later create of the name writes them again |
-| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `checkpoint_stall_rounds` alert and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores the write lock on the coordinator's node group; no rollback path exists |
+| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `checkpoint_stall_rounds` alert and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores a write intent on the coordinator's node group: the op keeps retrying under it, holding back neither the checkpoint nor DML, and no other DDL runs on the table; no rollback path exists |
 | Consumer down longer than retention | `PositionTruncated` → `ChangeStreamHistoryLost` once loggers track the history boundary (§4.5); **in v1 undetected**, the scan silently resumes at the smallest surviving key | Re-bootstrap (§6.2): drop the in-scope namespaces on the sink, then snapshot and replay from a new `T0`. In v1, prevent rather than detect: set `txlog_cdc_retention_seconds` (§4.5) above the worst-case consumer lag and alert on the lag metric |
 | Sink unreachable | Consumer stops acknowledging | Nothing happens on the source; retention is the budget |
 | DDL attempted while the bootstrap cluster gate is paused (mode `ddl`) | the DDL fails fast with a retriable error (§6.2) | expected; the operator scheduled the bootstrap window; retry after the copy |
