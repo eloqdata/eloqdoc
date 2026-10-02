@@ -26,6 +26,7 @@
 #include "mongo/db/modules/eloq/src/cdc/cdc_scan_transport.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/pipeline/document_source_change_stream.h"
+#include "mongo/db/pipeline/document_source_change_stream_close_cursor.h"
 #include "mongo/db/pipeline/resume_token.h"
 #include "mongo/db/query/find_common.h"
 #include "mongo/db/server_parameters.h"
@@ -153,8 +154,12 @@ Value DocumentSourceEloqChangeStream::serialize(
 }
 
 BSONObj DocumentSourceEloqChangeStream::getPostBatchResumeToken() const {
-    // The batch loops ask at IS_EOF, when the stream is drained, and once at registration, before
-    // anything is pulled.
+    // The batch loops ask at IS_EOF, when the stream is drained; once at registration, before
+    // anything is pulled; and when the stream closes after its invalidate, whose token is then the
+    // only one to restart from, even if a user stage filtered the event out.
+    if (_stream->invalidated()) {
+        return _stream->invalidateToken();
+    }
     return _stream->drained() ? _stream->watermark().toBSON() : _stream->openingToken();
 }
 
@@ -182,7 +187,8 @@ std::list<boost::intrusive_ptr<DocumentSource>> makeEloqChangeStreamStages(
         token = parseToken(
             resumeAfter->toDocument(ResumeToken::SerializationFormat::kHexString).toBson(),
             DocumentSourceChangeStreamSpec::kResumeAfterFieldName);
-        uassert(ErrorCodes::BadValue,
+        // As in MongoDB: the stream an invalidate ended can only be started after it (§5.1).
+        uassert(ErrorCodes::InvalidResumeToken,
                 "An invalidate token cannot be used with 'resumeAfter'; use 'startAfter'",
                 token->kind() != CdcResumeToken::Kind::kInvalidate);
     } else if (const auto& startAfter = spec.getStartAfter()) {
@@ -244,6 +250,9 @@ std::list<boost::intrusive_ptr<DocumentSource>> makeEloqChangeStreamStages(
     std::list<boost::intrusive_ptr<DocumentSource>> stages;
     stages.push_back(boost::intrusive_ptr<DocumentSource>(
         new DocumentSourceEloqChangeStream(expCtx, std::move(stream), serialized.freeze())));
+    // Closes a collection-level stream's cursor on the pull after its invalidate event (§5.2);
+    // it ignores every other event, and serializes to nothing, since this factory adds it.
+    stages.push_back(DocumentSourceCloseCursor::create(expCtx));
     return stages;
 }
 

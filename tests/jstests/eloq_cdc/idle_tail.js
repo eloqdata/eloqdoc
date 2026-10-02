@@ -11,6 +11,8 @@
     const testDB = db.getSiblingDB("eloq_cdc_idle_tail");
     assert.commandWorked(testDB.dropDatabase());
     assert.commandWorked(testDB.createCollection("c"));
+    // The stream must not report the setup above (§5.1: it starts at the checkpoint bound).
+    EloqCdcUtil.settleDdl(db.getMongo());
 
     const opened = assert.commandWorked(EloqCdcUtil.openRaw(db.getMongo(), testDB.getName(), "c", {}));
     const id = opened.cursor.id;

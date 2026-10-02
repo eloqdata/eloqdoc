@@ -113,13 +113,32 @@ public:
         uint32_t logGroupId, uint64_t commitTs, uint32_t ngId, uint64_t txn, std::string blob);
 
     /**
-     * @brief Adds a DDL record to the group.
+     * @brief Adds a DDL record with no schema op, which no stream reports, to the group.
      *
      * @param logGroupId The group.
      * @param ddlTs Its stream timestamp.
      * @param txn Its transaction number, which orders DDL records within one timestamp.
      */
     void addDdl(uint32_t logGroupId, uint64_t ddlTs, uint64_t txn);
+
+    /**
+     * @brief Adds a DDL record carrying a schema op to the group.
+     *
+     * @param logGroupId The group.
+     * @param ddlTs Its stream timestamp.
+     * @param txn Its transaction number, which orders DDL records within one timestamp.
+     * @param schemaOp The op, as the log state keeps it in the record.
+     */
+    void addDdl(uint32_t logGroupId, uint64_t ddlTs, uint64_t txn, txlog::SchemaOpMessage schemaOp);
+
+    /**
+     * @brief A DDL record's position, as CdcSourceRecord::ddlKey() rebuilds it.
+     *
+     * @param ddlTs Its stream timestamp.
+     * @param txn Its transaction number.
+     * @return be64 ddl_ts | be64 txn.
+     */
+    static std::string ddlKey(uint64_t ddlTs, uint64_t txn);
 
     /**
      * @brief Sets the group's arrival_complete_ts.

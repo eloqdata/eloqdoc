@@ -94,6 +94,17 @@ StringData operationType(CdcOperation op) {
     MONGO_UNREACHABLE;
 }
 
+/**
+ * @brief An event's clusterTime (§5.4a): Timestamp(secs = ts / 1e6, inc = ts % 1e6), lossless
+ * for microsecond timestamps.
+ *
+ * @param ts The event's timestamp.
+ * @return The clusterTime.
+ */
+Timestamp clusterTime(uint64_t ts) {
+    return Timestamp(static_cast<unsigned>(ts / 1000000), static_cast<unsigned>(ts % 1000000));
+}
+
 }  // namespace
 
 CdcEventStream::CdcEventStream(std::shared_ptr<CdcScanTransport> transport,
@@ -113,11 +124,24 @@ bool CdcEventStream::openFresh(Date_t deadline, const CoroutineFunctors& coro) {
 
 void CdcEventStream::openAt(const CdcResumeToken& token) {
     invariant(_openingToken.isEmpty());
-    uassert(ErrorCodes::ChangeStreamFatalError,
-            "Resuming from an invalidate token is not supported yet",
-            token.kind() != CdcResumeToken::Kind::kInvalidate);
     // Throws for a token no real stream can issue, before any group is started.
     const uint64_t absentStart = token.startTimestampForAbsentGroup();
+
+    if (token.kind() == CdcResumeToken::Kind::kEvent) {
+        // The drop of the watched collection would be at a form-0 entry's DDL key at the token's
+        // own timestamp (a DDL event's group uses form 0). That group restarts at the timestamp
+        // and re-reads the record, which _begin checks; an invalidate token denotes the position
+        // after the invalidate and is never checked.
+        for (const CdcResumeTokenEntry& entry : token.entries()) {
+            if (entry.form == CdcResumeTokenEntry::Form::kAfterKey &&
+                keyTimestamp(entry.ddlKey) == token.timestamp()) {
+                _ownDropKeys.emplace(entry.logGroupId, entry.ddlKey);
+            }
+        }
+        if (!_ownDropKeys.empty()) {
+            _resumedFrom = token;
+        }
+    }
 
     for (uint32_t id : _source.logGroupIds()) {
         const CdcResumeTokenEntry* entry = token.entryFor(id);
@@ -158,6 +182,16 @@ void CdcEventStream::openAt(const CdcResumeToken& token) {
 boost::optional<Document> CdcEventStream::next(Date_t deadline, const CoroutineFunctors& coro) {
     invariant(!_openingToken.isEmpty());
     for (;;) {
+        if (_invalidated) {
+            return boost::none;
+        }
+        if (_pendingInvalidate) {
+            boost::optional<Document> invalidate;
+            invalidate.swap(_pendingInvalidate);
+            _invalidateToken = (*invalidate)["_id"].getDocument().toBson();
+            _invalidated = true;
+            return invalidate;
+        }
         if (_current) {
             Current& current = *_current;
             Group& group = _groups[current.record.logGroupId()];
@@ -193,7 +227,9 @@ boost::optional<Document> CdcEventStream::next(Date_t deadline, const CoroutineF
         if (!record) {
             return boost::none;
         }
-        _begin(std::move(*record));
+        if (boost::optional<Document> event = _begin(std::move(*record))) {
+            return event;
+        }
     }
 }
 
@@ -202,7 +238,7 @@ CdcResumeToken CdcEventStream::watermark() const {
     return CdcResumeToken::makeWatermark(bound, _entries(bound));
 }
 
-void CdcEventStream::_begin(CdcSourceRecord record) {
+boost::optional<Document> CdcEventStream::_begin(CdcSourceRecord record) {
     Group& group = _groups[record.logGroupId()];
     const uint64_t ts = record.timestamp();
     if (group.skip && ts > group.skip->ts) {
@@ -215,15 +251,29 @@ void CdcEventStream::_begin(CdcSourceRecord record) {
             // At T_K: a DDL record at or below the entry's DDL key was produced before the token.
             // If the data key set T_K, none of T_K's DDL records was, since they follow its data.
             if (group.skip->ddlAtTs && key <= group.skip->ddlKey) {
-                return;
+                const auto ownDrop = _ownDropKeys.find(record.logGroupId());
+                if (ownDrop != _ownDropKeys.end() && ownDrop->second == key) {
+                    _ownDropKeys.erase(ownDrop);
+                    const boost::optional<CdcDdlChange> change =
+                        decodeCdcDdl(record.ddl().schema_op());
+                    if (_dropsWatchedCollection(change)) {
+                        // Resumed from the drop's own token: the drop was delivered, and the
+                        // invalidate that followed it is all that is left (§5.6).
+                        _pendingInvalidate =
+                            _invalidateEvent(CdcResumeToken(_resumedFrom->timestamp(),
+                                                            CdcResumeToken::Kind::kInvalidate,
+                                                            _resumedFrom->entries()),
+                                             change->ns);
+                    }
+                }
+                return boost::none;
             }
             // Every data record at T_K precedes this one, so nothing more is left to skip.
             group.skip.reset();
         }
-        // DDL events come with plan C7's DDL part; the position is tracked so tokens stay exact.
         group.hasCursor = true;
         group.ddlKey = key;
-        return;
+        return _ddlEvent(record);
     }
 
     Current current(record);
@@ -246,7 +296,7 @@ void CdcEventStream::_begin(CdcSourceRecord record) {
             while (decoder.next(&entry)) {
                 _seen(group, ts, dedupKey(current.txn, entry));
             }
-            return;
+            return boost::none;
         }
         if (current.key == skip.dataKey) {
             current.consumeThrough = std::make_pair(skip.section, skip.entry);
@@ -255,6 +305,48 @@ void CdcEventStream::_begin(CdcSourceRecord record) {
 
     current.decoder = std::make_unique<CdcBlobDecoder>(blob, _scope);
     _current.emplace(std::move(current));
+    return boost::none;
+}
+
+boost::optional<Document> CdcEventStream::_ddlEvent(const CdcSourceRecord& record) {
+    const boost::optional<CdcDdlChange> change = decodeCdcDdl(record.ddl().schema_op());
+    if (!change || !_scope.includes(change->ns)) {
+        return boost::none;
+    }
+    const uint64_t ts = record.timestamp();
+    // The record's own group has just moved its DDL key to it, so the entry is form 0 (§5.6).
+    const std::vector<CdcResumeTokenEntry> entries = _entries(ts - 1);
+    const NamespaceString nss(change->ns);
+
+    MutableDocument event;
+    event.addField("_id",
+                   Value(CdcResumeToken(ts, CdcResumeToken::Kind::kEvent, entries).toBSON()));
+    event.addField("operationType", Value(change->operationType));
+    event.addField("clusterTime", Value(clusterTime(ts)));
+    event.addField("ns", Value(Document{{"db", nss.db()}, {"coll", nss.coll()}}));
+    if (!change->dropsCollection) {
+        event.addField("operationDescription", Value(change->operationDescription));
+    }
+    if (_dropsWatchedCollection(change)) {
+        _pendingInvalidate = _invalidateEvent(
+            CdcResumeToken(ts, CdcResumeToken::Kind::kInvalidate, entries), change->ns);
+    }
+    return event.freeze();
+}
+
+bool CdcEventStream::_dropsWatchedCollection(const boost::optional<CdcDdlChange>& change) const {
+    return change && change->dropsCollection && _scope.isCollection(change->ns);
+}
+
+Document CdcEventStream::_invalidateEvent(const CdcResumeToken& token, StringData ns) {
+    const NamespaceString nss(ns);
+    const uint64_t ts = token.timestamp();
+    MutableDocument event;
+    event.addField("_id", Value(token.toBSON()));
+    event.addField("operationType", Value("invalidate"_sd));
+    event.addField("clusterTime", Value(clusterTime(ts)));
+    event.addField("ns", Value(Document{{"db", nss.db()}, {"coll", nss.coll()}}));
+    return event.freeze();
 }
 
 bool CdcEventStream::_seen(Group& group, uint64_t ts, const std::string& key) {
@@ -297,9 +389,7 @@ Document CdcEventStream::_event(const Current& current, const CdcBlobDecoder::En
     MutableDocument event;
     event.addField("_id", Value(token));
     event.addField("operationType", Value(operationType(entry.op)));
-    event.addField("clusterTime",
-                   Value(Timestamp(static_cast<unsigned>(current.ts / 1000000),
-                                   static_cast<unsigned>(current.ts % 1000000))));
+    event.addField("clusterTime", Value(clusterTime(current.ts)));
     if (!isDelete) {
         const int64_t estimate = static_cast<int64_t>(fullDocument.objsize()) + token.objsize() +
             documentKey.objsize() + static_cast<int64_t>(entry.keyString.size()) +

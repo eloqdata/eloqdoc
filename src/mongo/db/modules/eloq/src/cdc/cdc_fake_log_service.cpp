@@ -160,15 +160,27 @@ void CdcFakeLogService::addDataBlob(
 }
 
 void CdcFakeLogService::addDdl(uint32_t logGroupId, uint64_t ddlTs, uint64_t txn) {
+    addDdl(logGroupId, ddlTs, txn, txlog::SchemaOpMessage());
+}
+
+void CdcFakeLogService::addDdl(uint32_t logGroupId,
+                               uint64_t ddlTs,
+                               uint64_t txn,
+                               txlog::SchemaOpMessage schemaOp) {
     txlog::CdcDdlRecord record;
     record.set_ddl_ts(ddlTs);
     record.set_catalog_ts(ddlTs);
     record.set_txn_number(txn);
+    *record.mutable_schema_op() = std::move(schemaOp);
+    std::lock_guard<std::mutex> lk(_mutex);
+    _group(logGroupId).ddl[ddlKey(ddlTs, txn)] = std::move(record);
+}
+
+std::string CdcFakeLogService::ddlKey(uint64_t ddlTs, uint64_t txn) {
     std::string key;
     appendBigEndian(key, ddlTs, 8);
     appendBigEndian(key, txn, 8);
-    std::lock_guard<std::mutex> lk(_mutex);
-    _group(logGroupId).ddl[key] = std::move(record);
+    return key;
 }
 
 void CdcFakeLogService::setBound(uint32_t logGroupId, uint64_t bound) {

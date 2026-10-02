@@ -73,6 +73,53 @@ var EloqCdcUtil = (function() {
         });
     }
 
+    /**
+     * Waits until a change stream opened from now on starts above every DDL made so far, so that
+     * it does not report the collections and indexes a test set up before opening it. A stream
+     * opened without a token starts at the checkpoint bound (§5.1), which can lag a DDL that has
+     * already returned by a checkpoint round, so such a stream would report it.
+     *
+     * Makes DDL of its own, a create of eloq_cdc_util.settle and the drop of its database, reads
+     * the drop's timestamp from a deployment stream opened before them, and waits for the opening
+     * watermark of a fresh stream to reach it. On the suite's one-node fixture every earlier DDL
+     * has a lower timestamp. It leaves nothing behind: the drop is its last DDL, and a stream
+     * opened afterwards starts above it.
+     */
+    function settleDdl(conn) {
+        const settleDB = conn.getDB("eloq_cdc_util");
+        const admin = conn.getDB("admin");
+        assert.commandWorked(settleDB.dropDatabase());  // left by an interrupted earlier call
+        const watcher =
+            assert.commandWorked(openRaw(conn, "admin", 1, {allChangesForCluster: true})).cursor.id;
+        assert.commandWorked(settleDB.createCollection("settle"));
+        assert.commandWorked(settleDB.dropDatabase());
+
+        let target;
+        assert.soon(function() {
+            const reply = assert.commandWorked(
+                admin.runCommand({getMore: watcher, collection: "$cmd.aggregate", maxTimeMS: 1000}));
+            for (let e of reply.cursor.nextBatch) {
+                if (e.operationType === "drop" && e.ns.db === "eloq_cdc_util" &&
+                    e.ns.coll === "settle") {
+                    target = tokenTimestamp(e._id);
+                }
+            }
+            return target !== undefined;
+        }, "the drop of eloq_cdc_util.settle never arrived", kEventTimeoutMS, 100);
+        assert.commandWorked(admin.runCommand({killCursors: "$cmd.aggregate", cursors: [watcher]}));
+
+        // Delivery does not put the drop below every log group's bound: the merge releases a
+        // record once the other groups are within a microsecond of it. Wait until a fresh stream
+        // starts at or above it.
+        assert.soon(function() {
+            const reply =
+                assert.commandWorked(openRaw(conn, "admin", 1, {allChangesForCluster: true}));
+            assert.commandWorked(
+                admin.runCommand({killCursors: "$cmd.aggregate", cursors: [reply.cursor.id]}));
+            return tokenTimestamp(reply.cursor.postBatchResumeToken) >= target;
+        }, "streams never started above the DDL at " + target, kEventTimeoutMS, 200);
+    }
+
     return {
         kEventTimeoutMS: kEventTimeoutMS,
         nextEvents: nextEvents,
@@ -80,5 +127,6 @@ var EloqCdcUtil = (function() {
         tokenTimestamp: tokenTimestamp,
         tokenKind: tokenKind,
         openRaw: openRaw,
+        settleDdl: settleDdl,
     };
 })();

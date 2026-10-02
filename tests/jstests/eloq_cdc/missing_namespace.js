@@ -1,8 +1,8 @@
 /**
  * Change streams on namespaces that do not exist yet (docs/cdc-change-stream.md §5.1). MongoDB
  * opens them, and so does EloqDoc: the aggregate runs with no collection, the path run_aggregate
- * takes for a missing namespace. Each stream opens with a watermark and then reports the insert
- * that implicitly creates its collection.
+ * takes for a missing namespace. Each stream opens with a watermark and then reports the create
+ * of its collection, which the first insert makes implicitly, and that insert.
  */
 (function() {
     "use strict";
@@ -16,6 +16,8 @@
         assert.commandWorked(d.dropDatabase());
     }
     assert.commandWorked(existingDB.createCollection("other"));
+    // The stream must not report the setup above (§5.1: it starts at the checkpoint bound).
+    EloqCdcUtil.settleDdl(db.getMongo());
 
     /**
      * Opens a stream on a namespace that does not exist and checks the opening reply.
@@ -55,11 +57,14 @@
 
     cases.forEach((c, i) => assert.commandWorked(c.target.insert({_id: i, name: c.name})));
     cases.forEach((c, i) => {
-        const event = EloqCdcUtil.nextEvents(c.cursor, 1)[0];
-        assert.eq(event.operationType, "insert", c.name + ": " + tojson(event));
-        assert.eq(event.ns, {db: c.target.getDB().getName(), coll: c.target.getName()}, c.name);
-        assert.eq(event.documentKey, {_id: i}, c.name);
-        assert.eq(event.fullDocument, {_id: i, name: c.name}, c.name);
+        const [create, insert] = EloqCdcUtil.nextEvents(c.cursor, 2);
+        const ns = {db: c.target.getDB().getName(), coll: c.target.getName()};
+        assert.eq(create.operationType, "create", c.name + ": " + tojson(create));
+        assert.eq(create.ns, ns, c.name);
+        assert.eq(insert.operationType, "insert", c.name + ": " + tojson(insert));
+        assert.eq(insert.ns, ns, c.name);
+        assert.eq(insert.documentKey, {_id: i}, c.name);
+        assert.eq(insert.fullDocument, {_id: i, name: c.name}, c.name);
         c.cursor.close();
     });
 })();

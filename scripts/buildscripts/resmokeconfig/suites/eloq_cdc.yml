@@ -1,5 +1,6 @@
-# EloqDoc change streams (docs/cdc-change-stream.md): events, scopes, resume, postBatchResumeToken,
-# the _id integrity check, the idle tail and streams on missing namespaces, against a server with a log service on a RocksDB or
+# EloqDoc change streams (docs/cdc-change-stream.md): DML and DDL events, scopes, resume,
+# a collection stream's invalidate, postBatchResumeToken, the _id integrity check, the idle tail
+# and streams on missing namespaces, against a server with a log service on a RocksDB or
 # RocksDB-Cloud log state; plus shell_resume_token.js and shell_watch_helpers.js, which exercise
 # the shell alone. Events surface once per checkpoint round, so the server tests wait accordingly.
 test_kind: js_test

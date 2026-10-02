@@ -1,11 +1,14 @@
 # EloqDoc Change Data Capture: log scan and change streams
 
-**Status: design, not implemented.** This document specifies v1 of CDC for
-EloqDoc: a pull-model change stream served by the EloqDoc runtime, sourced from
-the log service, and consumed by an external process that writes into a
-destination MongoDB. Nothing described here exists in the tree yet; the "Key
-files" section lists where each piece lands. When implementation diverges from
-this document, fix the document in the same change.
+**Status: design, implemented through milestone M2** (plan PR 9; the PR
+table of [cdc-implementation-plan.md](cdc-implementation-plan.md) tracks what
+remains, the cluster gate and the reference consumer among it). This document
+specifies v1 of CDC for EloqDoc: a pull-model change stream served by the
+EloqDoc runtime, sourced from the log service, and consumed by an external
+process that writes into a destination MongoDB. The "Key files" section lists
+where each piece lives or lands, and [cdc-operations.md](cdc-operations.md) is
+the operator runbook. When implementation diverges from this document, fix the
+document in the same change.
 
 This is an EloqDoc design. It requires changes inside the data_substrate
 submodule (the tx service's DDL state machine, the checkpoint watermark, and
@@ -888,7 +891,7 @@ scopes carry different lifetime contracts:
 |---|---|---|
 | Deployment (`allChangesForCluster`) — **the CDC mode** | every collection except `local`, `admin`, `config` | never invalidated; collections come and go as `create`/`drop` events |
 | Database | collections of that database | MongoDB invalidates on `dropDatabase`; EloqDoc has no such operation (a database is dropped as a sequence of collection drops), so a database-level stream is **not invalidated in v1**, a documented deviation |
-| Collection | that one namespace | MongoDB semantics: after the watched collection's `drop` event the stream emits `invalidate` and the cursor is closed; resuming from the drop's own token, at any later time and even if the name exists again, yields that `invalidate` and closes (§5.6); the client reopens with `startAfter` on the `invalidate` token (`resumeAfter` on it is rejected, as in MongoDB); a later collection with the same name is a new incarnation and a new stream |
+| Collection | that one namespace | MongoDB semantics: after the watched collection's `drop` event the stream emits `invalidate` and the cursor is closed; resuming from the drop's own token, at any later time and even if the name exists again, yields that `invalidate` and closes (§5.6); the client reopens with `startAfter` on the `invalidate` token (`resumeAfter` on it is rejected with `InvalidResumeToken`, as in MongoDB); a later collection with the same name is a new incarnation and a new stream |
 
 The CDC consumer (§6) always opens a deployment-level stream, optionally
 narrowed with its own `$match` on `ns`.
@@ -1052,7 +1055,7 @@ logged document's BSON, from the scan page into the event.
 | `CdcScanSource` (`src/cdc/cdc_scan_source.*`) | per-logger continuation, buffers, `arrival_complete_ts`, completeness boundary `scanned_ts`; `emit_bound`; `drained` (§5.3); the scan client's in-flight RPC state and the wait object of §5.8 | — → *records*, one at a time, in pull order merged across groups by timestamp | issues `CdcScan` asynchronously and yields on the wait object (F11, §5.8); long-poll clamped to the batch's deadline; releases a record at `T` only when every other group's boundary is at least `T − 1` (§4.2 emission rule, §5.3 step 2) |
 | decode (`CdcEventStream`, `src/cdc/cdc_event_stream.*`) | the current record and the position `(section, entry)` reached in it; per group, the emit cursor and the set of entries produced at the group's current timestamp (§5.5); the resume skip (§5.6) | record → changes, in decode order | decodes one record at a time in storage order, skipping sections outside the stream's scope by their length (§5.4 step 1), suppresses forward-write duplicate entries (§5.5), consumes without producing what a resume token covers (§5.6), applies the canonical delete-key decoder (§5.4 step 3); no catalog access |
 | format (`CdcEventStream`) | nothing | change → event document (§5.4a) with `_id` token (§5.6) | sets each document's `_id` to the *progress token* valid once that document is delivered; the `_id` is what the batch loop records at append time (§5.3 step 4), since nothing outside the BSON document survives to the batch builder; it does **not** decide what has been delivered |
-| invalidate | whether the watched collection has been dropped | events → events, plus an `invalidate` after the watched collection's `drop` | **collection-level streams only**, with the DDL events (plan C10); the `invalidate` token is the vector recorded after the drop, kind 2, set as the synthesized document's `_id` exactly as format does for events; on resume from the drop's token it re-reads the referenced drop record and emits the pending `invalidate` before anything else (§5.6) |
+| invalidate (`CdcEventStream`) | whether the watched collection has been dropped | events → events, plus an `invalidate` after the watched collection's `drop` | **collection-level streams only**, with the DDL events (plan C10); the `invalidate` token is the vector recorded after the drop, kind 2, set as the synthesized document's `_id` exactly as format does for events; on resume from the drop's token it re-reads the referenced drop record and emits the pending `invalidate` before anything else (§5.6) |
 | `CloseCursor` (a stage) | — | closes the cursor once `invalidate` has been delivered | MongoDB's `DocumentSourceCloseCursor`, reused as is: it only checks `operationType == "invalidate"` |
 
 **How it is wired.** The storage engine installs its expansion at startup
@@ -1226,10 +1229,14 @@ Each `getMore`:
    - At `IS_EOF` nothing is stashed (a stash ends the loop as `ADVANCED`,
      not `IS_EOF`), the source is drained, and the recorded token is the
      watermark for `emit_bound`, which covers events a user stage filtered
-     at the end of the batch. An `IS_EOF` reached because `CloseCursor`
-     ended the pipeline after `invalidate` records nothing further: the
-     batch's token stays the `invalidate` token, which is the one
-     `startAfter` needs (§5.6).
+     at the end of the batch.
+   - When `CloseCursor` ends the pipeline after `invalidate` (by
+     `CloseChangeStream`, not `IS_EOF`), the loop records the source's
+     `invalidate` token, whether the `invalidate` was appended or a user
+     stage filtered it out. That token is the one `startAfter` needs
+     (§5.6); with the `invalidate` filtered out, the last token appended
+     would be the drop's, and a stream started after it would resume at
+     its own drop and close again, never reaching the next incarnation.
    The token recorded by the last such call is the batch's
    `postBatchResumeToken`. If no call happened in a batch (every pulled
    document was stashed, i.e. the first one already exceeded the budget,
@@ -1338,12 +1345,27 @@ Per data record within a transaction (F1–F3):
    needs is immutable log content: the namespace, the key bytes, the value,
    the timestamp, and for DDL the schema-op message.
 
-Per DDL record: decode `SchemaOpMessage`; for `create`, decode
-`new_catalog_blob` through `MongoTableSchema` to recover the collection
-options; for `createIndexes`, the same for the spec of each index the op
-added (named in `alter_table_info_blob`); for `dropIndexes`, decode
-`old_catalog_blob` to recover the spec of each index it dropped (at least
-its name and key pattern). One DDL record yields exactly one event.
+Per DDL record (`decodeCdcDdl`, `src/cdc/cdc_ddl_decoder.*`): decode
+`SchemaOpMessage`; the namespace is `table_name_str`, verbatim, as for data.
+A schema image begins with the collection's catalog entry, a BSON object
+`{md: {ns, options, indexes: [{spec, ready, …}]}, idxIdent, …}`, behind a
+native-order `size_t` length (`EloqDS::SerializeSchemaImage`), and the
+decoder reads only that object, bounded by the image, so it needs neither
+`MongoTableSchema` (which wants the store handler for the kv part) nor a
+catalog. For `create`, the options are `md.options` of `new_catalog_blob`
+without the UUID and EloqDoc's catalog version, which is what
+`listCollections` reports. An index op's indexes are those whose names one
+image has and the other lacks, which is the same set
+`alter_table_info_blob` names: for `createIndexes`, the specs added in
+`new_catalog_blob`, without the `ns` field; for `dropIndexes`, `{v, key,
+name}` of each index `old_catalog_blob` has and `new_catalog_blob` lacks,
+or, for the second record of an add index rolled back after its build
+(B8), of each index it had added. An image that cannot be decoded fails
+the stream with `ChangeStreamFatalError`; a record of another engine or op
+type, a rolled-back create or drop, or the server's feature document
+(`featureDocument`, no collection namespace) yields nothing, which the log
+service never records anyway. Otherwise one DDL record yields exactly one
+event.
 
 ### 5.4a Event documents
 
@@ -1552,19 +1574,22 @@ stream must neither re-emit nor re-apply the drop. Checking whether the
 name exists is therefore the wrong test; the token identifies the drop
 record itself, and the cursor recognizes it:
 
-1. Before resuming normally, if the token is an event token (kind 0) and
-   some form-0 entry's DDL-stream key has `ddl_ts` equal to the token's
-   timestamp, re-read that one record: scan the group with
-   `from_ts = ddl_ts` and take the DDL record at that position. If its
-   `schema_op` is a `DropTable` of the watched collection, the token is the
-   drop's token.
+1. If the token is an event token (kind 0) and some form-0 entry's
+   DDL-stream key has `ddl_ts` equal to the token's timestamp, that record
+   is re-read: the resume scans the group with `from_ts = ddl_ts` anyway
+   (that is its `T_K`), and the record is consumed without producing, as
+   every record at or below the entry's key is. When the stream reaches
+   it, if its `schema_op` is a `DropTable` of the watched collection, the
+   token is the drop's token.
    (A kind-2 token is never checked: it already denotes the position
    after the `invalidate`.)
 2. In that case emit a single `invalidate` event whose `_id` is the same
-   vector with kind 2, and close the cursor, without emitting anything
-   else. The drop is not re-emitted, because the entry is form 0 ("after
-   this key"), and the consumer already applied it.
-3. Otherwise resume normally.
+   vector with kind 2, and close the cursor. Nothing in scope precedes it:
+   every group restarts at the drop's timestamp, and no write of the
+   collection and no other DDL on it shares that timestamp (§4.4(b), F7).
+   The drop is not re-emitted, because the entry is form 0 ("after this
+   key"), and the consumer already applied it.
+3. Otherwise the stream goes on as a normal resume.
 
 This holds for `resumeAfter` and `startAfter` alike when the token is the
 drop's. A later incarnation of the same name is a different collection
@@ -1581,8 +1606,10 @@ is its `create` and then its data.
 `postBatchResumeToken` follows §5.3 step 4: it is recorded by the batch
 loop at append time, so it is the token of the last document actually
 appended to a reply, or the watermark for `emit_bound` when the source
-reported itself drained at `IS_EOF`; a stashed or user-filtered document
-can never move it ahead of what was appended.
+reported itself drained at `IS_EOF`, or the `invalidate` token when the
+stream closes after it, even if a user stage filtered the `invalidate` out;
+a stashed or user-filtered document can never move it ahead of what was
+appended.
 
 Multi-document transactions: all writes of one tx share its commit
 timestamp and all of its records live in one log group, but they are
@@ -2478,7 +2505,7 @@ capped collections on the sink (§9).
 | EloqDoc node serving the cursor dies | Cursor gone | Driver surfaces the error; consumer reopens with its token on any node |
 | Checkpoint stalls (stuck lock) | `arrival_complete_ts` stops, stream pauses | `checkpoint_stall_rounds` gauge; orphan-lock recovery unblocks it |
 | A create's kv tables fail (before its commit log) | the step is not retried: the create gives up at once, under its write intent, which pins nothing: it drops what it created and fails with `DATA_STORE_ERROR`; no event, no stall | the error log names the table; retry the create once the store is back; kv tables whose drop also failed stay orphaned, empty, and a later create of the name writes them again |
-| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `checkpoint_stall_rounds` alert and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores a write intent on the coordinator's node group: the op keeps retrying under it, holding back neither the checkpoint nor DML, and no other DDL runs on the table; no rollback path exists |
+| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `checkpoint_stall_rounds` alert and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores a write intent on the coordinator's node group: the op keeps retrying under it, holding back neither the checkpoint nor DML, and no other DDL runs on the table; no rollback path exists. Runbook: [cdc-operations.md](cdc-operations.md) §1 |
 | Consumer down longer than retention | `PositionTruncated` → `ChangeStreamHistoryLost` once loggers track the history boundary (§4.5); **in v1 undetected**, the scan silently resumes at the smallest surviving key | Re-bootstrap (§6.2): drop the in-scope namespaces on the sink, then snapshot and replay from a new `T0`. In v1, prevent rather than detect: set `txlog_cdc_retention_seconds` (§4.5) above the worst-case consumer lag and alert on the lag metric |
 | Sink unreachable | Consumer stops acknowledging | Nothing happens on the source; retention is the budget |
 | DDL attempted while the bootstrap cluster gate is paused (mode `ddl`) | the DDL fails fast with a retriable error (§6.2) | expected; the operator scheduled the bootstrap window; retry after the copy |
@@ -2542,11 +2569,14 @@ connector over the same scan RPC.
    commit log and retry until the store answers, 30 seconds apart by default, with a
    warning in the log on each attempt; index ops apply the same rule with
    the prepare log as the point of no return. The retry after the commit log
-   keeps the catalog write lock; it is **not** downgraded (§4.4(b)). Still to do: the operator runbook for a prolonged store failure,
-   since it stalls every stream (B7, PR 9).
-4. `SchemaOpMessage.new_catalog_blob` for EloqDoc carries the collection
-   options needed for `create` events (collation, validator and similar;
-   capped collections cannot exist in scope, §6.4).
+   keeps the catalog write lock; it is **not** downgraded (§4.4(b)). The
+   operator runbook for a prolonged store failure, which stalls every
+   stream, is [cdc-operations.md](cdc-operations.md) §1 (B7, PR 9).
+4. *Confirmed in PR 9.* `SchemaOpMessage.new_catalog_blob` for EloqDoc
+   carries the collection options needed for `create` events (collation,
+   validator and similar; capped collections cannot exist in scope, §6.4):
+   its catalog entry's `md.options`, from which `create` reports what
+   `listCollections` does (§5.4; `eloq_cdc/ddl_events.js` compares them).
 5. Rename collection is unsupported in EloqDoc (no `rename` path in
    `eloq_kv_engine.cpp`); confirm and document the user-facing behavior.
 6. Implement §4.4(a) (registry: reset `wlock_ts_` on downgrade, count catalog
@@ -2564,7 +2594,16 @@ connector over the same scan RPC.
    commit-stage lock and asserts the drop is emitted after every such DML,
    that a following create is emitted after the drop, and that no write to
    the table is emitted between the drop and the create. The stream has no
-   runtime incarnation check behind these tests (§5.5).
+   runtime incarnation check behind these tests (§5.5). *Both exist:* the
+   checkpoint test is `CkptLockRegistry-Test`; the drop test is
+   `eloq_fault/ddl_drop_order.js` (PR 9), which holds a drop between its
+   prepare log and its commit-stage write locks with the data substrate's
+   `upsert_table_hold_before_commit_lock` fault point and inserts on the same
+   node meanwhile. The drop's MongoDB database lock does not stop them:
+   every EloqDoc operation runs with `EloqLockerNoop`, whose locks exclude
+   nothing, so only the data substrate's catalog locks order a drop against
+   DML, and a write on the drop's own node is placed like one on another
+   node.
 7. The canonical delete-key decoder (§5.4 step 3) and its round-trip test
    against the real `KeyString` encoder exist before any delete event is
    emitted; the stock `KeyString::toBson` must not be called with empty
@@ -2711,6 +2750,7 @@ connector over the same scan RPC.
 | Leader cache reuse | `tx_service/tx-log-protos/log_agent.h/.cpp` |
 | `DocumentSourceEloqChangeStream` and its components `CdcScanSource`, `CdcScanClient`, `CdcWaitObject`, `CdcEventStream` (§5.2) | `src/mongo/db/modules/eloq/src/cdc/` in the EloqDoc tree |
 | `$changeStream` stage factory, `startAfter`, `run_aggregate`'s oplog and majority bypass | `src/mongo/db/pipeline/document_source_change_stream.*`, `document_sources.idl`, `src/mongo/db/commands/run_aggregate.cpp` |
-| Blob, key, record decoders | `src/mongo/db/modules/eloq/src/base/` (`eloq_key.h`, `eloq_record.h`, `eloq_table_schema.h`) |
+| Blob, key and resume-token codecs (`CdcBlobDecoder`, `CdcKeyDecoder`, `CdcResumeToken`) | `src/mongo/db/modules/eloq/src/base/cdc_*` |
+| DDL record decoder (`decodeCdcDdl`, §5.4) | `src/mongo/db/modules/eloq/src/cdc/cdc_ddl_decoder.*` |
 | Reference consumer | new tool under the EloqDoc repo |
 | Facts F1–F12 | files cited in §2 |

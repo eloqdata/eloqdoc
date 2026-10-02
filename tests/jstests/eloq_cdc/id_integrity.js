@@ -12,6 +12,8 @@
     const testDB = db.getSiblingDB("eloq_cdc_id_integrity");
     assert.commandWorked(testDB.dropDatabase());
     assert.commandWorked(testDB.createCollection("c"));
+    // The stream must not report the setup above (§5.1: it starts at the checkpoint bound).
+    EloqCdcUtil.settleDdl(db.getMongo());
     const coll = testDB.c;
     const kChangeStreamFatalError = 280;
 

@@ -671,7 +671,7 @@ PlanExecutor::ExecState PlanExecutor::getNextImpl(Snapshotted<BSONObj>* objOut, 
                     throw WriteConflictException();
                 CurOp::get(_opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
                 writeConflictsInARow++;
-                WriteConflictException::logAndBackoff(
+                WriteConflictException::logAndBackoffYielding(
                     writeConflictsInARow, "plan execution", _nss.ns());
 
             } else {

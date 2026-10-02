@@ -219,6 +219,7 @@ mongo::Status mongo::cloneCollectionAsCapped(OperationContext* opCtx,
                 MONGO_UNREACHABLE;
         }
 
+        bool conflicted = false;
         try {
             // Make sure we are working with the latest version of the document.
             if (objToClone.snapshotId() != opCtx->recoveryUnit()->getSnapshotId() &&
@@ -238,13 +239,18 @@ mongo::Status mongo::cloneCollectionAsCapped(OperationContext* opCtx,
             retries = 0;
         } catch (const WriteConflictException&) {
             CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
-            retries++;  // logAndBackoff expects this to be 1 on first call.
-            WriteConflictException::logAndBackoff(retries, "cloneCollectionAsCapped", fromNss.ns());
-
+            retries++;  // logAndBackoffYielding expects this to be 1 on first call.
+            conflicted = true;
+        }
+        if (conflicted) {
+            // Outside the handler, since the abort and the backoff may yield the coroutine.
             // Can't use writeConflictRetry since we need to save/restore exec around call to
-            // abandonSnapshot.
+            // abandonSnapshot. The snapshot goes before the backoff, so that the conflict's winner
+            // has the pause to finish, as in writeConflictRetry.
             exec->saveState();
             opCtx->recoveryUnit()->abandonSnapshot();
+            WriteConflictException::logAndBackoffYielding(
+                retries, "cloneCollectionAsCapped", fromNss.ns());
             auto restoreStatus = exec->restoreState();  // Handles any WCEs internally.
             if (!restoreStatus.isOK()) {
                 return restoreStatus;

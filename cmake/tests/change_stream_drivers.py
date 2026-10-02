@@ -145,7 +145,8 @@ def scenario_resume_before_first_event(server):
     """(ii) A killed cursor resumes from the opening watermark; E arrives exactly once."""
     db = server.client.cdc_drivers
     coll = db.resume
-    with coll.watch(max_await_time_ms=1000) as stream:
+    # Inserts only: the insert that creates the collection also delivers its create event.
+    with coll.watch([{"$match": {"operationType": "insert"}}], max_await_time_ms=1000) as stream:
         opening = stream.resume_token
         assert opening is not None
         # Kill the server-side cursor: the driver's next getMore gets CursorNotFound, a resumable

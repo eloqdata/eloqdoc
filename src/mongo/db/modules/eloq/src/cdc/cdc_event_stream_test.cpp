@@ -16,11 +16,13 @@
 
 /**
  * @file
- * Event stream tests (docs/cdc-change-stream.md §5.4, §5.4a, §5.5, §5.6; plan C6, C7, C8a, C8b),
- * against the scripted log service with redo-log blobs built in the writer's layout. They check
- * the event documents, the stream scopes, the tokens every event and the watermark carry,
- * forward-write dedup, the oversized-document rule, and resume: from every event token, from
- * watermarks with and without entries, and at a timestamp set by either stream's key.
+ * Event stream tests (docs/cdc-change-stream.md §5.1, §5.4, §5.4a, §5.5, §5.6; plan C6, C7, C8a,
+ * C8b, C10), against the scripted log service with redo-log blobs and schema ops built in the
+ * writers' layouts. They check the DML and DDL event documents, the stream scopes, the tokens
+ * every event and the watermark carry, forward-write dedup, the oversized-document rule, a
+ * collection stream's invalidate, and resume: from every event token, from watermarks with and
+ * without entries, at a timestamp set by either stream's key, at a collection stream's own drop,
+ * and after its invalidate.
  */
 
 #include "mongo/platform/basic.h"
@@ -36,6 +38,7 @@
 #include "mongo/db/modules/eloq/src/cdc/cdc_event_stream.h"
 #include "mongo/db/modules/eloq/src/cdc/cdc_fake_log_service.h"
 #include "mongo/db/modules/eloq/src/cdc/cdc_test_blob_builder.h"
+#include "mongo/db/modules/eloq/src/cdc/cdc_test_schema_op.h"
 #include "mongo/db/pipeline/document_value_test_util.h"
 #include "mongo/db/pipeline/value.h"
 #include "mongo/unittest/unittest.h"
@@ -78,6 +81,36 @@ std::vector<Document> drain(CdcEventStream& stream, Milliseconds idle = Millisec
     }
     ASSERT(stream.drained());
     return events;
+}
+
+/**
+ * @brief Pulls events until the stream drains or has returned its invalidate event.
+ *
+ * @param stream The stream.
+ * @param idle How long each pull may wait.
+ * @return The events, in pull order.
+ */
+std::vector<Document> pullAll(CdcEventStream& stream, Milliseconds idle = Milliseconds(50)) {
+    std::vector<Document> events;
+    while (boost::optional<Document> event = stream.next(Date_t::now() + idle, kNoCoro)) {
+        events.push_back(*event);
+    }
+    ASSERT(stream.drained() || stream.invalidated());
+    return events;
+}
+
+/**
+ * @brief The operationType of each event.
+ *
+ * @param events The events.
+ * @return The types, in order.
+ */
+std::vector<std::string> operationTypes(const std::vector<Document>& events) {
+    std::vector<std::string> types;
+    for (const Document& event : events) {
+        types.push_back(event["operationType"].getString());
+    }
+    return types;
 }
 
 /**
@@ -387,6 +420,192 @@ TEST(CdcEventStream, FullDedupSetProducesTheRepeatAgain) {
 }
 
 // ------------------------------------------------------------------------------------------------
+// DDL events and invalidate
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * @brief Scripts a collection's life in group 0: t.a created at 10, written at 11, indexed at 12,
+ * dropped at 13, created again at 14 and written at 15; and t.b written at 12.
+ *
+ * @param log The service.
+ */
+void scriptLifecycle(CdcFakeLogService& log) {
+    log.addDdl(0, 10, 1, cdc_test::createOp("t.a"));
+    log.addDataBlob(0, 11, 1, 2, BlobBuilder().collection("t.a").insert(doc(1, 1)).done());
+    log.addDataBlob(0, 12, 1, 4, BlobBuilder().collection("t.b").insert(doc(2, 2)).done());
+    log.addDdl(0, 12, 3, cdc_test::addIndexOp("t.a"));
+    log.addDdl(0, 13, 5, cdc_test::dropOp("t.a"));
+    log.addDdl(0, 14, 6, cdc_test::createOp("t.a"));
+    log.addDataBlob(0, 15, 1, 7, BlobBuilder().collection("t.a").insert(doc(3, 3)).done());
+    log.setBound(0, 20);
+}
+
+/**
+ * @brief Opens a stream fresh on a single-group service, scripts the lifecycle, and pulls every
+ * event.
+ *
+ * @param log The service, with group 0 only.
+ * @param scope The stream's scope.
+ * @return The events.
+ */
+std::vector<Document> lifecycleEvents(const std::shared_ptr<CdcFakeLogService>& log,
+                                      CdcStreamScope scope) {
+    log->setBound(0, 4);
+    CdcEventStream stream(log, std::move(scope), fastOptions());
+    ASSERT(stream.openFresh(Date_t::now() + Seconds(5), kNoCoro));
+    scriptLifecycle(*log);
+    return pullAll(stream);
+}
+
+TEST(CdcEventStream, DdlRecordsProduceEvents) {
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    const std::vector<Document> events = lifecycleEvents(log, CdcStreamScope::deployment());
+    ASSERT(operationTypes(events) ==
+           std::vector<std::string>(
+               {"create", "insert", "insert", "createIndexes", "drop", "create", "insert"}));
+
+    const Document& create = events[0];
+    ASSERT_VALUE_EQ(create["clusterTime"], Value(Timestamp(0, 10)));
+    ASSERT_VALUE_EQ(create["ns"], Value(Document{{"db", "t"_sd}, {"coll", "a"_sd}}));
+    ASSERT_VALUE_EQ(create["operationDescription"], Value(BSONObj()));
+    // DDL events carry neither a document key nor the key bytes.
+    ASSERT(create["documentKey"].missing());
+    ASSERT(create["eloq"].missing());
+
+    const Document& createIndexes = events[3];
+    ASSERT_VALUE_EQ(createIndexes["clusterTime"], Value(Timestamp(0, 12)));
+    ASSERT_VALUE_EQ(
+        createIndexes["operationDescription"],
+        Value(BSON("indexes" << BSON_ARRAY(BSON("v" << 2 << "key" << BSON("a" << 1) << "name"
+                                                    << "a_1")))));
+    // Its group's entry is form 0, after the DDL record, with the data record finished before it
+    // at the same timestamp.
+    const CdcResumeToken token = tokenOf(createIndexes);
+    ASSERT(token.kind() == CdcResumeToken::Kind::kEvent);
+    ASSERT_EQ(token.timestamp(), 12u);
+    ASSERT_EQ(token.entries().size(), 1u);
+    ASSERT(token.entries()[0].form == CdcResumeTokenEntry::Form::kAfterKey);
+    ASSERT_EQ(token.entries()[0].dataKey, CdcFakeLogService::dataKey(12, 1, 4));
+    ASSERT_EQ(token.entries()[0].ddlKey, CdcFakeLogService::ddlKey(12, 3));
+
+    const Document& drop = events[4];
+    ASSERT_VALUE_EQ(drop["clusterTime"], Value(Timestamp(0, 13)));
+    ASSERT_VALUE_EQ(drop["ns"], Value(Document{{"db", "t"_sd}, {"coll", "a"_sd}}));
+    ASSERT(drop["operationDescription"].missing());
+}
+
+TEST(CdcEventStream, DdlEventsFollowTheScope) {
+    auto run = [](CdcStreamScope scope) {
+        auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+        log->setBound(0, 4);
+        CdcEventStream stream(log, std::move(scope), fastOptions());
+        ASSERT(stream.openFresh(Date_t::now() + Seconds(5), kNoCoro));
+        log->addDdl(0, 10, 1, cdc_test::createOp("u.x"));
+        log->addDdl(0, 11, 2, cdc_test::createOp("admin.y"));
+        log->addDdl(0, 12, 3, cdc_test::createOp("t.a"));
+        log->addDdl(0, 13, 4, cdc_test::createOp("featureDocument"));
+        log->setBound(0, 20);
+        std::vector<std::string> namespaces;
+        for (const Document& event : drain(stream)) {
+            namespaces.push_back(event["ns"]["db"].getString() + "." +
+                                 event["ns"]["coll"].getString());
+        }
+        return namespaces;
+    };
+    ASSERT(run(CdcStreamScope::deployment()) == std::vector<std::string>({"u.x", "t.a"}));
+    ASSERT(run(CdcStreamScope::database("t")) == std::vector<std::string>({"t.a"}));
+    ASSERT(run(CdcStreamScope::collection("u.x")) == std::vector<std::string>({"u.x"}));
+}
+
+TEST(CdcEventStream, CollectionStreamEndsWithAnInvalidateAfterItsDrop) {
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    log->setBound(0, 4);
+    CdcEventStream stream(log, CdcStreamScope::collection("t.a"), fastOptions());
+    ASSERT(stream.openFresh(Date_t::now() + Seconds(5), kNoCoro));
+    ASSERT(stream.invalidateToken().isEmpty());
+    scriptLifecycle(*log);
+    const std::vector<Document> events = pullAll(stream);
+    ASSERT(operationTypes(events) ==
+           std::vector<std::string>({"create", "insert", "createIndexes", "drop", "invalidate"}));
+    ASSERT(stream.invalidated());
+    // What the batch loop reports when the stream closes, delivered or filtered out.
+    ASSERT_BSONOBJ_EQ(stream.invalidateToken(), events[4]["_id"].getDocument().toBson());
+    // Nothing follows, the next incarnation's events included.
+    ASSERT_FALSE(stream.next(Date_t::now() + Milliseconds(50), kNoCoro));
+
+    // The invalidate's token is the drop's position with kind 2.
+    const CdcResumeToken drop = tokenOf(events[3]);
+    const Document& invalidate = events[4];
+    ASSERT_BSONOBJ_EQ(
+        invalidate["_id"].getDocument().toBson(),
+        CdcResumeToken(drop.timestamp(), CdcResumeToken::Kind::kInvalidate, drop.entries())
+            .toBSON());
+    ASSERT_VALUE_EQ(invalidate["clusterTime"], Value(Timestamp(0, 13)));
+    ASSERT_VALUE_EQ(invalidate["ns"], Value(Document{{"db", "t"_sd}, {"coll", "a"_sd}}));
+
+    // A database stream is not invalidated: it reports the next incarnation too.
+    auto other = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    ASSERT(operationTypes(lifecycleEvents(other, CdcStreamScope::database("t"))) ==
+           std::vector<std::string>(
+               {"create", "insert", "insert", "createIndexes", "drop", "create", "insert"}));
+    // Nor is a collection stream by another collection's drop.
+    auto third = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    ASSERT(operationTypes(lifecycleEvents(third, CdcStreamScope::collection("t.b"))) ==
+           std::vector<std::string>({"insert"}));
+}
+
+TEST(CdcEventStream, ResumingACollectionStreamFromEveryTokenEndsAtItsInvalidate) {
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    const std::vector<Document> all = lifecycleEvents(log, CdcStreamScope::collection("t.a"));
+    ASSERT_EQ(all.size(), 5u);
+
+    // From each event's token: the rest, down to the invalidate. From the drop's own token that
+    // is the invalidate alone, with the drop's position (§5.6).
+    for (size_t i = 0; i + 1 < all.size(); ++i) {
+        CdcEventStream resumed(log, CdcStreamScope::collection("t.a"), fastOptions());
+        resumed.openAt(tokenOf(all[i]));
+        const std::vector<Document> rest = pullAll(resumed);
+        ASSERT(resumed.invalidated()) << "resuming after event " << i;
+        ASSERT_BSONOBJ_EQ(resumed.invalidateToken(), all[4]["_id"].getDocument().toBson());
+        ASSERT_EQ(rest.size(), all.size() - i - 1) << "resuming after event " << i;
+        for (size_t j = 0; j < rest.size(); ++j) {
+            ASSERT_DOCUMENT_EQ(rest[j], all[i + 1 + j]);
+        }
+    }
+
+    // From the invalidate's token, as startAfter carries it: the next incarnation.
+    CdcEventStream started(log, CdcStreamScope::collection("t.a"), fastOptions());
+    started.openAt(tokenOf(all[4]));
+    const std::vector<Document> next = drain(started);
+    ASSERT(operationTypes(next) == std::vector<std::string>({"create", "insert"}));
+    ASSERT_VALUE_EQ(next[1]["fullDocument"], Value(doc(3, 3)));
+    ASSERT_FALSE(started.invalidated());
+}
+
+TEST(CdcEventStream, OnlyACollectionStreamOnTheDroppedCollectionResumesToAnInvalidate) {
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    const std::vector<Document> all = lifecycleEvents(log, CdcStreamScope::deployment());
+    const CdcResumeToken drop = tokenOf(all[4]);
+    ASSERT_EQ(drop.timestamp(), 13u);
+
+    // A deployment stream reports the drop as an ordinary event and goes on past it.
+    CdcEventStream deployment(log, CdcStreamScope::deployment(), fastOptions());
+    deployment.openAt(drop);
+    ASSERT(operationTypes(drain(deployment)) == std::vector<std::string>({"create", "insert"}));
+
+    // A collection stream on another collection has nothing after it.
+    CdcEventStream other(log, CdcStreamScope::collection("t.b"), fastOptions());
+    other.openAt(drop);
+    ASSERT(drain(other).empty());
+
+    // An invalidate token is never checked for the drop: it resumes after the invalidate.
+    CdcEventStream started(log, CdcStreamScope::collection("t.a"), fastOptions());
+    started.openAt(
+        CdcResumeToken(drop.timestamp(), CdcResumeToken::Kind::kInvalidate, drop.entries()));
+    ASSERT(operationTypes(drain(started)) == std::vector<std::string>({"create", "insert"}));
+}
+
+// ------------------------------------------------------------------------------------------------
 // Resume
 // ------------------------------------------------------------------------------------------------
 
@@ -425,8 +644,13 @@ void scriptThreeGroups(CdcFakeLogService& log) {
     log.addDataBlob(1, 13, 2, 500, dup);
     // A record with nothing a deployment stream reports.
     log.addDataBlob(2, 14, 1, 501, BlobBuilder().collection("admin.x").insert(doc(1, 1)).done());
-    // A DDL record: no event yet, but its position must stay exact.
+    // DDL records: one no stream reports, two in one group at one timestamp, and others in other
+    // groups. Their events' positions, and the unreported record's, must stay exact.
     log.addDdl(0, 12, 502);
+    log.addDdl(0, 12, 503, cdc_test::addIndexOp("db.a"));
+    log.addDdl(1, 13, 504, cdc_test::createOp("db.c"));
+    log.addDdl(2, 15, 505, cdc_test::dropOp("db.c"));
+    log.addDdl(2, 15, 506, cdc_test::createOp("db.d"));
 }
 
 TEST(CdcEventStream, ResumingFromEveryEventTokenYieldsExactlyTheRest) {
@@ -558,14 +782,6 @@ TEST(CdcEventStream, DataKeyAtTheResumeTimestampLeavesLaterRecords) {
     const std::vector<Document> events = drain(stream);
     ASSERT_EQ(events.size(), 1u);
     ASSERT_VALUE_EQ(events[0]["fullDocument"], Value(doc(2, 2)));
-}
-
-TEST(CdcEventStream, InvalidateTokenIsRejected) {
-    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
-    CdcEventStream stream(log, CdcStreamScope::deployment(), fastOptions());
-    ASSERT_THROWS_CODE(stream.openAt(CdcResumeToken(5, CdcResumeToken::Kind::kInvalidate, {})),
-                       AssertionException,
-                       ErrorCodes::ChangeStreamFatalError);
 }
 
 TEST(CdcEventStream, EventTokenAtTimestampZeroFailsTheOpen) {

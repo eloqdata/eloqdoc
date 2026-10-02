@@ -14,6 +14,8 @@
     assert.commandWorked(testDB.dropDatabase());
     const coll = testDB.events;
     assert.commandWorked(testDB.createCollection(coll.getName()));
+    // The stream must not report the setup above (§5.1: it starts at the checkpoint bound).
+    EloqCdcUtil.settleDdl(db.getMongo());
 
     // Open: the reply carries a watermark even though nothing is returned (§5.1, F13).
     const opened = EloqCdcUtil.openRaw(db.getMongo(), testDB.getName(), coll.getName(), {});

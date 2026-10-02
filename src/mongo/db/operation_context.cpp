@@ -45,6 +45,7 @@
 #include "mongo/util/scopeguard.h"
 #include "mongo/util/system_tick_source.h"
 
+#include <algorithm>
 #include <random>
 
 namespace mongo {
@@ -269,7 +270,37 @@ Status OperationContext::checkForInterruptNoAssert() {
     return Status::OK();
 }
 
+namespace {
+
+/**
+ * The longest slice a coroutine sleeps between interrupt checks: a kill or the operation's
+ * deadline ends the sleep at most this late.
+ */
+const Milliseconds kCoroutineSleepSlice{100};
+
+}  // namespace
+
+bool OperationContext::_sleepOnCoroutineUntil(Date_t deadline) {
+    if (!coro::currentCoroutine()) {
+        return false;
+    }
+    // Yields instead of blocking the thread, which on a brpc worker also drives a core's
+    // transaction processor (coro::sleepUntil). The timer cannot be interrupted, so the sleep is
+    // sliced, and each slice checks for a kill or the deadline as the wait below would.
+    for (;;) {
+        checkForInterrupt();
+        const Date_t now = Date_t::now();
+        if (now >= deadline) {
+            return true;
+        }
+        coro::sleepUntil(std::min(deadline, now + kCoroutineSleepSlice));
+    }
+}
+
 void OperationContext::sleepUntil(Date_t deadline) {
+    if (_sleepOnCoroutineUntil(deadline)) {
+        return;
+    }
 #ifndef D_USE_CORO_SYNC
     stdx::mutex m;
     stdx::condition_variable cv;
@@ -283,6 +314,9 @@ void OperationContext::sleepUntil(Date_t deadline) {
 }
 
 void OperationContext::sleepFor(Milliseconds duration) {
+    if (_sleepOnCoroutineUntil(Date_t::now() + duration)) {
+        return;
+    }
 #ifndef D_USE_CORO_SYNC
     stdx::mutex m;
     stdx::condition_variable cv;

@@ -463,6 +463,7 @@ env.CppUnitTest(
 env.Library(
     target="cdc_stream",
     source=[
+        "src/cdc/cdc_ddl_decoder.cpp",
         "src/cdc/cdc_event_stream.cpp",
     ],
     LIBDEPS=[
@@ -492,6 +493,7 @@ env.Library(
 env.CppUnitTest(
     target="cdc_stream_test",
     source=[
+        "src/cdc/cdc_ddl_decoder_test.cpp",
         "src/cdc/cdc_event_stream_test.cpp",
         "src/cdc/cdc_fake_log_service.cpp",
     ],

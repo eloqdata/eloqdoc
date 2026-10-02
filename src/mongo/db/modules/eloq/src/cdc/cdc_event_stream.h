@@ -33,6 +33,7 @@
 #include "mongo/bson/bsonobj.h"
 #include "mongo/db/modules/eloq/src/base/cdc_blob_decoder.h"
 #include "mongo/db/modules/eloq/src/base/cdc_resume_token.h"
+#include "mongo/db/modules/eloq/src/cdc/cdc_ddl_decoder.h"
 #include "mongo/db/modules/eloq/src/cdc/cdc_scan_source.h"
 #include "mongo/db/pipeline/document.h"
 
@@ -57,8 +58,17 @@ struct CdcEventStreamOptions {
  *
  * Records come from a CdcScanSource, merged across log groups by timestamp. Each is decoded on
  * its own, in storage order (§5.4): a data record's in-scope document changes become insert,
- * replace and delete events (§5.4a). DDL records produce no event yet (plan C7's DDL part, with
- * A3); their position is still tracked, so tokens stay exact once they do.
+ * replace and delete events, and a DDL record on an in-scope collection becomes one create,
+ * drop, createIndexes or dropIndexes event (§5.4a, decodeCdcDdl).
+ *
+ * Invalidate (§5.1, §5.6). A collection-level stream ends after the watched collection's drop:
+ * the pull after the drop event returns an invalidate event, whose token is the drop's with kind
+ * kInvalidate, and every later pull returns none (the pipeline's DocumentSourceCloseCursor closes
+ * the cursor once the invalidate is delivered). A stream resumed from the drop's own token
+ * returns that invalidate without producing anything else: the resumed group re-reads the DDL
+ * record at the token's timestamp anyway, and when the record at the entry's DDL key is that
+ * drop, the stream invalidates there. Deployment- and database-level streams are never
+ * invalidated.
  *
  * Positions (§5.6). Per log group the stream keeps an emit cursor: the key of the last record it
  * finished (a form-0 entry: resume after it), or, while a record is being produced, that record's
@@ -113,9 +123,11 @@ public:
     /**
      * @brief Opens a stream from a resume token (§5.6); never waits.
      *
-     * @param token An event or watermark token.
-     * @throws ChangeStreamFatalError for an invalidate token, which needs collection-level
-     * invalidation (plan C10).
+     * An invalidate token resumes like an event token at the same position, after the drop, and
+     * is never checked for the stream's own drop. That only startAfter may carry one is the
+     * caller's rule (the $changeStream stage's).
+     *
+     * @param token An event, watermark or invalidate token.
      */
     void openAt(const CdcResumeToken& token);
 
@@ -126,9 +138,34 @@ public:
      *
      * @param deadline When to stop waiting.
      * @param coro The calling coroutine's functors.
-     * @return The event, or none at the deadline, when the stream is drained.
+     * @return The event, or none at the deadline, when the stream is drained, and always once
+     * the stream has returned its invalidate event.
      */
     boost::optional<Document> next(Date_t deadline, const CoroutineFunctors& coro);
+
+    /**
+     * @brief Whether the stream has returned its invalidate event, after which it returns
+     * nothing.
+     *
+     * @return true once invalidated.
+     */
+    bool invalidated() const {
+        return _invalidated;
+    }
+
+    /**
+     * @brief The token of the stream's invalidate event: the drop's position with kind
+     * kInvalidate, the only position to restart the stream from (with startAfter).
+     *
+     * The batch loop reports it as the closing batch's postBatchResumeToken whether or not the
+     * event reached the client: a user stage may filter the invalidate out, and the last token it
+     * delivered, the drop's, would restart the stream into the same invalidate.
+     *
+     * @return {_data: <hex>}; empty until the stream has returned its invalidate event.
+     */
+    const BSONObj& invalidateToken() const {
+        return _invalidated ? _invalidateToken : _noToken;
+    }
 
     /**
      * @brief The token the opening reply carries: the watermark for S, or the token the stream was
@@ -238,12 +275,40 @@ private:
     };
 
     /**
-     * @brief Starts decoding a record the source released, or accounts for it when it produces
-     * nothing.
+     * @brief Starts decoding a data record the source released, produces a DDL record's event,
+     * or accounts for a record that produces nothing.
      *
      * @param record The record.
+     * @return The DDL record's event; none for a data record, whose changes next() produces, and
+     * for a record that produces nothing.
      */
-    void _begin(CdcSourceRecord record);
+    boost::optional<Document> _begin(CdcSourceRecord record);
+
+    /**
+     * @brief The event of a DDL record its group has just moved its cursor to, and the pending
+     * invalidate when it drops the collection a collection-level stream watches.
+     *
+     * @param record The record.
+     * @return The event; none when the record is out of scope or reports nothing.
+     */
+    boost::optional<Document> _ddlEvent(const CdcSourceRecord& record);
+
+    /**
+     * @brief Whether a DDL record drops the collection this stream watches.
+     *
+     * @param change The record's change, if it reports one.
+     * @return true for a drop of the collection of a collection-level stream.
+     */
+    bool _dropsWatchedCollection(const boost::optional<CdcDdlChange>& change) const;
+
+    /**
+     * @brief The invalidate event that ends a collection-level stream.
+     *
+     * @param token The drop's position with kind kInvalidate.
+     * @param ns The dropped collection.
+     * @return The event.
+     */
+    static Document _invalidateEvent(const CdcResumeToken& token, StringData ns);
 
     /**
      * @brief Records a change in its group's dedup set.
@@ -284,6 +349,18 @@ private:
     std::map<uint32_t, Group> _groups;
     boost::optional<Current> _current;
     BSONObj _openingToken;
+    /**
+     * The event token the stream resumed from, while its own-drop check is pending: the groups
+     * whose form-0 entry has a DDL key at the token's timestamp, by id, with that key (§5.6).
+     */
+    std::map<uint32_t, std::string> _ownDropKeys;
+    /** The token _ownDropKeys came from; its entries become the invalidate's. */
+    boost::optional<CdcResumeToken> _resumedFrom;
+    /** The invalidate event the next pull returns. */
+    boost::optional<Document> _pendingInvalidate;
+    bool _invalidated = false;  ///< The invalidate event has been returned.
+    BSONObj _invalidateToken;   ///< The invalidate event's _id, once there is one.
+    const BSONObj _noToken;     ///< What invalidateToken() returns before the invalidate.
     uint64_t _duplicatesSuppressed = 0;
     uint64_t _dedupOverflows = 0;
 };

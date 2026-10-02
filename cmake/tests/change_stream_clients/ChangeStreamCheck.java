@@ -6,12 +6,15 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Aggregates;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonDocument;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 /**
  * EloqDoc change streams through the Java sync driver's watch() (docs/cdc-change-stream.md
@@ -97,8 +100,11 @@ public final class ChangeStreamCheck {
     private static void resume(MongoClient client) {
         MongoDatabase db = client.getDatabase("cdc_drivers");
         MongoCollection<Document> coll = db.getCollection("resume");
+        // Inserts only: the insert that creates the collection also delivers its create event.
+        List<Bson> insertsOnly =
+            Arrays.asList(Aggregates.match(Filters.eq("operationType", "insert")));
         try (MongoChangeStreamCursor<ChangeStreamDocument<Document>> stream =
-                 coll.watch().maxAwaitTime(1, TimeUnit.SECONDS).cursor()) {
+                 coll.watch(insertsOnly).maxAwaitTime(1, TimeUnit.SECONDS).cursor()) {
             check(stream.tryNext() == null, "an event arrived on an empty collection");
             check(stream.getResumeToken() != null, "no opening token");
             // Kill the server-side cursor: the next getMore fails with CursorNotFound, which the

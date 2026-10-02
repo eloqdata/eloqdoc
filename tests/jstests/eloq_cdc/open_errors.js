@@ -1,8 +1,8 @@
 /**
  * Options an EloqDoc change stream refuses, and the cdc_open_wait_ms parameter
  * (docs/cdc-change-stream.md §5.1, §5.2, §5.6): malformed tokens, an operation-time start,
- * both resume options at once, and an invalidate token, which needs collection-level
- * invalidation (plan C10) and is never accepted by resumeAfter.
+ * both resume options at once, and an invalidate token with resumeAfter, which accepts it only
+ * with startAfter.
  */
 (function() {
     "use strict";
@@ -41,12 +41,12 @@
                                  ErrorCodes.InvalidOptions);
     const watermark = {_data: "02" + "0000000000000005" + "01" + "0000"};
     assert.commandFailedWithCode(open({resumeAfter: watermark, startAfter: watermark}), 40674);
-    assert.commandFailedWithCode(open({resumeAfter: invalidateToken}), ErrorCodes.BadValue);
-    // 280 stands in until collection-level invalidation exists (plan C10); the message must say
-    // plainly that this is not supported yet rather than that the token is bad.
-    const fromInvalidate = assert.commandFailedWithCode(open({startAfter: invalidateToken}), 280);
-    assert(/invalidate token is not supported yet/.test(fromInvalidate.errmsg),
-           tojson(fromInvalidate));
+    // As in MongoDB: an invalidate token resumes only with startAfter.
+    const viaResumeAfter = assert.commandFailedWithCode(open({resumeAfter: invalidateToken}),
+                                                        ErrorCodes.InvalidResumeToken);
+    assert(/startAfter/.test(viaResumeAfter.errmsg), tojson(viaResumeAfter));
+    const viaStartAfter = assert.commandWorked(open({startAfter: invalidateToken}));
+    assert.commandWorked(testDB.runCommand({killCursors: "c", cursors: [viaStartAfter.cursor.id]}));
 
     // cdc_open_wait_ms is a positive, runtime-settable parameter.
     const admin = db.getSiblingDB("admin");

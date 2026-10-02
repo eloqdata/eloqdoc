@@ -15,6 +15,8 @@
     for (let [d, c] of [[dbA, "c"], [dbA, "d"], [dbB, "e"]]) {
         assert.commandWorked(d.createCollection(c));
     }
+    // The stream must not report the setup above (§5.1: it starts at the checkpoint bound).
+    EloqCdcUtil.settleDdl(db.getMongo());
 
     function open(dbName, coll, spec) {
         const reply = EloqCdcUtil.openRaw(db.getMongo(), dbName, coll, spec);

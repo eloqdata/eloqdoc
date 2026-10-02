@@ -101,9 +101,10 @@ bool handleCursorCommand(OperationContext* opCtx,
     // Progress token for this batch (docs/cdc-change-stream.md, §5.3 step 4). Only cursors whose
     // pipeline provides one carry a non-empty token. It starts as the cursor's opening token, so
     // that a batchSize of 0, which pulls nothing, still reports it; it becomes the _id of each
-    // document appended to the reply; and it becomes the executor's watermark once the pipeline
-    // reports IS_EOF. A stashed document never advances it, so the client can never be told to
-    // resume past a document it has not received.
+    // document appended to the reply; it becomes the executor's watermark once the pipeline
+    // reports IS_EOF; and it becomes the stream's invalidate token when the stream closes after
+    // it. A stashed document never advances it, so the client can never be told to resume past a
+    // document it has not received.
     BSONObj resumeToken = cursor->getPostBatchResumeToken();
     const bool tracksResumeToken = !resumeToken.isEmpty();
 
@@ -118,7 +119,15 @@ bool handleCursorCommand(OperationContext* opCtx,
         } catch (const ExceptionFor<ErrorCodes::CloseChangeStream>&) {
             // This exception is thrown when a $changeStream stage encounters an event
             // that invalidates the cursor. We should close the cursor and return without
-            // error. The token already appended for the invalidate event stays the batch's.
+            // error. The batch's token is the invalidate's, from the stream, even if a user stage
+            // filtered the invalidate out: the last token delivered would restart the stream
+            // into the same invalidate.
+            if (tracksResumeToken) {
+                BSONObj invalidate = cursor->getExecutor()->getPostBatchResumeToken();
+                if (!invalidate.isEmpty()) {
+                    resumeToken = invalidate;
+                }
+            }
             cursor = nullptr;
             break;
         }

@@ -71,28 +71,6 @@ int64_t getBackoffMillis(int attempt) {
     return minMillis + backoffPrng.nextInt64(maxMillis - minMillis + 1);
 }
 
-/**
- * Implements the shared backoff calculation and logging flow.
- * SleepFn supplies either uninterruptible or OperationContext-aware sleeping.
- */
-template <typename SleepFn>
-void logAndBackoffImpl(int attempt,
-                       StringData operation,
-                       StringData ns,
-                       SleepFn sleepFn) {
-    const int64_t backoffMillis = getBackoffMillis(attempt);
-    if (backoffMillis == 0) {
-        LOG(1) << "Caught WriteConflictException doing " << operation << " on " << ns
-               << ", attempt: " << attempt << " retrying immediately";
-        return;
-    }
-
-    LOG(1) << "Caught WriteConflictException doing " << operation << " on " << ns
-           << ", attempt: " << attempt << ", sleeping " << backoffMillis
-           << "ms before retrying";
-    sleepFn(Milliseconds{backoffMillis});
-}
-
 }  // namespace
 
 AtomicBool WriteConflictException::trace(false);
@@ -104,10 +82,19 @@ WriteConflictException::WriteConflictException()
     }
 }
 
-void WriteConflictException::logAndBackoff(int attempt, StringData operation, StringData ns) {
-    logAndBackoffImpl(attempt, operation, ns, [](Milliseconds duration) {
-        sleepmillis(duration.count());
-    });
+Milliseconds WriteConflictException::logAndGetBackoff(int attempt,
+                                                      StringData operation,
+                                                      StringData ns) {
+    const int64_t backoffMillis = getBackoffMillis(attempt);
+    if (backoffMillis == 0) {
+        LOG(1) << "Caught WriteConflictException doing " << operation << " on " << ns
+               << ", attempt: " << attempt << " retrying immediately";
+    } else {
+        LOG(1) << "Caught WriteConflictException doing " << operation << " on " << ns
+               << ", attempt: " << attempt << ", sleeping " << backoffMillis
+               << "ms before retrying";
+    }
+    return Milliseconds{backoffMillis};
 }
 
 void WriteConflictException::logAndBackoff(OperationContext* opCtx,
@@ -115,9 +102,10 @@ void WriteConflictException::logAndBackoff(OperationContext* opCtx,
                                            StringData operation,
                                            StringData ns) {
     invariant(opCtx);
-    logAndBackoffImpl(attempt, operation, ns, [opCtx](Milliseconds duration) {
-        opCtx->sleepFor(duration);
-    });
+    const Milliseconds pause = logAndGetBackoff(attempt, operation, ns);
+    if (pause > Milliseconds(0)) {
+        opCtx->sleepFor(pause);
+    }
 }
 
 namespace {

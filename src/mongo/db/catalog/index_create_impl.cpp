@@ -395,6 +395,7 @@ Status MultiIndexBlockImpl::insertAllDocumentsInCollection(std::set<RecordId>* d
     while (retries ||
            (PlanExecutor::ADVANCED == (state = exec->getNextSnapshotted(&objToIndex, &loc))) ||
            MONGO_FAIL_POINT(hangAfterStartingIndexBuild)) {
+        bool conflicted = false;
         try {
             if (_allowInterruption)
                 _opCtx->checkForInterrupt();
@@ -449,14 +450,18 @@ Status MultiIndexBlockImpl::insertAllDocumentsInCollection(std::set<RecordId>* d
             retries = 0;
         } catch (const WriteConflictException&) {
             CurOp::get(_opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
-            retries++;  // logAndBackoff expects this to be 1 on first call.
-            WriteConflictException::logAndBackoff(
-                retries, "index creation", _collection->ns().ns());
-
+            retries++;  // logAndBackoffYielding expects this to be 1 on first call.
+            conflicted = true;
+        }
+        if (conflicted) {
+            // Outside the handler, since the abort and the backoff may yield the coroutine.
             // Can't use writeConflictRetry since we need to save/restore exec around call to
-            // abandonSnapshot.
+            // abandonSnapshot. The snapshot goes before the backoff, so that the conflict's winner
+            // has the pause to finish, as in writeConflictRetry.
             exec->saveState();
             _opCtx->recoveryUnit()->abandonSnapshot();
+            WriteConflictException::logAndBackoffYielding(
+                retries, "index creation", _collection->ns().ns());
             auto restoreStatus = exec->restoreState();  // Handles any WCEs internally.
             if (!restoreStatus.isOK()) {
                 return restoreStatus;

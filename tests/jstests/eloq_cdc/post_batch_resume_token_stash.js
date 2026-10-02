@@ -21,6 +21,8 @@
     const admin = db.getSiblingDB("admin");
     assert.commandWorked(testDB.dropDatabase());
     assert.commandWorked(testDB.createCollection("big"));
+    // The stream must not report the setup above (§5.1: it starts at the checkpoint bound).
+    EloqCdcUtil.settleDdl(db.getMongo());
 
     /**
      * Runs a change stream's opening aggregate on the test collection.

@@ -73,7 +73,8 @@ async function opening(client) {
 async function resume(client) {
     const db = client.db("cdc_drivers");
     const coll = db.collection("resume");
-    const stream = coll.watch([], {maxAwaitTimeMS: 1000});
+    // Inserts only: the insert that creates the collection also delivers its create event.
+    const stream = coll.watch([{$match: {operationType: "insert"}}], {maxAwaitTimeMS: 1000});
     try {
         assert.strictEqual(await stream.tryNext(), null);
         assert.ok(stream.resumeToken);
