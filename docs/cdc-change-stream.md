@@ -2019,22 +2019,26 @@ DDL still while the catalog is copied:
     cluster scale's `install_cluster_config_op_`: acquire the **write**
     lock on the cluster config record on every node group, post-write the
     record with `paused` set, release. That write lock conflicts with the
-    read lock each DDL holds from its first step until it releases the
-    config, so the acquire waits for those DDLs, and once held no new DDL
-    passes the check. One gap remains: a DDL releases its cluster-config
-    read lock before it finishes (create before its kv write,
-    `unlock_cluster_config_op_`; an index build for the whole build; drop
-    later) and re-acquires it for its commit stage, but every such DDL has
-    already flushed its prepare log and is therefore visible in every log
-    group's `tx_catalog_ops_` at a stage below `CleanSchema`. Its re-lock
-    takes the prepared branch, which the gate does not check (above), so it
-    runs to completion under the pause. The command finishes by polling a
-    new read-only log-service RPC, "count schema ops with stage
-    `< CleanSchema`", on every group until all report zero. The same RPC
-    returns `lg_highest_ddl_ts`, the highest DDL timestamp in the group's
-    DDL store; the command
-    returns the maximum over groups as `max_ddl_ts`, which bootstrap uses
-    to pick `T0` (below).
+    read lock each DDL holds from its first step until after its last post
+    write (F7; since PR 7 a create, drop, truncate or index op never
+    releases it in between, and the recovery transaction that resumes a
+    logged op holds it too), so the acquire waits for every DDL already
+    admitted to install its schema and let go, and once the lock is held no
+    new DDL passes the check. The lock is the drain; nothing is polled.
+    What an admitted DDL may still have left when the lock is granted is
+    its clean log, which prunes the log service's replay set and touches
+    neither the catalog nor the stream. The command returns the pause's own
+    commit timestamp, `pause_ts`, which stage (1) below raises above its
+    acquire-all results. A DDL releasing its cluster-config read lock
+    publishes its commit timestamp into that shard's `LastReadTs` (the
+    `PostReadCc` release carries the tx's `commit_ts_`, and the entry's
+    version, the key timestamp it checks, is never 0, so the publication
+    always happens), and the cluster config map's acquire-all reports
+    `max(LastReadTs, Now())` as `last_vali_ts`, read once every earlier DDL
+    on that node group has released its read lock; `AcquireAllOp::MaxTs`
+    adds one.
+    So `pause_ts` is above every DDL committed before the gate closed, and
+    bootstrap uses it to pick `T0` (below).
   - *One request, two ops.* Pause and resume are the same
     `ClusterGateTxRequest` and the same `ClusterGateOp`; `op` selects the
     precondition, the stages and the installed value. The precondition is
@@ -2043,7 +2047,7 @@ DDL still while the catalog is copied:
 
     | `op` | Precondition on the record | On failure | Stages | Installed value |
     |---|---|---|---|---|
-    | `pause` | not paused | already paused: `CLUSTER_GATE_HELD` (another bootstrap or an abandoned one; the operator decides) | lock, log, install, drain poll (DDL drain; plus the DML drain in mode `ddl_dml`) | `mode`, `paused = true`; returns `max_ddl_ts` |
+    | `pause` | not paused | already paused: `CLUSTER_GATE_HELD` (another bootstrap or an abandoned one; the operator decides) | lock, log, install (mode `ddl_dml`, reserved, would add a DML drain) | `mode`, `paused = true`; returns `pause_ts` |
     | `resume` | none (clearing a cleared gate is a no-op) | — | lock, log, install | `paused = false` |
 
     Resume needs no drain: while the gate is paused no DDL can have
@@ -2086,7 +2090,7 @@ DDL still while the catalog is copied:
     state's "keep the latest" rule needs.
     `ProcessTxRequest(ClusterGateTxRequest&)` takes a pooled `ClusterGateOp` and
     pushes it, exactly as `ClusterScaleTxRequest` → `ClusterScaleOp`
-    (`tx_execution.cpp`). `ClusterGateOp::Forward` runs five child stages;
+    (`tx_execution.cpp`). `ClusterGateOp::Forward` runs four child stages;
     the lock, log and install stages are copied from `ClusterScaleOp`'s
     config update (`tx_operation.h`, `acquire_cluster_config_write_op_` /
     `update_cluster_config_log_op_` / `install_cluster_config_op_`):
@@ -2134,11 +2138,9 @@ DDL still while the catalog is copied:
     handler's gate-only path (carrier bullet above) stores the gate and
     releases the lock without touching `Sharder` or calling
     `GetNodeGroupConfigs()`.
-    (5) for `pause` only, an `AsyncOp` modeled on
-    `check_migration_is_finished_op_`, which already polls the log service
-    from a worker thread, calling the new read-only `CheckSchemaOpsInFlight`
-    RPC on every log group until all report zero ops below `CleanSchema`,
-    and recording the `lg_highest_ddl_ts` each group reports.
+    There is no drain stage: stage (1)'s write lock is the drain (the
+    *Pause = drain* bullet above), and a `pause` reports the op's
+    `commit_ts_` as `pause_ts`.
   - *Durability and replay.* Cluster-scale logs are kept in the log
     service's in-memory `tx_cluster_scale_ops_` map, snapshotted with
     braft, shipped to a recovering node group by `GetClusterScaleOpList`
@@ -2186,8 +2188,8 @@ DDL still while the catalog is copied:
       calls a new `TransactionExecution::RecoverClusterGate(msg, commit_ts)`,
       modeled on `RecoverClusterScale` (`tx_execution.cpp`): a pooled
       `ClusterGateOp` is positioned with its log stage marked finished,
-      so `Forward` resumes at the install stage (4) and, for a pause, the
-      drain stage (5). Re-running stage (4) is what **completes a
+      so `Forward` resumes at the install stage (4), the last stage for a
+      pause and a resume alike. Re-running stage (4) is what **completes a
       partially installed update**: the install is a `PostWriteAllOp`
       under the *same* `txn`, and on every surviving node group that
       still holds the config write lock for that `txn` the map's handler
@@ -2264,27 +2266,27 @@ DDL still while the catalog is copied:
     finishes on its own; the consumer's later `resume` is, as always, a
     fresh short transaction pinned to group 0.
 - **Letting prior DDL pass `T0`.** Every DDL that ran before the gate
-  closed has its record in some group's DDL store once the drain reports
-  zero in-flight ops (index ops append at prepare, create and drop at
-  commit, §4.3), so `max_ddl_ts`, the maximum of the groups' `lg_highest_ddl_ts` at that
-  moment, bounds them all. Two kinds of token prove that every such DDL
-  lies at or before the token, and either serves as `T0`:
-  - a **watermark** with timestamp `>= max_ddl_ts`: it is issued only when
+  closed committed below `pause_ts`, the pause's commit timestamp (the
+  *Pause = drain* bullet above), so `pause_ts` bounds them all, and their
+  records sit at or below it in the DDL stores (index ops append at
+  prepare, create and drop at commit, §4.3). Two kinds of token prove that
+  every such DDL lies at or before the token, and either serves as `T0`:
+  - a **watermark** with timestamp `>= pause_ts`: it is issued only when
     every group's boundary covers its timestamp and every record at or
     below it has been produced (§5.6);
-  - an **event token** with timestamp `T > max_ddl_ts`: the event was
+  - an **event token** with timestamp `T > pause_ts`: the event was
     released only when every other group's boundary was at least
-    `T − 1 >= max_ddl_ts` (§4.2 emission rule), so every record with timestamp
-    below `T`, every DDL at or below `max_ddl_ts` included, had been
+    `T − 1 >= pause_ts` (§4.2 emission rule), so every record with timestamp
+    below `T`, every DDL below `pause_ts` included, had been
     fetched and, being below `T`, produced before it; the token's vector
     therefore stands after all of them, and a group without an entry
-    resumes at `from_ts = T`, also above them. Strictly greater is
-    required: at `T = max_ddl_ts` a DDL at exactly `max_ddl_ts` in
-    another group may not yet be in hand.
+    resumes at `from_ts = T`, also above them. Strictly greater keeps the
+    rule safe for any bound a record could sit on, although none sits on
+    `pause_ts`.
   The event-token case matters because watermarks are issued only when the
   source drains (§5.3 step 4): under continuous DML every batch can end
   with an event token, and a rule that accepted watermarks alone could
-  wait indefinitely while checkpoints passed `max_ddl_ts` unobserved. No
+  wait indefinitely while checkpoints passed `pause_ts` unobserved. No
   clock is compared across nodes and no interval is guessed; the wait is
   at most about one `checkpointer_interval`, whether the cluster is idle
   or busy.
@@ -2302,8 +2304,9 @@ position is recorded:
    `load_token()` would stream into it. With the invalidation first, a
    crash anywhere in steps 1 to 5 leaves no usable checkpoint, and the
    next start runs bootstrap again from this step.
-2. `pause` the cluster gate in mode `ddl`; the command returns once no
-   DDL is in flight, with `max_ddl_ts`. The command runs as its own
+2. `pause` the cluster gate in mode `ddl`; the command returns once its
+   write lock has waited out every admitted DDL and the gate is installed,
+   with `pause_ts`. The command runs as its own
    short transaction pinned to log group 0 (§6.2) and holds nothing
    afterwards. A transport error is retried. If the command reports `CLUSTER_GATE_HELD`, a previous
    attempt was abandoned without a `resume`, another bootstrap is
@@ -2312,8 +2315,8 @@ position is recorded:
    bullet); the operator resolves that (§8), the consumer does not.
 3. Open a fresh stream and read its `postBatchResumeToken`s, applying
    nothing, until one qualifies under the rule above: a watermark with
-   timestamp `>= max_ddl_ts`, or an event token with timestamp
-   `> max_ddl_ts`. That exact token is `T0`. Close the stream. Every DDL
+   timestamp `>= pause_ts`, or an event token with timestamp
+   `> pause_ts`. That exact token is `T0`. Close the stream. Every DDL
    committed so far lies at or before `T0`; none can commit until step 5.
    Events at or before `T0` are never replayed, and that is correct: they
    are committed state at the time of the copy, which step 4 reads.
@@ -2690,14 +2693,15 @@ connector over the same scan RPC.
     precondition on it; the `cluster_gate_log` content kind in
     `LogContentMessage` and its `kClusterGateLog` apply case; the per-group
     `LogState::cluster_gate {value, version, txn}` set on apply, snapshotted
-    with `min_ckpt_ts_`, never purged, and shipped as one replay item per
-    group while present; the new `Execute(ReplayLogCc&)` branch that installs the
+    with `min_ckpt_ts_`, never purged, shipped as one replay item per
+    group while present, and found by its `txn` when orphan lock recovery
+    consults the log (`RecoverTx` answers `Committed` for the gate tx that
+    set the slot, so that tx's write lock waits for its coordinator's
+    replay); the new `Execute(ReplayLogCc&)` branch that installs the
     highest-version value into the payload on every node group and, on
     the coordinator's, re-acquires the config write lock and restarts
     the op through `RecoverClusterGate`, re-running the install on all
-    node groups; the log-service "schema ops in flight"
-    RPC used to finish the drain, which also reports the group's
-    `lg_highest_ddl_ts` for `max_ddl_ts`; the `cluster_gate_paused` gauge; and
+    node groups; the `cluster_gate_paused` gauge; and
     the consumer
     resuming the gate at the end of the copy. Test: a pause survives a
     log-group leader change, a node-group leader change, and a full
