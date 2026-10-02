@@ -2042,7 +2042,7 @@ DDL still while the catalog is copied:
   - *One request, two ops.* Pause and resume are the same
     `ClusterGateTxRequest` and the same `ClusterGateOp`; `op` selects the
     precondition, the stages and the installed value. The precondition is
-    evaluated by the read under the held write lock (stage (2) below), against the
+    evaluated by the read for write (stage (1) below), against the
     record's state at install time:
 
     | `op` | Precondition on the record | On failure | Stages | Installed value |
@@ -2088,32 +2088,64 @@ DDL still while the catalog is copied:
     takes its own `commit_ts_` from its own acquire-all, so successive
     entries have strictly increasing versions, which is all the log
     state's "keep the latest" rule needs.
-    `ProcessTxRequest(ClusterGateTxRequest&)` takes a pooled `ClusterGateOp` and
-    pushes it, exactly as `ClusterScaleTxRequest` → `ClusterScaleOp`
-    (`tx_execution.cpp`). `ClusterGateOp::Forward` runs four child stages;
-    the lock, log and install stages are copied from `ClusterScaleOp`'s
+    `ProcessTxRequest(ClusterGateTxRequest&)` takes a pooled `ClusterGateOp`
+    and pushes it, exactly as `ClusterScaleTxRequest` → `ClusterScaleOp`
+    (`tx_execution.cpp`); a finished op goes back to the pool rather than
+    being freed, because a remote response that arrives after the op
+    finished still reads its stages' cc handler results. `ClusterGateOp::Forward` runs four child stages;
+    the read, lock, log and install stages follow `ClusterScaleOp`'s
     config update (`tx_operation.h`, `acquire_cluster_config_write_op_` /
     `update_cluster_config_log_op_` / `install_cluster_config_op_`):
-    (1) an `AcquireAllOp` on `cluster_config_ccm_name`, `Write`/`Locking`,
-    which is the drain of DDLs holding the config read lock and the block
-    on new ones, with `commit_ts_` raised above the results' `MaxTs()`.
-    **This stage yields no record**: on the cluster-config map
-    `Execute(AcquireAllCc&)` fills `AcquireAllResult` with `last_vali_ts_`,
-    the lock address, the entry's `commit_ts_` and the term, nothing
-    more (`cluster_config_cc_map.h`), an inherent property of
-    acquire-all, which locks rather than reads.
-    (2) a **read under the held lock**: a `ReadLocalOperation` on the
-    same map on the coordinator's own node group, the same op the DDLs
-    use as `lock_cluster_config_op_`, issued by the same transaction that
-    now holds the write lock, so it neither blocks nor conflicts. Its
-    `cluster_conf_rec_` carries the stored gate, and the op's precondition
-    (table above) is evaluated on it. The value is authoritative because
-    every node group's copy was installed by the same replicated
-    post-write (stage 4) or by the same replay (below), and nothing but
-    a `ClusterGateOp` under this lock changes it. A precondition failure
-    goes to a `PostWriteAllOp` with `commit_ts_ = tx_op_failed_ts_`, which
-    the map already treats as "release the lock, commit nothing", and
-    reports the error.
+    (1) a **read for write**: a `ReadLocalOperation` on the
+    cluster-config map on the coordinator's own node group, the op the
+    DDLs use as `lock_cluster_config_op_`, but taking a write intent
+    rather than a read lock, since the write lock follows. Schema ops'
+    read locks pass a write intent, so this stage blocks no DDL; another
+    gate op coordinated by the same node group waits for it, so two of
+    them cannot each hold a read lock and deadlock upgrading. Its record
+    carries the stored gate, and the op's precondition (table above) is
+    evaluated on it, so a `pause` of a paused gate fails before any write
+    lock is taken; the transaction's abort releases the intent. The value
+    is authoritative because every node group's copy was installed by the
+    same replicated post-write (stage 4) or by the same replay (below),
+    and no other gate op can install anywhere while the intent is held:
+    it needs the write lock on every node group, this one included. When stage (2) has upgraded the intent to
+    the write lock, `AcquireAllOp` drops the read from the transaction's
+    read set
+    (`DedupRead`), as it does for any key a transaction reads before
+    writing; otherwise the release of meta reads at commit would compare
+    the version read with the entry's commit timestamp, which stage (4)
+    moves to the gate's. That match needs the cluster-config map's
+    acquire-all to report the entry's lock address, which it reported
+    as 0 on a first execution until PR 11, so cluster scale's reads were
+    never dropped either. On a precondition failure the read stays, and
+    the abort releases it with the version unchanged.
+    (2) the write lock on every node group, in two steps, as a schema op
+    takes its catalog locks (`UpsertTableIndexOp::Forward`: "Acquire
+    write intent, and then upgrade to write lock(Locking), rather than
+    acquire write lock(OCC) directly"). (2a) an `AcquireAllOp` on
+    `cluster_config_ccm_name`, `ReadForWrite`/`OCC`: write intents on
+    every node group. Intents pass DDLs' read locks, so only another
+    gate op or a cluster scale makes it fail, and OCC fails rather than
+    waits. The op then releases everything through a `PostWriteAllOp`
+    with `commit_ts_ = tx_op_failed_ts_` (what the map treats as "release
+    the lock, commit nothing"), backs off 1 to 3 seconds with jitter and
+    starts again from stage (1), re-checking the precondition; the caller
+    sees one request. Never waiting while holding the entry anywhere is
+    what keeps gate ops, and a gate op and a cluster scale, from
+    deadlocking: deadlock detection runs only when a waiter requests it,
+    and `AcquireAllOp` never does. (2b) an `AcquireAllOp` `Write`/`Locking`
+    that upgrades the intents. With every intent held, no other gate op
+    or cluster scale holds the entry anywhere, so it waits only for DDLs
+    holding the config read lock; that wait is the drain, and the queued
+    upgrade stops new readers. `commit_ts_` is raised above its results'
+    `MaxTs()`. A failure of (2b) is not a conflict but a node group
+    without a leader, and starts over the same way. **This stage yields
+    no record**: on the cluster-config map `Execute(AcquireAllCc&)`
+    fills `AcquireAllResult` with `last_vali_ts_`, the lock address, the
+    entry's `commit_ts_` and the term, nothing more
+    (`cluster_config_cc_map.h`), an inherent property of acquire-all,
+    which locks rather than reads.
     (3) a `WriteToLogOp` whose `WriteLogRequest` carries a **new log
     content kind**, not a new RPC: `LogContentMessage.content` gains
     `cluster_gate_log = 6` of type
@@ -2124,7 +2156,16 @@ DDL still while the catalog is copied:
     transaction writes its log to exactly one group, and the gate op is
     not an exception. That group is always **log group 0**, because every
     gate transaction is initialized with `log_group_id_ = 0` (translation
-    bullet below), which makes its transaction number map there. The log
+    bullet below), which makes its transaction number map there. The
+    entry carries, as `node_terms`, the term of every node group that
+    granted the write lock in stage (1), as a schema op's prepare log
+    does: cluster scale writes a prepare log before it locks, so a
+    participant's replay can restore a lock it lost by failing over, but
+    the gate writes nothing before, so a group that failed over between
+    granting the lock and the entry would come back with the old value
+    and no lock, and the install would skip it. With the terms, the log
+    service refuses that entry and the op releases its locks and fails;
+    the caller retries. The log
     service applies it with a new
     `case kClusterGateLog` in the content switch of `LogInstance::on_apply`
     (`eloq_log_service/src/log_instance.cpp`, the switch that today
@@ -2166,9 +2207,17 @@ DDL still while the catalog is copied:
     gate transaction, decided as cluster scale decides it, from the node
     group id embedded in `txn` (`cluster_config_cc_map.h`, the
     `is_coordinator` test in `Execute(ReplayLogCc&)`):
-    - On every node group it installs the highest-version value into
-      `neg_inf_`'s payload, touching neither `Sharder` nor the migration
-      flags.
+    - On every node group it installs the slot's value into `neg_inf_`'s
+      payload, touching neither `Sharder` nor the migration flags. The
+      slot is never older than what the map holds, since nothing installs
+      a value it has not logged first. The value is set in place, as the
+      gate's post-write sets it, because cluster scale's replay, which
+      `RecoveryService` runs and waits for first, caches node group
+      configs in the same payload; and the entry's commit timestamp only
+      grows, since scale's replay may leave it at a config version above
+      the gate's. The gate item replays before any schema op, so the node
+      group enforces the gate before it serves DDL. A corrupt slot fails
+      the replay rather than bring the group back unpaused.
     - On the coordinator's node group it additionally recovers the
       coordinator, under the general rule for multi-stage ops: once an
       op's log is flushed the op is guaranteed to complete, so on failure
@@ -2181,22 +2230,33 @@ DDL still while the catalog is copied:
       one log entry, at stage (3), after the precondition passed and
       while the write lock was held: the only recoverable state is
       "gate decided and logged, install pending", and a coordinator lost
-      before that entry left nothing to recover. Replay therefore
-      re-acquires the cluster-config write lock on the recovering node
-      group under the recovered transaction, as the `locked` path of
-      cluster-scale replay does for a log written under that lock, and
-      calls a new `TransactionExecution::RecoverClusterGate(msg, commit_ts)`,
-      modeled on `RecoverClusterScale` (`tx_execution.cpp`): a pooled
-      `ClusterGateOp` is positioned with its log stage marked finished,
-      so `Forward` resumes at the install stage (4), the last stage for a
-      pause and a resume alike. Re-running stage (4) is what **completes a
-      partially installed update**: the install is a `PostWriteAllOp`
-      under the *same* `txn`, and on every surviving node group that
-      still holds the config write lock for that `txn` the map's handler
-      stores the gate and releases the lock (`Execute(PostWriteAllCc&)`,
-      the `write_lk_txn == txn` branch); on a node group that failed over
-      in the meantime the lock is gone and the value was already
-      installed by that group's own replay, so the request just finishes.
+      before that entry left nothing to recover. Nothing in the op follows
+      its log but the install, so recovery takes **no lock or intent**: the
+      replay has already installed the value on the recovering node group,
+      and a recovery transaction (`TransactionExecution::RecoverClusterGate`,
+      modeled on `RecoverClusterScale`, `tx_execution.cpp`) runs a pooled
+      `ClusterGateOp` positioned with its log stage marked finished, so
+      `Forward` runs the install stage (4) alone. Re-running stage (4) is
+      what **completes a partially installed update**: the install is a
+      `PostWriteAllOp` under the *same* `txn`, and on every surviving node
+      group that still holds the config write lock for that `txn` the
+      map's handler stores the gate and releases the lock
+      (`Execute(PostWriteAllCc&)`, the `write_lk_txn == txn` branch); on a
+      node group that failed over after the log entry, the coordinator's
+      own included, the lock is gone and the value was installed by that
+      group's own replay, so the request just finishes. (A group that
+      failed over between granting the lock and the log entry never gets
+      that far: the entry carries the granting terms and the log service
+      refuses it, stage (3).) Re-taking the write lock on the recovering
+      group, as the `locked` path of cluster-scale replay does, would
+      deadlock: the schema-op recovery that replays next reads the
+      cluster config under a read lock, and replay waits for that read,
+      while the install that would release the lock is refused until the
+      group leads, which it does only once replay ends. The install
+      retries a second apart until the group leads. A slot whose op
+      finished long ago is re-installed the same way at every recovery of
+      its coordinator's group, finding the lock nowhere: one extra
+      cluster-wide post-write per such recovery.
       This path is required, not optional: the cluster-config write lock
       is a meta lock that orphan-lock recovery does not clear on its own,
       its release depends on the coordinator (`tx_operation.cpp`, the
@@ -2698,10 +2758,9 @@ connector over the same scan RPC.
     consults the log (`RecoverTx` answers `Committed` for the gate tx that
     set the slot, so that tx's write lock waits for its coordinator's
     replay); the new `Execute(ReplayLogCc&)` branch that installs the
-    highest-version value into the payload on every node group and, on
-    the coordinator's, re-acquires the config write lock and restarts
-    the op through `RecoverClusterGate`, re-running the install on all
-    node groups; the `cluster_gate_paused` gauge; and
+    slot's value into the payload on every node group and, on the
+    coordinator's, restarts the op through `RecoverClusterGate` at its
+    install, with no lock, re-running the install on all node groups; the `cluster_gate_paused` gauge; and
     the consumer
     resuming the gate at the end of the copy. Test: a pause survives a
     log-group leader change, a node-group leader change, and a full

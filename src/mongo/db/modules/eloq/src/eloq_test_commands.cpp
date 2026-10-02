@@ -19,8 +19,8 @@
 /**
  * @file
  * Test-only commands of the Eloq storage engine, registered only when test commands are enabled
- * (--setParameter enableTestCommands=1): fault injection, and views of the catalog and of the log
- * service that tests compare.
+ * (--setParameter enableTestCommands=1): fault injection, views of the catalog and of the log
+ * service that tests compare, and the cluster gate until it becomes an admin command.
  */
 
 #define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kStorage
@@ -35,6 +35,7 @@
 #include "mongo/db/client.h"
 #include "mongo/db/commands.h"
 #include "mongo/db/commands/test_commands_enabled.h"
+#include "mongo/db/local_thread_state.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/util/log.h"
 
@@ -348,6 +349,119 @@ public:
 };
 
 MONGO_REGISTER_TEST_COMMAND(EloqCdcScanCmd);
+
+/**
+ * @brief Pauses or resumes the cluster gate, which keeps new create, drop and index operations out
+ * while change data capture bootstrap copies the catalog (docs/cdc-change-stream.md §6.2; plan
+ * D8).
+ *
+ * Form: { eloqClusterGate: { op: "pause" | "resume", mode: "ddl" } }; mode is optional and "ddl"
+ * the only one implemented ("ddl_dml" is reserved for snapshots). A pause replies
+ * { pauseTs: <long> }, its commit timestamp, above every DDL committed before the gate closed; a
+ * resume replies { resumeTs: <long> }. A pause of a paused gate fails with
+ * ConflictingOperationInProgress: another bootstrap holds it, or an abandoned one left it.
+ *
+ * Each call is its own short transaction in the data substrate, initialized for log group 0, where
+ * every gate log entry must land; the operation's own transaction is not used.
+ *
+ * @note Test-only until it becomes the admin command of plan D8, with its privileges, the
+ * cluster_gate_paused gauge and the gate-age alert.
+ */
+class EloqClusterGateCmd : public EloqTestCommand {
+public:
+    EloqClusterGateCmd() : EloqTestCommand("eloqClusterGate") {}
+
+    std::string help() const override {
+        return "pauses or resumes the cluster gate: "
+               "{eloqClusterGate: {op: \"pause\" | \"resume\", mode: \"ddl\"}}";
+    }
+
+    bool run(OperationContext* opCtx,
+             const std::string& dbname,
+             const BSONObj& cmdObj,
+             BSONObjBuilder& result) override {
+        uassert(ErrorCodes::CommandNotSupported,
+                "eloqClusterGate: this deployment has no log service to keep the gate in",
+                DataSubstrate::Instance().GetCoreConfig().enable_wal &&
+                    txservice::Sharder::Instance().GetLogAgent() != nullptr);
+
+        const BSONElement specElem = cmdObj.firstElement();
+        uassert(ErrorCodes::BadValue,
+                "eloqClusterGate takes {op: \"pause\" | \"resume\", mode: \"ddl\"}",
+                specElem.type() == Object);
+        const BSONObj spec = specElem.Obj();
+        for (const BSONElement& field : spec) {
+            uassert(ErrorCodes::BadValue,
+                    str::stream() << "eloqClusterGate: unknown field " << field.fieldName(),
+                    field.fieldNameStringData() == "op" || field.fieldNameStringData() == "mode");
+        }
+
+        const BSONElement opElem = spec["op"];
+        uassert(ErrorCodes::BadValue,
+                "eloqClusterGate op must be \"pause\" or \"resume\"",
+                opElem.type() == String && (opElem.str() == "pause" || opElem.str() == "resume"));
+        const bool pause = opElem.str() == "pause";
+
+        if (const BSONElement modeElem = spec["mode"]; !modeElem.eoo()) {
+            uassert(ErrorCodes::BadValue,
+                    "eloqClusterGate mode must be a string",
+                    modeElem.type() == String);
+            uassert(ErrorCodes::CommandNotSupported,
+                    "eloqClusterGate mode \"ddl_dml\" is reserved for snapshots and not "
+                    "implemented",
+                    modeElem.str() != "ddl_dml");
+            uassert(ErrorCodes::BadValue,
+                    "eloqClusterGate mode must be \"ddl\"",
+                    modeElem.str() == "ddl");
+        }
+
+        log() << "eloqClusterGate op=" << opElem.str();
+
+        // A transaction of its own, pinned to log group 0: its number maps there, so its log
+        // entry does too, which keeps group 0's slot the gate's only history.
+        txservice::TxService* txService = DataSubstrate::Instance().GetTxService();
+        const int16_t group = LocalThread::ID();
+        txservice::TransactionExecution* txm =
+            group >= 0 ? txService->NewTx(group) : txService->NewTx();
+        const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+        txservice::InitTxRequest initReq(txservice::IsolationLevel::RepeatableRead,
+                                         txservice::CcProtocol::Locking,
+                                         coro.yieldFuncPtr,
+                                         coro.resumeFuncPtr,
+                                         txm,
+                                         UINT32_MAX,
+                                         0);
+        txm->Execute(&initReq);
+        initReq.Wait();
+        uassert(ErrorCodes::InternalError,
+                str::stream() << "eloqClusterGate: starting its transaction failed: "
+                              << initReq.ErrorMsg(),
+                !initReq.IsError());
+
+        txservice::ClusterGateTxRequest gateReq(pause ? txservice::ClusterGateOpType::kPause
+                                                      : txservice::ClusterGateOpType::kResume,
+                                                txservice::ClusterGate::Mode::kDdl,
+                                                coro.yieldFuncPtr,
+                                                coro.resumeFuncPtr,
+                                                txm);
+        txm->Execute(&gateReq);
+        gateReq.Wait();
+        // The op has committed or aborted the transaction on its own; txm is not ours any more.
+        if (gateReq.IsError()) {
+            uassert(ErrorCodes::ConflictingOperationInProgress,
+                    "eloqClusterGate: the gate is already paused, by another bootstrap or an "
+                    "abandoned one; resume it before pausing again",
+                    gateReq.ErrorCode() != txservice::TxErrorCode::CLUSTER_GATE_HELD);
+            uasserted(ErrorCodes::InternalError,
+                      str::stream() << "eloqClusterGate " << opElem.str()
+                                    << " failed: " << gateReq.ErrorMsg());
+        }
+        result.append(pause ? "pauseTs" : "resumeTs", static_cast<long long>(gateReq.Result()));
+        return true;
+    }
+};
+
+MONGO_REGISTER_TEST_COMMAND(EloqClusterGateCmd);
 
 }  // namespace
 }  // namespace mongo
