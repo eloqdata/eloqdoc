@@ -375,6 +375,28 @@ public:
         return false;
     }
 
+    /**
+     * @brief Reads a record, and the version of it the read returned.
+     *
+     * EloqDoc: the version is the commit timestamp of the record version read, which grows with
+     * every write of the record, so equal versions mean the same contents. A read of a record the
+     * reader's own transaction wrote and has not committed reports 0. The default, for an engine
+     * whose StorageEngine::supportsRecordVersions() is false, reads the record and reports 0.
+     *
+     * @param opCtx Operation context; the read is part of its transaction.
+     * @param loc The record to read.
+     * @param[out] out The record's contents, owned, if it exists.
+     * @param[out] version The version read, if the record exists.
+     * @return true iff the record exists.
+     */
+    virtual bool findRecordVersion(OperationContext* opCtx,
+                                   const RecordId& loc,
+                                   RecordData* out,
+                                   uint64_t* version) const {
+        *version = 0;
+        return findRecord(opCtx, loc, out);
+    }
+
     virtual void deleteRecord(OperationContext* opCtx, const RecordId& dl) = 0;
 
     /**

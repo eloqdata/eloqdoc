@@ -28,16 +28,21 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
+#include <boost/optional.hpp>
+
 #include "mongo/base/status.h"
+#include "mongo/base/status_with.h"
 #include "mongo/base/string_data.h"
+#include "mongo/bson/bsonobj.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/stdx/functional.h"
+#include "mongo/util/assert_util.h"
 
 namespace mongo {
 
-class BSONObj;
 class Database;
 class OperationContext;
 
@@ -58,8 +63,46 @@ public:
      */
     static void onExternalChange(OperationContext* opCtx, const NamespaceString& name);
 
+    /**
+     * @brief One view's definition as system.views holds it, with the version of the document read.
+     */
+    struct VersionedView {
+        BSONObj definition;    ///< The document, owned: {_id, viewOn, pipeline, collation}.
+        uint64_t version = 0;  ///< Commit timestamp of the version read; 0 if the reading
+                               ///< transaction wrote it and has not committed.
+    };
+
     using Callback = stdx::function<Status(const BSONObj& view)>;
     virtual Status iterate(OperationContext* opCtx, Callback callback) = 0;
+
+    /**
+     * @brief Whether lookup() reports versions, so the view catalog can check a cached definition
+     * against system.views on every lookup instead of trusting it until it is invalidated.
+     *
+     * EloqDoc: a node keeps a view catalog per worker thread, and a view changed on another thread
+     * or node invalidates none of them; only system.views is current.
+     *
+     * @param opCtx Operation context.
+     * @return true if the storage engine reports record versions.
+     */
+    virtual bool supportsVersionedLookup(OperationContext* opCtx) const {
+        return false;
+    }
+
+    /**
+     * @brief Reads one view's definition from system.views in the operation's transaction.
+     *
+     * Called only when supportsVersionedLookup() is true.
+     *
+     * @param opCtx Operation context.
+     * @param name The view's namespace.
+     * @return The definition and its version; none if there is no such view; an error if the
+     * stored definition is invalid.
+     */
+    virtual StatusWith<boost::optional<VersionedView>> lookup(OperationContext* opCtx,
+                                                              const NamespaceString& name) {
+        MONGO_UNREACHABLE;
+    }
     virtual void upsert(OperationContext* opCtx,
                         const NamespaceString& name,
                         const BSONObj& view) = 0;
@@ -77,11 +120,23 @@ public:
     explicit DurableViewCatalogImpl(Database* db) : _db(db) {}
 
     Status iterate(OperationContext* opCtx, Callback callback);
+    bool supportsVersionedLookup(OperationContext* opCtx) const override;
+    StatusWith<boost::optional<VersionedView>> lookup(OperationContext* opCtx,
+                                                      const NamespaceString& name) override;
     void upsert(OperationContext* opCtx, const NamespaceString& name, const BSONObj& view);
     void remove(OperationContext* opCtx, const NamespaceString& name);
     const std::string& getName() const;
 
 private:
+    /**
+     * @brief Checks a system.views document's structure: only the expected fields, names valid and
+     * in this database, a pipeline array and, if any, a collation object.
+     *
+     * @param viewDef The document.
+     * @return OK, or InvalidViewDefinition.
+     */
+    Status _validate(const BSONObj& viewDef) const;
+
     Database* const _db;
 };
 }  // namespace mongo

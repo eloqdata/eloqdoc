@@ -43,7 +43,10 @@
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/op_observer.h"
 #include "mongo/db/operation_context.h"
+#include "mongo/db/service_context.h"
 #include "mongo/db/storage/record_data.h"
+#include "mongo/db/storage/record_store.h"
+#include "mongo/db/storage/storage_engine.h"
 #include "mongo/stdx/unordered_set.h"
 #include "mongo/util/assert_util.h"
 #include "mongo/util/log.h"
@@ -89,38 +92,9 @@ Status DurableViewCatalogImpl::iterate(OperationContext* opCtx, Callback callbac
 
         // Check read definitions for correct structure, and refuse reading past invalid
         // definitions. Ignore any further view definitions.
-        bool valid = true;
-        for (const BSONElement& e : viewDef) {
-            std::string name(e.fieldName());
-            valid &= name == "_id" || name == "viewOn" || name == "pipeline" || name == "collation";
-        }
-
-        const auto viewName = viewDef["_id"].str();
-        const auto collectionNameIsValid = NamespaceString::validCollectionComponent(viewName);
-        valid &= collectionNameIsValid;
-
-        // Only perform validation via NamespaceString if the collection name has been determined to
-        // be valid. If not valid then the NamespaceString constructor will uassert.
-        if (collectionNameIsValid) {
-            NamespaceString viewNss(viewName);
-            valid &= viewNss.isValid() && viewNss.db() == _db->name();
-        }
-
-        valid &= NamespaceString::validCollectionName(viewDef["viewOn"].str());
-
-        const bool hasPipeline = viewDef.hasField("pipeline");
-        valid &= hasPipeline;
-        if (hasPipeline) {
-            valid &= viewDef["pipeline"].type() == mongo::Array;
-        }
-
-        valid &=
-            (!viewDef.hasField("collation") || viewDef["collation"].type() == BSONType::Object);
-
-        if (!valid) {
-            return {ErrorCodes::InvalidViewDefinition,
-                    str::stream() << "found invalid view definition " << viewDef["_id"]
-                                  << " while reading '" << _db->getSystemViewsName() << "'"};
+        Status valid = _validate(viewDef);
+        if (!valid.isOK()) {
+            return valid;
         }
 
         Status callbackStatus = callback(viewDef);
@@ -129,6 +103,73 @@ Status DurableViewCatalogImpl::iterate(OperationContext* opCtx, Callback callbac
         }
     }
     return Status::OK();
+}
+
+Status DurableViewCatalogImpl::_validate(const BSONObj& viewDef) const {
+    bool valid = true;
+    for (const BSONElement& e : viewDef) {
+        std::string name(e.fieldName());
+        valid &= name == "_id" || name == "viewOn" || name == "pipeline" || name == "collation";
+    }
+
+    const auto viewName = viewDef["_id"].str();
+    const auto collectionNameIsValid = NamespaceString::validCollectionComponent(viewName);
+    valid &= collectionNameIsValid;
+
+    // Only perform validation via NamespaceString if the collection name has been determined to
+    // be valid. If not valid then the NamespaceString constructor will uassert.
+    if (collectionNameIsValid) {
+        NamespaceString viewNss(viewName);
+        valid &= viewNss.isValid() && viewNss.db() == _db->name();
+    }
+
+    valid &= NamespaceString::validCollectionName(viewDef["viewOn"].str());
+
+    const bool hasPipeline = viewDef.hasField("pipeline");
+    valid &= hasPipeline;
+    if (hasPipeline) {
+        valid &= viewDef["pipeline"].type() == mongo::Array;
+    }
+
+    valid &= (!viewDef.hasField("collation") || viewDef["collation"].type() == BSONType::Object);
+
+    if (!valid) {
+        return {ErrorCodes::InvalidViewDefinition,
+                str::stream() << "found invalid view definition " << viewDef["_id"]
+                              << " while reading '" << _db->getSystemViewsName() << "'"};
+    }
+    return Status::OK();
+}
+
+bool DurableViewCatalogImpl::supportsVersionedLookup(OperationContext* opCtx) const {
+    return opCtx->getServiceContext()->getStorageEngine()->supportsRecordVersions();
+}
+
+StatusWith<boost::optional<DurableViewCatalog::VersionedView>> DurableViewCatalogImpl::lookup(
+    OperationContext* opCtx, const NamespaceString& name) {
+    using Result = boost::optional<VersionedView>;
+    Collection* systemViews = _db->getCollection(opCtx, _db->getSystemViewsName());
+    if (!systemViews) {
+        return Result();
+    }
+
+    Lock::CollectionLock lk(opCtx->lockState(), _db->getSystemViewsName(), MODE_IS);
+    RecordId id = Helpers::findById(opCtx, systemViews, BSON("_id" << name.ns()));
+    if (id.isNull()) {
+        return Result();
+    }
+    RecordData data;
+    uint64_t version = 0;
+    if (!systemViews->getRecordStore()->findRecordVersion(opCtx, id, &data, &version)) {
+        return Result();
+    }
+    fassert(40225, validateBSON(data.data(), data.size(), BSONVersion::kLatest));
+    BSONObj viewDef = data.toBson().getOwned();
+    Status valid = _validate(viewDef);
+    if (!valid.isOK()) {
+        return valid;
+    }
+    return Result(VersionedView{std::move(viewDef), version});
 }
 
 void DurableViewCatalogImpl::upsert(OperationContext* opCtx,

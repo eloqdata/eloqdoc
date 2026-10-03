@@ -109,6 +109,8 @@ public:
         return _supportsDBLocking;
     }
 
+    bool supportsRecordVersions() const override;
+
     bool supportsCappedCollections() const override {
         return _supportsCappedCollections;
     }

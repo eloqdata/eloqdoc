@@ -505,7 +505,8 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     uint64_t keySchemaVersion,
     const Eloq::MongoKey* key,
     Eloq::MongoRecord* record,
-    bool isForWrite) {
+    bool isForWrite,
+    uint64_t* version) {
     MONGO_LOG(1) << "EloqRecoveryUnit::getKV"
                  << ". tableName: " << tableName.StringView() << ". txn: " << _txm->TxNumber()
                  << ", isolation: " << (int)_txm->GetIsolationLevel()
@@ -555,6 +556,9 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
         txservice::RecordStatus recStatus = readTxReq.Result().first;
         if (recStatus == txservice::RecordStatus::Normal) {
             exists = true;
+            if (version != nullptr) {
+                *version = readTxReq.Result().second;
+            }
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV. RecordStatus::Normal. ";
             break;
         } else {

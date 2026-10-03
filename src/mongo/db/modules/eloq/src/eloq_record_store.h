@@ -225,6 +225,21 @@ public:
     bool findRecord(OperationContext* opCtx, const RecordId& id, RecordData* out) const override;
 
     /**
+     * @brief Reads a record, and the commit timestamp of the version read; never for write.
+     *
+     * @param opCtx Operation context.
+     * @param id The record to read.
+     * @param[out] out The record's contents, owned, if it exists.
+     * @param[out] version The commit timestamp of the version read; 0 for a record this
+     * transaction wrote and has not committed.
+     * @return true iff the record exists.
+     */
+    bool findRecordVersion(OperationContext* opCtx,
+                           const RecordId& id,
+                           RecordData* out,
+                           uint64_t* version) const override;
+
+    /**
      * @brief Deletes a record by id. While the table has indexes under construction, reads the
      * document once to remove its keys from them.
      */

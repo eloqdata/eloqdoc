@@ -278,6 +278,10 @@ RecoveryUnit::UPtr KVStorageEngine::newRecoveryUnitUPtr() {
     return _engine->newRecoveryUnitUPtr();
 }
 
+bool KVStorageEngine::supportsRecordVersions() const {
+    return _engine->supportsRecordVersions();
+}
+
 Status KVStorageEngine::lockCollection(
     OperationContext* opCtx, StringData ns, bool isForWrite, bool* exists, std::string* version) {
     return _engine->lockCollection(opCtx, ns, isForWrite, exists, version);

@@ -119,13 +119,27 @@ public:
                                                std::unique_ptr<Eloq::MongoRecord> record,
                                                txservice::OperationType operationType,
                                                bool checkUnique);
+    /**
+     * @brief Point-reads one key in this unit's transaction.
+     *
+     * @param opCtx Operation context.
+     * @param tableName The table to read.
+     * @param keySchemaVersion The schema version of the table's key.
+     * @param key The key.
+     * @param[out] record The record read, if it exists.
+     * @param isForWrite Whether to read for write.
+     * @param[out] version If not null, the commit timestamp of the record version read, when it
+     * exists; 0 for a record this transaction wrote and has not committed.
+     * @return Whether the record exists, and the tx error, if any.
+     */
     [[nodiscard]] std::pair<bool, txservice::TxErrorCode> getKV(
         OperationContext* opCtx,
         const txservice::TableName& tableName,
         uint64_t keySchemaVersion,
         const Eloq::MongoKey* key,
         Eloq::MongoRecord* record,
-        bool isForWrite);
+        bool isForWrite,
+        uint64_t* version = nullptr);
     // store in the internal kvpair
 
     [[nodiscard]] txservice::TxErrorCode batchGetKV(OperationContext* opCtx,

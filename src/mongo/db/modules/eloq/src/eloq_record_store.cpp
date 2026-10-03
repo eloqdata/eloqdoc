@@ -759,6 +759,28 @@ bool EloqRecordStore::findRecord(OperationContext* opCtx,
     return true;
 }
 
+bool EloqRecordStore::findRecordVersion(OperationContext* opCtx,
+                                        const RecordId& id,
+                                        RecordData* out,
+                                        uint64_t* version) const {
+    MONGO_LOG(1) << "EloqRecordStore::findRecordVersion" << ". id: " << id.toString();
+
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    Eloq::MongoKey mongoKey(id);
+    Eloq::MongoRecord mongoRecord;
+    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName)->SchemaTs();
+    auto [exists, err] =
+        ru->getKV(opCtx, _tableName, keySchemaVersion, &mongoKey, &mongoRecord, false, version);
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    if (!exists) {
+        return false;
+    }
+    *out =
+        RecordData{mongoRecord.EncodedBlobData(), static_cast<int>(mongoRecord.EncodedBlobSize())}
+            .getOwned();
+    return true;
+}
+
 namespace {
 /**
  * @brief Maintains a table's indexes under construction for one document write.

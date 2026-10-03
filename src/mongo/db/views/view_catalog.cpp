@@ -34,6 +34,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "mongo/base/status_with.h"
 #include "mongo/base/string_data.h"
@@ -72,8 +73,75 @@ StatusWith<std::unique_ptr<CollatorInterface>> parseCollator(OperationContext* o
 }  // namespace
 
 Status ViewCatalog::reloadIfNeeded(OperationContext* opCtx) {
+    if (_durable->supportsVersionedLookup(opCtx)) {
+        return _valid.load() ? Status::OK() : _refreshAll(opCtx);
+    }
     stdx::lock_guard<stdx::mutex> lk(_mutex);
     return _reloadIfNeeded_inlock(opCtx);
+}
+
+StatusWith<std::shared_ptr<ViewDefinition>> ViewCatalog::_parseView(OperationContext* opCtx,
+                                                                    const BSONObj& view) {
+    BSONObj collationSpec = view.hasField("collation") ? view["collation"].Obj() : BSONObj();
+    auto collator = parseCollator(opCtx, collationSpec);
+    if (!collator.isOK()) {
+        return collator.getStatus();
+    }
+
+    NamespaceString viewName(view["_id"].str());
+
+    auto pipeline = view["pipeline"].Obj();
+    for (auto&& stage : pipeline) {
+        if (BSONType::Object != stage.type()) {
+            return Status(ErrorCodes::InvalidViewDefinition,
+                          str::stream() << "View 'pipeline' entries must be objects, but "
+                                        << viewName.toString()
+                                        << " has a pipeline element of type " << stage.type());
+        }
+    }
+
+    return std::make_shared<ViewDefinition>(viewName.db(),
+                                            viewName.coll(),
+                                            view["viewOn"].str(),
+                                            pipeline,
+                                            std::move(collator.getValue()));
+}
+
+Status ViewCatalog::_refreshAll(OperationContext* opCtx) {
+    // Read outside the mutex: a read can yield the coroutine, and the coroutines of this thread
+    // share the mutex.
+    ViewMap loaded;
+    Status status = _durable->iterate(opCtx, [&](const BSONObj& view) -> Status {
+        auto parsed = _parseView(opCtx, view);
+        if (!parsed.isOK()) {
+            return parsed.getStatus();
+        }
+        loaded[parsed.getValue()->name().ns()] = std::move(parsed.getValue());
+        return Status::OK();
+    });
+
+    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    if (status.isOK()) {
+        // Views system.views no longer holds, wherever they were dropped.
+        std::vector<std::string> gone;
+        for (auto&& entry : _versionedViews) {
+            if (loaded.find(entry.first) == loaded.end()) {
+                gone.push_back(entry.first);
+            }
+        }
+        for (const std::string& ns : gone) {
+            _versionedViews.erase(ns);
+        }
+    }
+    // As a reload does, keep what was read before an invalid definition.
+    _viewMap = std::move(loaded);
+    _viewGraphNeedsRefresh = true;
+    _valid.store(status.isOK());
+    if (!status.isOK()) {
+        LOG(0) << "could not load view catalog for database " << _durable->getName() << ": "
+               << status;
+    }
+    return status;
 }
 
 Status ViewCatalog::_reloadIfNeeded_inlock(OperationContext* opCtx) {
@@ -86,29 +154,11 @@ Status ViewCatalog::_reloadIfNeeded_inlock(OperationContext* opCtx) {
     _viewMap.clear();
 
     Status status = _durable->iterate(opCtx, [&](const BSONObj& view) -> Status {
-        BSONObj collationSpec = view.hasField("collation") ? view["collation"].Obj() : BSONObj();
-        auto collator = parseCollator(opCtx, collationSpec);
-        if (!collator.isOK()) {
-            return collator.getStatus();
+        auto parsed = _parseView(opCtx, view);
+        if (!parsed.isOK()) {
+            return parsed.getStatus();
         }
-
-        NamespaceString viewName(view["_id"].str());
-
-        auto pipeline = view["pipeline"].Obj();
-        for (auto&& stage : pipeline) {
-            if (BSONType::Object != stage.type()) {
-                return Status(ErrorCodes::InvalidViewDefinition,
-                              str::stream() << "View 'pipeline' entries must be objects, but "
-                                            << viewName.toString()
-                                            << " has a pipeline element of type " << stage.type());
-            }
-        }
-
-        _viewMap[viewName.ns()] = std::make_shared<ViewDefinition>(viewName.db(),
-                                                                   viewName.coll(),
-                                                                   view["viewOn"].str(),
-                                                                   pipeline,
-                                                                   std::move(collator.getValue()));
+        _viewMap[parsed.getValue()->name().ns()] = std::move(parsed.getValue());
         return Status::OK();
     });
     _valid.store(status.isOK());
@@ -122,6 +172,10 @@ Status ViewCatalog::_reloadIfNeeded_inlock(OperationContext* opCtx) {
 }
 
 void ViewCatalog::iterate(OperationContext* opCtx, ViewIteratorCallback callback) {
+    if (_durable->supportsVersionedLookup(opCtx)) {
+        // Views changed by another thread or node are in system.views, not in this catalog.
+        uassertStatusOK(_refreshAll(opCtx));
+    }
     stdx::lock_guard<stdx::mutex> lk(_mutex);
     _requireValidCatalog_inlock(opCtx);
     for (auto&& view : _viewMap) {
@@ -130,6 +184,7 @@ void ViewCatalog::iterate(OperationContext* opCtx, ViewIteratorCallback callback
 }
 
 Status ViewCatalog::_createOrUpdateView_inlock(OperationContext* opCtx,
+                                               stdx::unique_lock<stdx::mutex>& lk,
                                                const NamespaceString& viewName,
                                                const NamespaceString& viewOn,
                                                const BSONArray& pipeline,
@@ -154,6 +209,15 @@ Status ViewCatalog::_createOrUpdateView_inlock(OperationContext* opCtx,
     Status graphStatus = _upsertIntoGraph(opCtx, *(view.get()));
     if (!graphStatus.isOK()) {
         return graphStatus;
+    }
+
+    if (_durable->supportsVersionedLookup(opCtx)) {
+        // Only the document is written: lookups read system.views, and the next listing or view
+        // DDL reloads _viewMap and the graph. The write can yield the coroutine, so the mutex the
+        // coroutines of this thread share is not held across it.
+        lk.unlock();
+        _durable->upsert(opCtx, viewName, viewDefBuilder.obj());
+        return Status::OK();
     }
 
     _durable->upsert(opCtx, viewName, viewDefBuilder.obj());
@@ -309,7 +373,14 @@ Status ViewCatalog::createView(OperationContext* opCtx,
                                const NamespaceString& viewOn,
                                const BSONArray& pipeline,
                                const BSONObj& collation) {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    if (_durable->supportsVersionedLookup(opCtx)) {
+        // Check the name and the graph against every view as of this operation's snapshot.
+        Status refreshed = _refreshAll(opCtx);
+        if (!refreshed.isOK()) {
+            return refreshed;
+        }
+    }
+    stdx::unique_lock<stdx::mutex> lk(_mutex);
 
     if (viewName.db() != viewOn.db())
         return Status(ErrorCodes::BadValue,
@@ -332,14 +403,21 @@ Status ViewCatalog::createView(OperationContext* opCtx,
         return collator.getStatus();
 
     return _createOrUpdateView_inlock(
-        opCtx, viewName, viewOn, pipeline, std::move(collator.getValue()));
+        opCtx, lk, viewName, viewOn, pipeline, std::move(collator.getValue()));
 }
 
 Status ViewCatalog::modifyView(OperationContext* opCtx,
                                const NamespaceString& viewName,
                                const NamespaceString& viewOn,
                                const BSONArray& pipeline) {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    const bool versioned = _durable->supportsVersionedLookup(opCtx);
+    if (versioned) {
+        Status refreshed = _refreshAll(opCtx);
+        if (!refreshed.isOK()) {
+            return refreshed;
+        }
+    }
+    stdx::unique_lock<stdx::mutex> lk(_mutex);
 
     if (viewName.db() != viewOn.db())
         return Status(ErrorCodes::BadValue,
@@ -355,12 +433,15 @@ Status ViewCatalog::modifyView(OperationContext* opCtx,
                       str::stream() << "invalid name for 'viewOn': " << viewOn.coll());
 
     ViewDefinition savedDefinition = *viewPtr;
-    opCtx->recoveryUnit()->onRollback([this, viewName, savedDefinition]() {
-        this->_viewMap[viewName.ns()] = std::make_shared<ViewDefinition>(savedDefinition);
-    });
+    if (!versioned) {
+        opCtx->recoveryUnit()->onRollback([this, viewName, savedDefinition]() {
+            this->_viewMap[viewName.ns()] = std::make_shared<ViewDefinition>(savedDefinition);
+        });
+    }
 
     return _createOrUpdateView_inlock(
         opCtx,
+        lk,
         viewName,
         viewOn,
         pipeline,
@@ -368,7 +449,14 @@ Status ViewCatalog::modifyView(OperationContext* opCtx,
 }
 
 Status ViewCatalog::dropView(OperationContext* opCtx, const NamespaceString& viewName) {
-    stdx::lock_guard<stdx::mutex> lk(_mutex);
+    const bool versioned = _durable->supportsVersionedLookup(opCtx);
+    if (versioned) {
+        Status refreshed = _refreshAll(opCtx);
+        if (!refreshed.isOK()) {
+            return refreshed;
+        }
+    }
+    stdx::unique_lock<stdx::mutex> lk(_mutex);
     _requireValidCatalog_inlock(opCtx);
 
     // Save a copy of the view definition in case we need to roll back.
@@ -376,6 +464,17 @@ Status ViewCatalog::dropView(OperationContext* opCtx, const NamespaceString& vie
     if (!viewPtr) {
         return {ErrorCodes::NamespaceNotFound,
                 str::stream() << "cannot drop missing view: " << viewName.ns()};
+    }
+
+    if (versioned) {
+        // As in _createOrUpdateView_inlock: only the document, outside the mutex.
+        lk.unlock();
+        _durable->remove(opCtx, viewName);
+        opCtx->recoveryUnit()->onCommit([this, ns = viewName.ns()](boost::optional<Timestamp>) {
+            stdx::lock_guard<stdx::mutex> lk(_mutex);
+            _versionedViews.erase(ns);
+        });
+        return Status::OK();
     }
 
     ViewDefinition savedDefinition = *viewPtr;
@@ -420,12 +519,128 @@ std::shared_ptr<ViewDefinition> ViewCatalog::_lookup_inlock(OperationContext* op
 }
 
 std::shared_ptr<ViewDefinition> ViewCatalog::lookup(OperationContext* opCtx, StringData ns) {
+    if (_durable->supportsVersionedLookup(opCtx)) {
+        return _lookupVersioned(opCtx, ns);
+    }
     stdx::lock_guard<stdx::mutex> lk(_mutex);
     return _lookup_inlock(opCtx, ns);
 }
 
+std::shared_ptr<ViewDefinition> ViewCatalog::_lookupVersioned(OperationContext* opCtx,
+                                                              StringData ns) {
+    // No view can have such a name; nothing to read.
+    if (!NamespaceString::validCollectionName(ns)) {
+        return nullptr;
+    }
+
+    // As _lookup_inlock does, an invalid definition fails only a user's operation.
+    auto read = _durable->lookup(opCtx, NamespaceString(ns));
+    if (!read.isOK()) {
+        if (opCtx->getClient()->isFromUserConnection()) {
+            uassertStatusOK(read.getStatus());
+        }
+        return nullptr;
+    }
+    const auto& found = read.getValue();
+    if (!found) {
+        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        _versionedViews.erase(ns);
+        return nullptr;
+    }
+
+    {
+        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        auto it = _versionedViews.find(ns);
+        if (found->version != 0 && it != _versionedViews.end() &&
+            it->second.version == found->version) {
+            return it->second.view;
+        }
+    }
+
+    auto parsed = _parseView(opCtx, found->definition);
+    if (!parsed.isOK()) {
+        if (opCtx->getClient()->isFromUserConnection()) {
+            uassertStatusOK(parsed.getStatus());
+        }
+        return nullptr;
+    }
+    std::shared_ptr<ViewDefinition> view = std::move(parsed.getValue());
+    // Version 0 is this transaction's own uncommitted write: used, never cached.
+    if (found->version != 0) {
+        stdx::lock_guard<stdx::mutex> lk(_mutex);
+        if (_versionedViews.size() >= kMaxVersionedViews &&
+            _versionedViews.find(ns) == _versionedViews.end()) {
+            _versionedViews.clear();
+        }
+        VersionedEntry& entry = _versionedViews[ns];
+        if (found->version > entry.version) {
+            entry = VersionedEntry{found->version, view};
+        }
+    }
+    return view;
+}
+
+StatusWith<ResolvedView> ViewCatalog::_resolveViewVersioned(OperationContext* opCtx,
+                                                            const NamespaceString& nss) {
+    // Points to the name of the most resolved namespace, owned by 'lastViewDefinition'.
+    const NamespaceString* resolvedNss = &nss;
+    std::vector<BSONObj> resolvedPipeline;
+    boost::optional<BSONObj> collation;
+    // A definition read at version 0 is cached nowhere else, so it is kept alive here.
+    std::shared_ptr<ViewDefinition> lastViewDefinition;
+
+    for (int depth = 0; depth < ViewGraph::kMaxViewDepth; depth++) {
+        while (MONGO_FAIL_POINT(hangDuringViewResolution)) {
+            log() << "Hanging due to 'hangDuringViewResolution' failpoint";
+            sleepmillis(1000);
+        }
+
+        auto view = _lookupVersioned(opCtx, resolvedNss->ns());
+        if (!view) {
+            int pipelineSize = 0;
+            for (auto obj : resolvedPipeline) {
+                pipelineSize += obj.objsize();
+            }
+            if (pipelineSize > ViewGraph::kMaxViewPipelineSizeBytes) {
+                return {ErrorCodes::ViewPipelineMaxSizeExceeded,
+                        str::stream() << "View pipeline exceeds maximum size; maximum size is "
+                                      << ViewGraph::kMaxViewPipelineSizeBytes};
+            }
+            return StatusWith<ResolvedView>(
+                {*resolvedNss,
+                 std::move(resolvedPipeline),
+                 collation ? std::move(*collation) : CollationSpec::kSimpleSpec});
+        }
+
+        lastViewDefinition = std::move(view);
+        resolvedNss = &lastViewDefinition->viewOn();
+        if (!collation) {
+            collation = lastViewDefinition->defaultCollator()
+                ? lastViewDefinition->defaultCollator()->getSpec().toBSON()
+                : CollationSpec::kSimpleSpec;
+        }
+
+        // Prepend the underlying view's pipeline to the current working pipeline.
+        const std::vector<BSONObj>& toPrepend = lastViewDefinition->pipeline();
+        resolvedPipeline.insert(resolvedPipeline.begin(), toPrepend.begin(), toPrepend.end());
+
+        // If the first stage is a $collStats, then we return early with the viewOn namespace.
+        if (toPrepend.size() > 0 && !toPrepend[0]["$collStats"].eoo()) {
+            return StatusWith<ResolvedView>(
+                {*resolvedNss, std::move(resolvedPipeline), std::move(*collation)});
+        }
+    }
+
+    return {ErrorCodes::ViewDepthLimitExceeded,
+            str::stream() << "View depth too deep or view cycle detected; maximum depth is "
+                          << ViewGraph::kMaxViewDepth};
+}
+
 StatusWith<ResolvedView> ViewCatalog::resolveView(OperationContext* opCtx,
                                                   const NamespaceString& nss) {
+    if (_durable->supportsVersionedLookup(opCtx)) {
+        return _resolveViewVersioned(opCtx, nss);
+    }
     stdx::unique_lock<stdx::mutex> lock(_mutex);
 
     // Keep looping until the resolution completes. If the catalog is invalidated during the
