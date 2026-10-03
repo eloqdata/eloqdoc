@@ -63,16 +63,32 @@ add_custom_target(eloqdoc-ddl-recovery
     DEPENDS eloqdoc
     USES_TERMINAL)
 
-# Opt-in cluster gate scenarios (docs/cdc-change-stream.md §6.2, plan D3, D4, D6, D9): pause and
-# resume through the eloqClusterGate test command, a pause waiting for admitted DDL, a pause that
-# survives restarts, and a gate op killed after its log or in its install, rolled forward after a
-# restart. Needs a server built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own
+# Opt-in cluster gate scenarios (docs/cdc-change-stream.md §6.2, plan D3, D4, D6, D8, D9): pause
+# and resume through the eloqClusterGate admin command, every kind of DDL refused with
+# ClusterGatePaused, a pause waiting for admitted DDL, a pause that survives restarts, a gate op
+# killed after its log or in its install, rolled forward after a restart, and the command's
+# privileges. Needs a server built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own
 # fresh server.
 add_custom_target(eloqdoc-cluster-gate
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/cluster_gate.py"
         --server "$<TARGET_FILE:eloqdoc>"
         --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
         --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/cluster-gate-diagnostics"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
+# Opt-in tests of the reference change data capture consumer (tools/cdc_consumer,
+# docs/cdc-change-stream.md §6, plan E1, E2, E5): its unit tests, then the consumer replicating one
+# fresh server into another under concurrent writes, an index created, dropped and recreated during
+# the copy with and without the cluster gate, and a run stopped before it publishes its starting
+# point. Needs PyMongo; each scenario runs on its own pair of fresh servers.
+add_custom_target(eloqdoc-cdc-consumer
+    COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${PROJECT_SOURCE_DIR}/tools/cdc_consumer" -p "test_*.py"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/cdc_consumer_e2e.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/cdc-consumer-diagnostics"
     DEPENDS eloqdoc
     USES_TERMINAL)
 

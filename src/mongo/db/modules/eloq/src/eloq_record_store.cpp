@@ -30,6 +30,7 @@
 #include "mongo/bson/simple_bsonobj_comparator.h"
 #include "mongo/db/index/index_access_method.h"
 #include "mongo/db/index/multikey_paths.h"
+#include "mongo/db/namespace_string.h"
 #include "mongo/db/query/get_executor.h"
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
@@ -249,6 +250,10 @@ void EloqCatalogRecordStore::deleteRecord(OperationContext* opCtx, const RecordI
             if (status.isOK()) {
                 ru->deleteDiscoveredTable(tableName);
                 return;
+            }
+            // A paused cluster gate refuses every attempt until it resumes; report it now.
+            if (status.code() == ErrorCodes::ClusterGatePaused) {
+                uassertStatusOK(status);
             }
         }
 
@@ -631,6 +636,7 @@ EloqRecordStore::EloqRecordStore(OperationContext* opCtx, Params& params)
     : RecordStore{params.ns},
       _tableName{std::move(params.tableName)},
       _isCatalog{isMongoCatalog(params.ident.toStringView())},
+      _isSystemViews{NamespaceString(params.ns).isSystemDotViews()},
       _isCapped{params.isCapped},
       _cappedMaxSize{params.cappedMaxSize},
       _cappedMaxDocs{params.cappedMaxDocs},
@@ -909,6 +915,10 @@ void EloqRecordStore::_deleteRecord(OperationContext* opCtx,
                                     const RecordId& id,
                                     const BSONObj* doc) {
     auto ru = EloqRecoveryUnit::get(opCtx);
+    if (_isSystemViews) {
+        // A view drop: held still by a paused cluster gate.
+        uassertStatusOK(ru->checkClusterGate());
+    }
 
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
 
@@ -1077,6 +1087,13 @@ Status EloqRecordStore::_updateRecord(
     mongo::BSONObj recordObj(data);
 
     auto ru = EloqRecoveryUnit::get(opCtx);
+    if (_isSystemViews) {
+        // A view's collMod: held still by a paused cluster gate.
+        Status admitted = ru->checkClusterGate();
+        if (!admitted.isOK()) {
+            return admitted;
+        }
+    }
 
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
 
@@ -1287,6 +1304,13 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     }
 
     auto ru = EloqRecoveryUnit::get(opCtx);
+    if (_isSystemViews) {
+        // A view's create: held still by a paused cluster gate.
+        Status admitted = ru->checkClusterGate();
+        if (!admitted.isOK()) {
+            return admitted;
+        }
+    }
     MONGO_LOG(1) << "Insert into a Data Table.";
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();

@@ -252,7 +252,9 @@ MONGO_INITIALIZER(AuthorizationBuiltinRoles)(InitializerContext* context) {
         << ActionType::flushRouterConfig  // hostManager gets this also
         << ActionType::cleanupOrphaned
         << ActionType::setFeatureCompatibilityVersion
-        << ActionType::setFreeMonitoring;
+        << ActionType::setFreeMonitoring
+        // EloqDoc: pausing schema changes cluster-wide for change data capture bootstrap.
+        << ActionType::eloqClusterGate;
 
     clusterManagerRoleDatabaseActions
         << ActionType::splitChunk

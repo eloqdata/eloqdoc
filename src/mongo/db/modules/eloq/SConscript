@@ -508,6 +508,7 @@ env.CppUnitTest(
 env.Library(
     target="storage_eloq",
     source=[
+        "src/eloq_cluster_gate_command.cpp",
         "src/eloq_init.cpp",
         "src/eloq_test_commands.cpp",
     ],

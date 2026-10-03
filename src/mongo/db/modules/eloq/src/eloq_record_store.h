@@ -377,6 +377,8 @@ private:
     txservice::TableName _tableName;
 
     const bool _isCatalog;
+    /** A database's system.views: every write is admitted by the cluster gate first. */
+    const bool _isSystemViews;
     // std::unordered_map<RecordId, std::string, RecordId::Hasher> _metadataCache;
 
     // The capped settings should not be updated once operations have started

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""The cluster gate on a single node (docs/cdc-change-stream.md §6.2; plan D3, D4, D6, D9).
+"""The cluster gate on a single node (docs/cdc-change-stream.md §6.2; plan D3, D4, D6, D8, D9).
 
-The gate keeps new create, drop and index operations out while change data capture bootstrap
-copies the catalog. Each scenario starts a fresh server and drives the gate through the
-eloqClusterGate test command:
+The gate keeps new create, drop, index and collMod operations, and view changes (writes to
+system.views), out while change data capture bootstrap copies the catalog. Each scenario starts a fresh server and drives the gate through the
+eloqClusterGate admin command:
 
-  (i)    pause and resume: a pause refuses new DDL and leaves DML alone, a second pause fails as
-         held, a resume admits DDL again, and resuming an open gate is harmless; the pause's
-         timestamp is above the catalog version of a DDL committed before it;
+  (i)    pause and resume: a pause refuses every kind of DDL at once with ClusterGatePaused,
+         changing nothing, and leaves DML alone; a second pause fails as held, a resume admits
+         DDL again, and resuming an open gate is harmless; the pause's timestamp is above the
+         catalog version of a DDL committed before it;
   (ii)   a pause waits for a DDL already admitted, which finishes ungated, and its timestamp is
          above that DDL's catalog version;
   (iii)  a pause survives a clean restart and a kill;
@@ -20,29 +21,36 @@ eloqClusterGate test command:
   (viii) two pauses at once: one pauses, the other finds the gate held, and neither waits
          forever on the other (they serialize on the first one's write intent, or one backs off);
   (ix)   a pause whose write intents meet a conflict (forced by a fault point, since one node
-         cannot produce one) releases everything, backs off and succeeds on its next attempt.
+         cannot produce one) releases everything, backs off and succeeds on its next attempt;
+  (x)    with authorization on, clusterManager may pause and resume, and a user who may read,
+         write and administer every database may not.
 
-A refused create is checked by its message, a refused drop by its outcome: which error a refused
-DDL reports is the subject of a later change (plan D3), and today a drop retries the refusal as a
-write conflict until it gives up. Index builds are left out under a pause for the same reason. Needs a server
-built with the fault points (WITH_FAULT_INJECT); skipped otherwise. Requires pymongo.
+Needs a server built with the fault points (WITH_FAULT_INJECT); skipped otherwise. Requires
+pymongo.
 """
 
 import argparse
+import json
 import os
 import sys
 import threading
 import time
 from pathlib import Path
 
+from pymongo import MongoClient
 from pymongo.errors import AutoReconnect, OperationFailure
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ddl_recovery import (Node, crash_during, fault_points_compiled_in,  # noqa: E402
                           wait_until)
 
+UNAUTHORIZED = 13
 CONFLICTING_OPERATION_IN_PROGRESS = 117
-GATE_MESSAGE = "paused by the cluster gate"
+CLUSTER_GATE_PAUSED = 5001
+# A refusal comes back at once; a DDL retried as a write conflict would take tens of seconds.
+REFUSAL_DEADLINE_S = 5
+# The view setup() defines, as system.views holds it.
+ANCHOR_VIEW = {"_id": "cluster_gate.anchor_view", "viewOn": "anchor", "pipeline": []}
 
 
 def gate(node, op):
@@ -55,28 +63,42 @@ def catalog_version(node, ns):
     return node.client.admin.command({"eloqCatalogVersion": ns})["schemaTs"]
 
 
-def refused(ddl):
-    """Whether the DDL fails because the gate is paused."""
+def refused(ddl, what):
+    """Checks that the DDL fails at once with ClusterGatePaused."""
+    start = time.monotonic()
     try:
         ddl()
     except OperationFailure as exc:
-        if GATE_MESSAGE in str(exc):
-            return True
-        raise
-    return False
+        assert exc.code == CLUSTER_GATE_PAUSED, (what, exc)
+        took = time.monotonic() - start
+        assert took < REFUSAL_DEADLINE_S, f"{what} took {took:.1f} s to be refused"
+        return
+    raise AssertionError(f"{what} passed the gate")
 
 
 def check_paused(node, label):
     db = node.client.cluster_gate
-    assert refused(lambda: db.create_collection(f"refused_{label}")), "a create passed the gate"
-    # A refused drop is retried as a write conflict until EloqDoc gives up, so only the outcome is
-    # checked: the drop fails and the collection stays.
-    try:
-        db.command({"drop": "anchor"})
-        raise AssertionError("a drop passed the gate")
-    except OperationFailure:
-        pass
+    refused(lambda: db.create_collection(f"refused_{label}"), "a create")
+    refused(lambda: db.command({"drop": "anchor"}), "a drop")
+    refused(lambda: db.anchor.create_index("x"), "an index build")
+    refused(lambda: db.anchor.drop_index("anchor_y"), "an index drop")
+    refused(lambda: db.command({"collMod": "anchor", "validator": {"x": {"$exists": True}}}),
+            "a collMod")
+    refused(lambda: db.command({"create": f"refused_view_{label}", "viewOn": "anchor",
+                                "pipeline": []}), "a view create")
+    refused(lambda: db.command({"collMod": "anchor_view", "viewOn": "anchor",
+                                "pipeline": [{"$match": {"x": 1}}]}), "a view collMod")
+    refused(lambda: db.command({"drop": "anchor_view"}), "a view drop")
+    refused(lambda: db.system.views.insert_one({"_id": f"cluster_gate.direct_{label}",
+                                                "viewOn": "anchor", "pipeline": []}),
+            "a direct write to system.views")
+    # The refusals left the catalog as it was.
     assert "anchor" in db.list_collection_names()
+    assert f"refused_{label}" not in db.list_collection_names()
+    assert sorted(spec["name"] for spec in db.anchor.list_indexes()) == ["_id_", "anchor_y"]
+    assert "validator" not in db.command({"listCollections": 1, "filter": {"name": "anchor"}})[
+        "cursor"]["firstBatch"][0]["options"]
+    assert list(db.system.views.find()) == [ANCHOR_VIEW], list(db.system.views.find())
     # DML is never gated.
     db.anchor.insert_one({"_id": f"while-paused-{label}"})
     assert db.anchor.find_one({"_id": f"while-paused-{label}"}) is not None
@@ -86,11 +108,15 @@ def check_open(node, label):
     db = node.client.cluster_gate
     db.create_collection(f"open_{label}")
     db[f"open_{label}"].drop()
+    db.command({"create": f"open_view_{label}", "viewOn": "anchor", "pipeline": []})
+    db.command({"drop": f"open_view_{label}"})
 
 
 def setup(node):
     db = node.client.cluster_gate
     db.create_collection("anchor")
+    db.anchor.create_index("y", name="anchor_y")
+    db.command({"create": "anchor_view", "viewOn": "anchor", "pipeline": []})
     db.anchor.insert_many([{"_id": i} for i in range(10)])
 
 
@@ -276,6 +302,47 @@ def scenario_intent_conflict_retried(node):
           flush=True)
 
 
+def scenario_privileges(node):
+    """(x) The eloqClusterGate action: clusterManager holds it, database roles do not."""
+    node.stop()
+    config = node.root / "eloqdoc.yaml"
+    settings = json.loads(config.read_text(encoding="utf-8"))
+    settings["security"] = {"authorization": "enabled"}
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    node.start()
+
+    def login(user):
+        return MongoClient("127.0.0.1", node.port, directConnection=True, username=user,
+                           password="pw", authSource="admin", serverSelectionTimeoutMS=1000)
+
+    # The localhost exception admits the first user.
+    node.client.admin.command("createUser", "root", pwd="pw", roles=["root"])
+    root = login("root")
+    root.admin.command("createUser", "ops", pwd="pw", roles=["clusterManager"])
+    root.admin.command("createUser", "app", pwd="pw",
+                       roles=["readWriteAnyDatabase", "dbAdminAnyDatabase"])
+    ops, app = login("ops"), login("app")
+    app.cluster_gate.create_collection("anchor")
+    try:
+        app.admin.command({"eloqClusterGate": {"op": "pause", "mode": "ddl"}})
+        raise AssertionError("a user without the eloqClusterGate action paused the gate")
+    except OperationFailure as exc:
+        assert exc.code == UNAUTHORIZED, exc
+    pause_ts = ops.admin.command({"eloqClusterGate": {"op": "pause"}})["pauseTs"]
+    refused(lambda: app.cluster_gate.create_collection("refused_x"), "a create")
+    try:
+        app.admin.command({"eloqClusterGate": {"op": "resume"}})
+        raise AssertionError("a user without the eloqClusterGate action resumed the gate")
+    except OperationFailure as exc:
+        assert exc.code == UNAUTHORIZED, exc
+    assert root.admin.command({"eloqClusterGate": {"op": "resume"}})["resumeTs"] > pause_ts
+    app.cluster_gate.create_collection("open_x")
+    for client in (root, ops, app):
+        client.close()
+    print("PASS (x) clusterManager and root run eloqClusterGate, database roles cannot",
+          flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -304,7 +371,8 @@ def main():
                             ("pause-in-install", scenario_pause_in_install),
                             ("ddl-recovered-after-gate", scenario_ddl_recovered_after_gate),
                             ("concurrent-pauses", scenario_concurrent_pauses),
-                            ("intent-conflict", scenario_intent_conflict_retried)):
+                            ("intent-conflict", scenario_intent_conflict_retried),
+                            ("privileges", scenario_privileges)):
         if args.scenario and label not in args.scenario:
             continue
         node = Node(args, label)

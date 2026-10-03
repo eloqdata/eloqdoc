@@ -1794,6 +1794,18 @@ cluster has not completed a checkpoint round within `cdc_open_wait_ms`
 (§5.1). Drivers do not retry a failed `aggregate`, so the consumer retries
 the open itself with backoff; any other open error halts it.
 
+**Namespaces.** The stream is deployment-wide; the consumer applies the
+databases in its scope only, never `admin`, `local` or `config`, the same
+ones bootstrap copies (§6.2). In them it replicates collections and
+`system.js` (stored JavaScript, user data) as documents, and views as
+definitions: the source reports a view's create, `collMod` and drop as an
+insert, a replace and a delete on `system.views`, which the consumer
+applies as the view command, behind the barrier like a DDL (create, or
+`collMod` when the view exists; drop), rather than writing the sink's
+`system.views`, which a sink may refuse. Every other system collection
+(`system.profile`, ...) belongs to its node and is skipped, in the copy and
+the stream alike.
+
 Why this is correct:
 
 - **Every write bypasses document validation.** Bootstrap copies collection
@@ -1830,7 +1842,12 @@ Why this is correct:
   constraint that an already-applied operation could violate** (§6.3):
   replace and delete carry whole state and per-object order is intact, so
   re-applying a prefix leaves the same final state. Per-slot low watermarks
-  would allow finer progress; not needed for v1.
+  would allow finer progress; not needed for v1. "Applied" means
+  acknowledged under the sink's write concern, the same one the token's
+  own write uses: every sink write carries it, DDL included (a driver's
+  generic command helper adds none, so the consumer adds it and fails on
+  a write concern error), or a sink failover could keep a token past
+  writes it lost.
 - **Coalescing (optional).** Within one batch a slot may keep only the last
   operation per key, since replace and delete carry whole state.
 
@@ -1896,7 +1913,18 @@ DDL still while the catalog is copied:
   an admin command, `eloqClusterGate: {op: "pause" | "resume", mode: "ddl" | "ddl_dml"}`,
   sets or clears a cluster-wide flag that, in mode `ddl`, makes every new
   `UpsertTableTxRequest` (create, drop, index ops) fail fast with a
-  retriable error. **The pause stays in force until it is explicitly
+  retriable error. View changes are held still the same way, though they
+  are not schema ops: a view's create, `collMod` and drop are writes to
+  its database's `system.views`, and EloqDoc's record store admits every
+  write there by first reading the cluster config record locally in the
+  writing transaction (`EloqRecoveryUnit::checkClusterGate`). A local
+  read takes a read lock whatever the transaction's protocol and keeps it
+  until the transaction ends, as a schema op's lock step does, so a pause
+  waits for a view change already admitted, the release publishes its
+  commit timestamp below `pause_ts`, and a view change that reads a paused
+  gate is refused. The command needs the `eloqClusterGate` action on the
+  cluster resource, which `clusterManager` holds (and so `clusterAdmin`
+  and `root`). **The pause stays in force until it is explicitly
   resumed.** There is no lease, no renewal, no clock comparison, no
   expiry and nothing to validate at the end of the copy: the flag either
   is set or is not, and only `resume` clears it. That holds for every
@@ -2001,8 +2029,18 @@ DDL still while the catalog is copied:
     finish, and
     rejecting them there would make the drain wait on operations the gate
     itself blocks, and would turn a roll-forward that F8 guarantees into a
-    stall. EloqDoc maps `CLUSTER_GATED` to a retriable error whose message
-    names the CDC bootstrap.
+    stall. EloqDoc maps `CLUSTER_GATED` to its own error
+    `ClusterGatePaused` (5001), which a client retries once the gate
+    resumes: a create (an insert's implicit one too), a drop or
+    `dropDatabase`, an index build or drop, `collMod`, and a view's
+    create, `collMod` or drop each fail at once and change nothing. The refusal leaves EloqDoc's catalog writes
+    as a status, never as a write conflict, so neither
+    `writeConflictRetry` nor the drop's own retry loop spins on it. A
+    refused index build's cleanup writes back the catalog entry it
+    started from, which differs from the stored one only in its
+    `catalogVersion`; EloqDoc skips that write instead of issuing a DDL
+    the gate would refuse as well, since the cleanup treats any failure
+    but a write conflict as fatal (`fassert 18644`).
   - *Mode `ddl_dml` (future, for backup/snapshot).* DML never reads the
     cluster config, so its check point is different: when
     `install_cluster_config_op_` runs on every core, each shard caches the
@@ -2394,6 +2432,25 @@ position is recorded:
    during it and a node-group recovery in the meantime comes back
    paused. How long DDL stays unavailable is the copy's duration, which
    the operator sees in advance and the gate-age alert watches.
+   Which namespaces the copy takes follows the apply loop's rule (§6.1):
+   collections and `system.js` with their documents; a view by its
+   definition alone, a `create` with its `viewOn`, `pipeline` and
+   `collation`, since it has no indexes or documents of its own; no other
+   system collection. The definitions are read from `system.views`, the
+   documents whose changes the stream reports, so the copy and the replay
+   start from the same records. View changes are held still too (the
+   gate bullet above), so the copy reads the views exactly as at `T0`,
+   even through a cursor that spans several transactions, and replay
+   applies only changes made after the resume, each over a set of views
+   that existed on the source. Replaying view changes over a later copy,
+   as documents are replayed, would not be safe: the sink checks every
+   view against the others (no cycle, a bounded depth, matching
+   collations), and an older definition beside newer copied ones can form
+   a cycle the source never had, which the sink refuses on every retry. A
+   consumer that halts on an error after step 2 resumes the gate before it
+   stops; its checkpoint still says `bootstrapping`, so the next run starts
+   again from step 1. Only a consumer that dies leaves the gate paused
+   (§8).
 5. `resume` the cluster gate, another short transaction pinned to log
    group 0. Every DDL from here on has `ddl_ts > T0` and
    reaches the sink through the stream, applied against a catalog that
@@ -2572,7 +2629,7 @@ capped collections on the sink (§9).
 | Consumer down longer than retention | `PositionTruncated` → `ChangeStreamHistoryLost` once loggers track the history boundary (§4.5); **in v1 undetected**, the scan silently resumes at the smallest surviving key | Re-bootstrap (§6.2): drop the in-scope namespaces on the sink, then snapshot and replay from a new `T0`. In v1, prevent rather than detect: set `txlog_cdc_retention_seconds` (§4.5) above the worst-case consumer lag and alert on the lag metric |
 | Sink unreachable | Consumer stops acknowledging | Nothing happens on the source; retention is the budget |
 | DDL attempted while the bootstrap cluster gate is paused (mode `ddl`) | the DDL fails fast with a retriable error (§6.2) | expected; the operator scheduled the bootstrap window; retry after the copy |
-| Consumer dies mid-copy with the gate paused | **DDL stays paused until an operator resumes it**, on every node group alike: the pause never expires, in the cc maps or the loggers (§6.2), so a node group that recovers meanwhile comes back paused too. The sink holds no usable checkpoint (step 1 wrote `bootstrapping` before anything was dropped), so a restarted consumer cannot resume into the partial copy; it runs bootstrap again, whose step 1 discards the partial state | gate-age alert when the window outlives the expected copy time — the only thing that surfaces a forgotten pause, since nothing ends one on its own. Runbook: confirm the consumer is stopped, `eloqClusterGate {op: "resume"}`, then restart bootstrap from step 1. Accepted v1 trade-off: DDL availability is recovered by hand, not by a timer |
+| Consumer dies mid-copy with the gate paused | **DDL stays paused until an operator resumes it**, on every node group alike: the pause never expires, in the cc maps or the loggers (§6.2), so a node group that recovers meanwhile comes back paused too. The sink holds no usable checkpoint (step 1 wrote `bootstrapping` before anything was dropped), so a restarted consumer cannot resume into the partial copy; it runs bootstrap again, whose step 1 discards the partial state. A consumer that halts on an error instead of dying resumes the gate on its way out (§6.2 step 4) | gate-age alert when the window outlives the expected copy time — the only thing that surfaces a forgotten pause, since nothing ends one on its own. Runbook: confirm the consumer is stopped, `eloqClusterGate {op: "resume"}`, then restart bootstrap from step 1. Accepted v1 trade-off: DDL availability is recovered by hand, not by a timer |
 | Consumer crashes between the copy finishing and the checkpoint being published (step 6) | the sink is complete but `admin.__eloq_cdc_progress` still says `bootstrapping` | the consumer cannot tell a complete copy from a partial one without the checkpoint, so it bootstraps again; the redundant copy is the price of a checkpoint that is only ever written after what it claims is durable |
 | `pause` reports `CLUSTER_GATE_HELD` | a previous attempt was abandoned without a `resume`, or another bootstrap is running | operator decides: if no consumer is copying, `resume` and retry; if one is, wait for it. Two bootstraps at once is an operator error |
 | Gate resumed by an operator while a copy is running | DDL may run against the catalog being copied; that copy is not trustworthy | the runbook says to stop the consumer before resuming; if it was not stopped, stop it and restart bootstrap from step 1 |

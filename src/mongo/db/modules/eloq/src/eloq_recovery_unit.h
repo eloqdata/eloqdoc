@@ -120,6 +120,23 @@ public:
                                                txservice::OperationType operationType,
                                                bool checkUnique);
     /**
+     * @brief Admits a write that the cluster gate holds still, as a schema op is admitted.
+     *
+     * Reads the cluster config record locally in this unit's transaction. A local read takes a
+     * read lock whatever the transaction's protocol and keeps it until the transaction ends, so a
+     * pause of the gate waits for the transaction to commit, and its release publishes the
+     * transaction's commit timestamp, which keeps the pause's timestamp above it. While the gate
+     * is paused, the write is refused. Called before every write to a database's system.views:
+     * a view's create, collMod and drop are writes there, not schema ops, and change data capture
+     * bootstrap needs them held still while it copies the catalog (docs/cdc-change-stream.md
+     * §6.2).
+     *
+     * @return OK, or ClusterGatePaused while the gate is paused, or the read's error.
+     * @throws WriteConflictException If the read conflicts.
+     */
+    Status checkClusterGate();
+
+    /**
      * @brief Point-reads one key in this unit's transaction.
      *
      * @param opCtx Operation context.

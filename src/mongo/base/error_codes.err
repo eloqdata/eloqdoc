@@ -284,6 +284,12 @@ error_code("ChangeStreamHistoryLost", 286)
 # (docs/cdc-change-stream.md §5.1). The client retries the open.
 error_code("ChangeStreamStartNotReady", 5000)
 
+# A schema change (a create, implicit or not, a drop, an index build or drop, a collMod, a view's
+# create, collMod or drop) met a paused cluster gate: change data capture bootstrap is copying the
+# catalog, and no DDL runs until the gate resumes (docs/cdc-change-stream.md §6.2). The client
+# retries after the resume.
+error_code("ClusterGatePaused", 5001)
+
 # Non-sequential error codes (for compatibility only)
 error_code("SocketException", 9001)
 error_code("OBSOLETE_RecvStaleConfig", 9996)
