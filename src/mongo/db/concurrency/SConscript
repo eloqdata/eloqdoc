@@ -26,6 +26,7 @@ env.Library(
         'write_conflict_exception.cpp'
     ],
     LIBDEPS=[
+        '$BUILD_DIR/mongo/db/service_context',
         '$BUILD_DIR/mongo/db/server_parameters',
         '$BUILD_DIR/mongo/idl/idl_parser',
     ],
