@@ -2094,8 +2094,11 @@ DDL still while the catalog is copied:
     write the log entry, so a leader elected afterwards does not resurrect
     an older state. `pause` refuses to stack: a second bootstrap cannot
     silently share a window whose end the first will trigger.
-  - *Observability.* Every node exports a gauge `cluster_gate_paused`:
-    1 while its cluster-config map holds a paused value, 0 otherwise. It
+  - *Observability.* Every node exports a gauge `cluster_gate_paused`,
+    labelled `ng_id`: 1 while its cluster-config map of that node group
+    holds a paused value, 0 otherwise, which includes once the node stops
+    leading the group and the map is dropped; the next leader's replay
+    sets it again. It
     reads the value the map already holds and needs no timestamp. The
     gate-age alert of §8 is a duration rule in the monitoring system: it
     fires when the gauge, taken as the maximum over the cluster's nodes,
@@ -2639,8 +2642,19 @@ capped collections on the sink (§9).
 | `killCursors` / idle timeout with scans in flight | in-flight RPCs cancelled, responses dropped, no blocking (§5.8) | none |
 | Stream opened before the first checkpoint round completes, and the bound is still zero after `cdc_open_wait_ms` | open fails with `ChangeStreamStartNotReady` (§5.1) | consumer retries the open; the message says whether the wait was shorter than one checkpoint round (raise `cdc_open_wait_ms` or `maxTimeMS`) or rounds are not completing (`checkpoint_stall_rounds`, server log) |
 
-Metrics to add: per-group `cdc_arrival_complete_ts`, per-cursor lag
-`(arrival_complete_ts − last emitted ts)`, fence rejections, parked-request count.
+Metrics, exported on the data substrate's metrics endpoint (`/eloq_metrics`)
+when `[metrics] enable_metrics` is on:
+
+- `cdc_arrival_complete_ts{lg_id}` (log service, each replica): the log
+  group's `arrival_complete_ts` in microseconds; the wall clock minus it is
+  the floor of every change stream's lag.
+- `cdc_scan_parked_requests{lg_id}` (log service, the leader): scans parked
+  by the long poll (§5.8), at most `cdc_scan_max_parked`.
+- `cluster_gate_paused{ng_id}` (tx service): see §6.2, Observability.
+- `checkpoint_stall_rounds{ng_id}` (tx service): see the table above.
+
+Still to add: per-cursor lag `(arrival_complete_ts − last emitted ts)` and
+fence rejections.
 
 ## 9. Follow-ups after v1
 

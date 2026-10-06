@@ -23,7 +23,11 @@ eloqClusterGate admin command:
   (ix)   a pause whose write intents meet a conflict (forced by a fault point, since one node
          cannot produce one) releases everything, backs off and succeeds on its next attempt;
   (x)    with authorization on, clusterManager may pause and resume, and a user who may read,
-         write and administer every database may not.
+         write and administer every database may not;
+  (xi)   with metrics on, the exported gauges: cluster_gate_paused reads 1 while paused, also
+         after a restart replays the pause, and 0 after the resume; cdc_arrival_complete_ts
+         advances with the checkpoints; cdc_scan_parked_requests counts a change stream's
+         waiting getMore.
 
 Needs a server built with the fault points (WITH_FAULT_INJECT); skipped otherwise. Requires
 pymongo.
@@ -32,9 +36,11 @@ pymongo.
 import argparse
 import json
 import os
+import re
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 from pymongo import MongoClient
@@ -42,7 +48,7 @@ from pymongo.errors import AutoReconnect, OperationFailure
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ddl_recovery import (Node, crash_during, fault_points_compiled_in,  # noqa: E402
-                          wait_until)
+                          free_port, wait_until)
 
 UNAUTHORIZED = 13
 CONFLICTING_OPERATION_IN_PROGRESS = 117
@@ -343,6 +349,93 @@ def scenario_privileges(node):
           flush=True)
 
 
+METRIC_LINE = re.compile(r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})? (\S+)$')
+LABEL = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\]|\\.)*)"')
+
+
+def scrape(port, name, **labels):
+    """The values of every series of the metric whose labels include the given ones."""
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/eloq_metrics", timeout=5) as reply:
+        text = reply.read().decode()
+    values = []
+    for line in text.splitlines():
+        match = METRIC_LINE.match(line)
+        if not match or match.group(1) != name:
+            continue
+        found = dict(LABEL.findall(match.group(2) or ""))
+        if all(found.get(k) == str(v) for k, v in labels.items()):
+            values.append(float(match.group(3)))
+    return values
+
+
+def gauge(port, name, **labels):
+    """The one series of the metric with the given labels."""
+    values = scrape(port, name, **labels)
+    assert len(values) == 1, (name, labels, values)
+    return values[0]
+
+
+def wait_for(predicate, timeout_s, what):
+    """Waits for the predicate, counting an unreachable endpoint (a restarting node) as false."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            if predicate():
+                return
+        except OSError:
+            pass
+        time.sleep(0.5)
+    raise AssertionError(f"timed out waiting for {what}")
+
+
+def scenario_metrics(node):
+    """(xi) The cluster gate and change data capture gauges, as the metrics endpoint reports them."""
+    port = free_port()
+    node.stop()
+    with (node.root / "data_substrate.cnf").open("a", encoding="utf-8") as config:
+        config.write(f"\n[metrics]\nenable_metrics=true\nmetrics_port={port}\n")
+    node.start()
+    setup(node)
+
+    assert gauge(port, "cluster_gate_paused", ng_id=0) == 0
+    gate(node, "pause")
+    assert gauge(port, "cluster_gate_paused", ng_id=0) == 1
+    node.stop()
+    node.start()
+    # The restart's replay reinstalls the pause.
+    wait_for(lambda: gauge(port, "cluster_gate_paused", ng_id=0) == 1, 60,
+             "cluster_gate_paused after the restart")
+    gate(node, "resume")
+    assert gauge(port, "cluster_gate_paused", ng_id=0) == 0
+
+    # Checkpoint rounds advance arrival_complete_ts towards the wall clock.
+    wait_for(lambda: gauge(port, "cdc_arrival_complete_ts", lg_id=0) > 0, 120,
+             "a first cdc_arrival_complete_ts")
+    first = gauge(port, "cdc_arrival_complete_ts", lg_id=0)
+    wait_for(lambda: gauge(port, "cdc_arrival_complete_ts", lg_id=0) > first, 120,
+             "cdc_arrival_complete_ts advancing")
+    lag_s = time.time() - gauge(port, "cdc_arrival_complete_ts", lg_id=0) / 1e6
+    assert 0 <= lag_s < 120, lag_s
+
+    # A change stream's getMore on an idle database waits parked on the logger.
+    stream = node.client.cluster_gate.watch(max_await_time_ms=10000)
+    stream.try_next()  # the open and a first scan
+    waiting = threading.Thread(target=stream.try_next, daemon=True)
+    waiting.start()
+    peak = 0.0
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline and waiting.is_alive():
+        peak = max(peak, gauge(port, "cdc_scan_parked_requests", lg_id=0))
+        time.sleep(0.2)
+    waiting.join(timeout=30)
+    stream.close()
+    assert peak >= 1, peak
+    wait_for(lambda: gauge(port, "cdc_scan_parked_requests", lg_id=0) == 0, 60,
+             "cdc_scan_parked_requests back to 0")
+    print(f"PASS (xi) the gate and change data capture gauges (lag {lag_s:.1f} s, "
+          f"{peak:.0f} parked)", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -372,7 +465,8 @@ def main():
                             ("ddl-recovered-after-gate", scenario_ddl_recovered_after_gate),
                             ("concurrent-pauses", scenario_concurrent_pauses),
                             ("intent-conflict", scenario_intent_conflict_retried),
-                            ("privileges", scenario_privileges)):
+                            ("privileges", scenario_privileges),
+                            ("metrics", scenario_metrics)):
         if args.scenario and label not in args.scenario:
             continue
         node = Node(args, label)
