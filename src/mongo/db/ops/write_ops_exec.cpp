@@ -41,7 +41,9 @@
 #include "mongo/db/catalog/document_validation.h"
 #include "mongo/db/catalog_raii.h"
 #include "mongo/db/commands.h"
+#include "mongo/db/commands/server_status_metric.h"
 #include "mongo/db/concurrency/write_conflict_exception.h"
+#include "mongo/db/curop_failpoint_helpers.h"
 #include "mongo/db/curop_metrics.h"
 #include "mongo/db/exec/delete.h"
 #include "mongo/db/exec/update.h"
@@ -86,6 +88,19 @@ MONGO_FAIL_POINT_DEFINE(failAllInserts);
 MONGO_FAIL_POINT_DEFINE(failAllUpdates);
 MONGO_FAIL_POINT_DEFINE(failAllRemoves);
 MONGO_FAIL_POINT_DEFINE(hangDuringBatchInsert);
+MONGO_FAIL_POINT_DEFINE(failUpdateManyBatch);
+MONGO_FAIL_POINT_DEFINE(hangAfterUpdateManyBatchCommit);
+MONGO_FAIL_POINT_DEFINE(failAfterUpdateManyBatchCommit);
+
+Counter64 updateManyCommittedBatches;
+Counter64 updateManyCommittedBytes;
+Counter64 updateManyRetriedBatches;
+ServerStatusMetricField<Counter64> updateManyBatchesMetric("updateMany.committedBatches",
+                                                           &updateManyCommittedBatches);
+ServerStatusMetricField<Counter64> updateManyBytesMetric("updateMany.committedBytes",
+                                                         &updateManyCommittedBytes);
+ServerStatusMetricField<Counter64> updateManyRetriesMetric("updateMany.retriedBatches",
+                                                           &updateManyRetriedBatches);
 
 void updateRetryStats(OperationContext* opCtx, bool containsRetry) {
     if (containsRetry) {
@@ -661,10 +676,114 @@ WriteResult performInserts(OperationContext* opCtx,
     return out;
 }
 
+bool canBatchUpdateMany(OperationContext* opCtx) {
+    return !opCtx->getTxnNumber() && !opCtx->getClient()->isInDirectClient() &&
+        !opCtx->lockState()->inAWriteUnitOfWork() &&
+        opCtx->recoveryUnit()->getWriteSetLimitBytes() > 0;
+}
+
+static void executeUpdateBatches(OperationContext* opCtx,
+                                 const NamespaceString& ns,
+                                 PlanExecutor* exec,
+                                 std::unique_ptr<WriteUnitOfWork> batch,
+                                 bool* hasCommittedBatch) {
+    invariant(exec->getRootStage()->stageType() == STAGE_UPDATE);
+    auto update = static_cast<UpdateStage*>(exec->getRootStage());
+    update->enableWriteSetBatching();
+    bool restore = false;
+    int attempt = 0;
+    long long batchNumber = 1;
+    for (;;) {
+        bool needsBatchCommit = false;
+        size_t bytes = 0;
+        auto matchesFailPoint = [&](const BSONObj& data) {
+            return data["namespace"].str() == ns.ns() &&
+                data["batch"].safeNumberLong() == batchNumber;
+        };
+        try {
+            opCtx->checkForInterrupt();
+            if (!batch) {
+                batch = std::make_unique<WriteUnitOfWork>(opCtx);
+            }
+            if (restore) {
+                uassertStatusOK(exec->restoreStateWithoutRetrying());
+            }
+            uassertStatusOK(exec->executePlan(&needsBatchCommit));
+            exec->saveState();
+            restore = true;
+            bytes = opCtx->recoveryUnit()->getWriteSetBytes();
+            MONGO_FAIL_POINT_BLOCK_IF(failUpdateManyBatch, fp, matchesFailPoint) {
+                const auto code =
+                    static_cast<ErrorCodes::Error>(fp.getData()["errorCode"].numberInt());
+                if (code == ErrorCodes::WriteConflict) {
+                    throw WriteConflictException();
+                }
+                uasserted(code, "Injected updateMany batch failure before commit");
+            }
+            opCtx->checkForInterrupt();
+            batch->commit();
+        } catch (const WriteConflictException&) {
+            // Read/validation conflicts and commit conflicts are known aborts. Keep the scan
+            // after the fetched candidates, abort this transaction, and replay only retained IDs.
+            exec->saveState();
+            restore = true;
+            batch.reset();
+            const bool wasUpsert =
+                static_cast<const UpdateStats*>(update->getSpecificStats())->inserted;
+            update->rewindBatch();
+            if (wasUpsert) {
+                // An upsert racing another insert must re-plan to decide update vs insert.
+                // No batch can have committed before a no-match upsert.
+                invariant(!*hasCommittedBatch);
+                throw;
+            }
+            updateManyRetriedBatches.increment();
+            CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
+            WriteConflictException::logAndBackoff(opCtx, ++attempt, "updateMany batch", ns.ns());
+            continue;
+        }
+
+        // This is outside the retry region. Once commit succeeded, neither statistics nor any
+        // later error (including a lost acknowledgement) may cause this prefix to be replayed.
+        batch.reset();
+        *hasCommittedBatch = true;
+        update->confirmBatch();
+        updateManyCommittedBatches.increment();
+        updateManyCommittedBytes.increment(bytes);
+        const auto stats = static_cast<const UpdateStats*>(update->getSpecificStats());
+        LOG(1) << "updateMany committed batch: ns=" << ns.ns() << " batch=" << batchNumber
+               << " bytes=" << bytes << " matched=" << stats->nMatched
+               << " modified=" << stats->nModified
+               << " boundary=" << (needsBatchCommit ? "capacity" : "eof");
+
+        MONGO_FAIL_POINT_BLOCK_IF(failAfterUpdateManyBatchCommit, fp, matchesFailPoint) {
+            uasserted(static_cast<ErrorCodes::Error>(fp.getData()["errorCode"].numberInt()),
+                      "Injected failure after updateMany batch commit");
+        }
+        // Release the failpoint reader before yielding: configureFailPoint may execute on
+        // this same coroutine worker and must not block waiting for a suspended reader.
+        if (hangAfterUpdateManyBatchCommit.shouldFail(matchesFailPoint)) {
+            const auto oldMsg =
+                CurOpFailpointHelpers::updateCurOpMsg(opCtx, "hangAfterUpdateManyBatchCommit");
+            ON_BLOCK_EXIT([&] { CurOpFailpointHelpers::updateCurOpMsg(opCtx, oldMsg); });
+            while (hangAfterUpdateManyBatchCommit.shouldFail(matchesFailPoint)) {
+                opCtx->checkForInterrupt();
+                opCtx->sleepFor(Milliseconds(10));
+            }
+        }
+        if (!needsBatchCommit) {
+            return;
+        }
+        ++batchNumber;
+        attempt = 0;
+    }
+}
+
 static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
                                                const NamespaceString& ns,
                                                StmtId stmtId,
-                                               const write_ops::UpdateOpEntry& op) {
+                                               const write_ops::UpdateOpEntry& op,
+                                               bool* hasCommittedBatch) {
     auto session = OperationContextSession::get(opCtx);
     uassert(ErrorCodes::InvalidOptions,
             "Cannot use (or request) retryable writes with multi=true",
@@ -746,6 +865,14 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
         }
     }
 
+    const bool batchUpdates = op.getMulti() && canBatchUpdateMany(opCtx);
+    std::unique_ptr<WriteUnitOfWork> ownedUnit;
+    if (!opCtx->lockState()->inAWriteUnitOfWork()) {
+        // A command containing multi updates has no command-wide transaction. Each single
+        // update entry still needs one, while multi entries pass ownership to the batch loop.
+        ownedUnit = std::make_unique<WriteUnitOfWork>(opCtx);
+    }
+
     collection.emplace(opCtx,
                        ns,
                        MODE_IX,  // DB is always IX, even if collection is X.
@@ -768,7 +895,15 @@ static SingleWriteResult performSingleUpdateOp(OperationContext* opCtx,
         CurOp::get(opCtx)->setPlanSummary_inlock(Explain::getPlanSummary(exec.get()));
     }
 
-    uassertStatusOK(exec->executePlan());
+    if (batchUpdates) {
+        executeUpdateBatches(opCtx, ns, exec.get(), std::move(ownedUnit), hasCommittedBatch);
+    } else {
+        uassertStatusOK(exec->executePlan());
+        if (ownedUnit) {
+            ownedUnit->commit();
+            *hasCommittedBatch = true;
+        }
+    }
 
     PlanSummaryStats summary;
     Explain::getSummaryStats(*exec, &summary);
@@ -845,8 +980,24 @@ WriteResult performUpdates(OperationContext* opCtx, const write_ops::Update& who
         ON_BLOCK_EXIT([&] { finishCurOp(opCtx, &curOp); });
         try {
             lastOpFixer.startingOp();
-            out.results.emplace_back(
-                performSingleUpdateOp(opCtx, wholeOp.getNamespace(), stmtId, singleOp));
+            bool hasCommittedBatch = false;
+            int attempt = 0;
+            for (;;) {
+                try {
+                    out.results.emplace_back(performSingleUpdateOp(
+                        opCtx, wholeOp.getNamespace(), stmtId, singleOp, &hasCommittedBatch));
+                    break;
+                } catch (const WriteConflictException&) {
+                    if (opCtx->lockState()->inAWriteUnitOfWork() || hasCommittedBatch) {
+                        throw;
+                    }
+                    // Planning/collection creation or a no-match upsert failed before any
+                    // successful batch. Only this operation may be restarted from its query.
+                    CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
+                    WriteConflictException::logAndBackoff(
+                        opCtx, ++attempt, "update setup", wholeOp.getNamespace().ns());
+                }
+            }
             lastOpFixer.finishedOpSuccessfully();
         } catch (const DBException& ex) {
             const bool canContinue =

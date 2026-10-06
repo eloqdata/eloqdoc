@@ -123,6 +123,9 @@ public:
      * 'numInserted' will be set to the number of keys inserted into the index for the document.
      * 'numDeleted' will be set to the number of keys removed from the index for the document.
      */
+    /** Bytes of all writes in a validated ticket, without exposing its private fields. */
+    size_t calculateUpdateWriteBytes(OperationContext* opCtx, const UpdateTicket& ticket);
+
     Status update(OperationContext* opCtx,
                   const UpdateTicket& ticket,
                   int64_t* numInserted,

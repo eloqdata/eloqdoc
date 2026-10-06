@@ -559,7 +559,9 @@ PlanExecutor::ExecState PlanExecutor::waitForInserts(CappedInsertNotifierData* n
     return DEAD;
 }
 
-PlanExecutor::ExecState PlanExecutor::getNextImpl(Snapshotted<BSONObj>* objOut, RecordId* dlOut) {
+PlanExecutor::ExecState PlanExecutor::getNextImpl(Snapshotted<BSONObj>* objOut,
+                                                  RecordId* dlOut,
+                                                  bool* needsBatchCommit) {
     if (MONGO_FAIL_POINT(planExecutorAlwaysFails)) {
         Status status(ErrorCodes::InternalError,
                       str::stream() << "PlanExecutor hit planExecutorAlwaysFails fail point");
@@ -665,6 +667,10 @@ PlanExecutor::ExecState PlanExecutor::getNextImpl(Snapshotted<BSONObj>* objOut, 
                 return PlanExecutor::ADVANCED;
             }
             // This result didn't have the data the caller wanted, try again.
+        } else if (PlanStage::NEED_BATCH_COMMIT == code) {
+            invariant(needsBatchCommit);
+            *needsBatchCommit = true;
+            return PlanExecutor::IS_EOF;  // Internal executePlan control, not root-stage EOF.
         } else if (PlanStage::NEED_YIELD == code) {
             if (id == WorkingSet::INVALID_ID) {
                 if (!_yieldPolicy->canAutoYield())
@@ -756,12 +762,15 @@ void PlanExecutor::dispose(OperationContext* opCtx, CursorManager* cursorManager
     _currentState = kDisposed;
 }
 
-Status PlanExecutor::executePlan() {
+Status PlanExecutor::executePlan(bool* needsBatchCommit) {
     invariant(_currentState == kUsable);
-    BSONObj obj;
+    if (needsBatchCommit) {
+        *needsBatchCommit = false;
+    }
+    Snapshotted<BSONObj> obj;
     PlanExecutor::ExecState state = PlanExecutor::ADVANCED;
     while (PlanExecutor::ADVANCED == state) {
-        state = this->getNext(&obj, NULL);
+        state = getNextImpl(&obj, nullptr, needsBatchCommit);
     }
 
     if (PlanExecutor::DEAD == state || PlanExecutor::FAILURE == state) {
@@ -769,7 +778,7 @@ Status PlanExecutor::executePlan() {
             return _killStatus;
         }
 
-        auto errorStatus = WorkingSetCommon::getMemberObjectStatus(obj);
+        auto errorStatus = WorkingSetCommon::getMemberObjectStatus(obj.value());
         invariant(!errorStatus.isOK());
         return errorStatus.withContext(str::stream() << "Exec error resulting in state "
                                                      << PlanExecutor::statestr(state));

@@ -80,6 +80,11 @@ public:
 
     virtual bool unique() const = 0;
 
+    StatusWith<size_t> calculateWriteBytes(OperationContext* opCtx,
+                                           const BSONObj& key,
+                                           const RecordId& id,
+                                           bool inserting) override;
+
     /**
      * Batch check for duplicate keys before inserting records.
      * Override from SortedDataInterface.
@@ -122,6 +127,14 @@ private:
                                        const RecordId& currentRecordId);
 
 protected:
+    // All index writes and admission checks use this encoding path. Counting may acquire
+    // read-for-write locks (partial unique deletes), but never changes the write set.
+    StatusWith<size_t> _processIndexWrite(OperationContext* opCtx,
+                                          const BSONObj& key,
+                                          const RecordId& id,
+                                          bool inserting,
+                                          bool write);
+
     class BulkBuilder;
     class IdBulkBuilder;
     class UniqueBulkBuilder;

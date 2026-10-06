@@ -28,8 +28,10 @@
 #include "mongo/base/status.h"
 #include "mongo/bson/bsonobj.h"
 #include "mongo/bson/simple_bsonobj_comparator.h"
+#include "mongo/db/commands/server_status_metric.h"
 #include "mongo/db/index/multikey_paths.h"
 #include "mongo/db/query/get_executor.h"
+#include "mongo/db/stats/counters.h"
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
 #include "mongo/util/assert_util.h"
@@ -56,6 +58,13 @@ bvar::LatencyRecorder bVarUpdateRecord("update_record");
 }  // namespace recorder
 
 namespace mongo {
+namespace {
+// Diagnostic accounting for prepared updates, including attempts later aborted. This makes
+// the otherwise transient creating-index path observable without enabling payload logging.
+Counter64 updateManyPreparedCreatingIndexBytes;
+ServerStatusMetricField<Counter64> updateManyCreatingIndexBytesMetric(
+    "updateMany.preparedCreatingIndexBytes", &updateManyPreparedCreatingIndexBytes);
+}  // namespace
 
 struct BatchReadEntry {
     BatchReadEntry() : keyString(KeyString::kLatestVersion) {}
@@ -427,7 +436,8 @@ public:
         : _opCtx{opCtx},
           _ru{EloqRecoveryUnit::get(opCtx)},
           _tableName{rs->tableName()},
-          _keySchema(_ru->getIndexSchema(*rs->tableName())),
+          _keySchema(_ru->getIndexSchema(*rs->tableName())->SchemaTs()),
+          _tableVersion(_ru->discoveredTable(*rs->tableName())._schema->Version()),
           _forward{forward} {
         MONGO_LOG(1) << "EloqRecordStoreCursor::EloqRecordStoreCursor";
     }
@@ -445,7 +455,8 @@ public:
         _opCtx = opCtx;
         _ru = EloqRecoveryUnit::get(opCtx);
         _tableName = rs->tableName();
-        _keySchema = _ru->getIndexSchema(*rs->tableName());
+        _keySchema = _ru->getIndexSchema(*rs->tableName())->SchemaTs();
+        _tableVersion = _ru->discoveredTable(*rs->tableName())._schema->Version();
         _forward = forward;
         _eof = false;
         _lastMongoKey.reset();
@@ -480,6 +491,9 @@ public:
             return {};
         }
 
+        // Retain the last tuple actually returned, even when a subsequent scan request fails
+        // and invalidates the current batch. An aborted batch replays its retained IDs first.
+        _lastMongoKey.emplace(*key);
         RecordId id = key->ToRecordId(false);
         MONGO_LOG(1) << "id: " << id
                      << ". record:" << BSONObj{record->EncodedBlobData()}.jsonString();
@@ -488,6 +502,7 @@ public:
     }
 
     boost::optional<Record> seekExact(const RecordId& id) override {
+        _ru->restoreTable(*_tableName, _tableVersion);
         MONGO_LOG(1) << "EloqRecordStoreCursor::seekExact. table: " << _tableName->StringView()
                      << ", txn: " << _ru->getTxm()->TxNumber() << ", id: " << id;
 
@@ -499,8 +514,8 @@ public:
 
         Eloq::MongoKey pkey(id);
         bool isForWrite = _opCtx->isUpsert();
-        auto [exists, err] = _ru->getKV(
-            _opCtx, *_tableName, _keySchema->SchemaTs(), &pkey, &_idReadRecord, isForWrite);
+        auto [exists, err] =
+            _ru->getKV(_opCtx, *_tableName, _keySchema, &pkey, &_idReadRecord, isForWrite);
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
         if (!exists) {
             MONGO_LOG(1) << "no found. id: " << id << ". Txservice error code: " << err;
@@ -523,22 +538,17 @@ public:
 
     void saveUnpositioned() override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::saveUnpositioned " << _tableName->StringView();
-        // _lastMongoKey.reset();
-        if (!_eof && _cursor && _cursor->currentBatchTuple() != nullptr) {
-            _lastMongoKey.emplace(*_cursor->currentBatchTuple()->key_.GetKey<Eloq::MongoKey>());
-        }
         _cursor.reset();
     }
 
     void save() override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::save " << _tableName->StringView();
-        if (!_eof && _cursor && _cursor->currentBatchTuple() != nullptr) {
-            _lastMongoKey.emplace(*_cursor->currentBatchTuple()->key_.GetKey<Eloq::MongoKey>());
-        }
+        // next() and seekExact() already own the last returned key.
     }
 
     bool restore() override {
         MONGO_LOG(1) << "EloqRecordStoreCursor::restore " << _tableName->StringView();
+        _ru->restoreTable(*_tableName, _tableVersion);
         // Don't open scan here.
         // Mongo may call seekExact which don't need a scan in TxService
         return true;
@@ -570,6 +580,7 @@ private:
     void _seekCursor(bool startInclusive = false) {
         MONGO_LOG(1) << "EloqRecordStoreCursor::_seekIter";
 
+        _ru->restoreTable(*_tableName, _tableVersion);
         _cursor.emplace(_opCtx);
         if (_lastMongoKey) {
             _startKey = txservice::TxKey(&_lastMongoKey.get());
@@ -590,7 +601,7 @@ private:
         bool isForWrite = _opCtx->isUpsert();
         bool endSpecified = false;
         _cursor->indexScanOpen(_tableName,
-                               _keySchema->SchemaTs(),
+                               _keySchema,
                                txservice::ScanIndexType::Primary,
                                &_startKey,
                                startInclusive,
@@ -605,7 +616,9 @@ private:
     OperationContext* _opCtx;                         // not owned
     EloqRecoveryUnit* _ru;                            // not owned
     const txservice::TableName* _tableName{nullptr};  // not owned
-    const txservice::KeySchema* _keySchema{nullptr};  // not owned
+    // Schema objects belong to a transaction; retain values across cursor save/restore.
+    uint64_t _keySchema;
+    uint64_t _tableVersion;
 
     bool _forward;
     bool _eof{false};
@@ -917,6 +930,18 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
     };
     auto guard = MakeGuard(recordLatency);
 
+    return _updateRecord(opCtx, id, data, len, true).getStatus();
+}
+
+size_t EloqRecordStore::calculateUpdateWriteBytes(OperationContext* opCtx,
+                                                  const RecordId& id,
+                                                  const char* data,
+                                                  int len) {
+    return uassertStatusOK(_updateRecord(opCtx, id, data, len, false));
+}
+
+StatusWith<size_t> EloqRecordStore::_updateRecord(
+    OperationContext* opCtx, const RecordId& id, const char* data, int len, bool write) {
     mongo::BSONObj recordObj(data);
     MONGO_LOG(1) << "EloqRecordStore::updateRecord" << ". id: " << id;
 
@@ -935,15 +960,23 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
     if (const auto& typeBits = idKeyString.getTypeBits(); !typeBits.isAllZeros()) {
         mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
     }
-    auto err = ru->setKV(_tableName,
-                         pkeySchemaVersion,
-                         std::move(mongoKey),
-                         std::move(mongoRecord),
-                         txservice::OperationType::Update,
-                         false);
-    if (err != txservice::TxErrorCode::NO_ERROR) {
-        return TxErrorCodeToMongoStatus(err);
-    }
+    size_t bytes = 0;
+    auto addWrite = [&](const txservice::TableName& name,
+                        uint64_t schemaVersion,
+                        std::unique_ptr<Eloq::MongoKey> key,
+                        std::unique_ptr<Eloq::MongoRecord> record) {
+        bytes += txservice::ReadWriteSet::WriteBytes(txservice::TxKey(key.get()), record.get());
+        if (write) {
+            uassertStatusOK(TxErrorCodeToMongoStatus(ru->setKV(name,
+                                                               schemaVersion,
+                                                               std::move(key),
+                                                               std::move(record),
+                                                               txservice::OperationType::Update,
+                                                               false)));
+        }
+    };
+    addWrite(_tableName, pkeySchemaVersion, std::move(mongoKey), std::move(mongoRecord));
+    const size_t recordBytes = bytes;
 
     // For creating index
     try {
@@ -971,21 +1004,18 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
                 }
             }
 
-            const BSONObj& skObj = *keys.cbegin();
-            KeyString keyString(KeyString::kLatestVersion, skObj, keySchema->Ordering(), id);
-            auto mongoKey =
-                std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-            auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-            if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
-                mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
+            // A building multikey index may produce several entries (or none for a sparse
+            // document). Every emitted write uses the same accounting as the primary record.
+            for (const auto& skObj : keys) {
+                KeyString keyString(KeyString::kLatestVersion, skObj, keySchema->Ordering(), id);
+                auto key =
+                    std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
+                auto record = std::make_unique<Eloq::MongoRecord>();
+                if (const auto& bits = keyString.getTypeBits(); !bits.isAllZeros()) {
+                    record->SetUnpackInfo(bits.getBuffer(), bits.getSize());
+                }
+                addWrite(indexName, keySchema->SchemaTs(), std::move(key), std::move(record));
             }
-            err = ru->setKV(indexName,
-                            keySchema->SchemaTs(),
-                            std::move(mongoKey),
-                            std::move(mongoRecord),
-                            txservice::OperationType::Update,
-                            false);
-            uassertStatusOK(TxErrorCodeToMongoStatus(err));
         }
     } catch (const mongo::DBException& e) {
         MONGO_LOG(1)
@@ -994,7 +1024,10 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
         return e.toStatus();
     }
 
-    return Status::OK();
+    if (!write && !table._creatingIndexes.empty()) {
+        updateManyPreparedCreatingIndexBytes.increment(bytes - recordBytes);
+    }
+    return bytes;
 }
 
 bool EloqRecordStore::updateWithDamagesSupported() const {

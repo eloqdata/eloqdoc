@@ -151,6 +151,11 @@ public:
         // on the WSM that the held WSID refers to.
         NEED_YIELD,
 
+        // An opt-in multi-update has prepared a whole document which does not fit the current
+        // transaction. No writes for that document were made. The batch owner must commit,
+        // restore the plan in a new transaction, and re-read the retained candidate.
+        NEED_BATCH_COMMIT,
+
         // Something went wrong but it's not an internal error.  Perhaps our collection was
         // dropped or state deleted.
         DEAD,
@@ -170,6 +175,8 @@ public:
             return "IS_EOF";
         } else if (NEED_TIME == state) {
             return "NEED_TIME";
+        } else if (NEED_BATCH_COMMIT == state) {
+            return "NEED_BATCH_COMMIT";
         } else if (NEED_YIELD == state) {
             return "NEED_YIELD";
         } else if (DEAD == state) {

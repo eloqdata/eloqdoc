@@ -129,6 +129,7 @@ void EloqCursor::indexScanClose() {
     _scanAlias = UINT64_MAX;
     _isLastScanBatch = false;
     _scanBatchIdx = UINT64_MAX;
+    _currentBatchTuple = nullptr;
     _scanBatchVector.clear();
 }
 
