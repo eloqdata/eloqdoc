@@ -140,7 +140,7 @@ We will publish more detailed benchmarks in future.
 your platform. Set `VERSION` to the release you want:
 
 ```bash
-VERSION=0.2.7
+VERSION=nightly
 wget -c https://github.com/eloqdata/eloqdoc/releases/download/$VERSION/eloqdoc-$VERSION-rocksdb-ubuntu24-amd64.tar.gz
 ```
 
@@ -189,17 +189,23 @@ Implicit session: session { "id" : UUID("288393c1-aff6-4a84-ad46-dee6691b361d") 
 
 **Step-1**, download the official package for EloqDoc-RocksDBCloud from the
 [releases page](https://github.com/eloqdata/eloqdoc/releases). Pick the
-`rocks_s3` variant for your platform, and set `VERSION` to the release you want:
+`rocks_s3` variant for your platform. The following example uses the `nightly`
+release on Ubuntu 24.04 and detects whether your machine is AMD64 or ARM64:
 
 ```bash
-VERSION=0.2.7
-wget -c https://github.com/eloqdata/eloqdoc/releases/download/$VERSION/eloqdoc-$VERSION-rocks_s3-ubuntu24-amd64.tar.gz
+VERSION=nightly
+case "$(uname -m)" in
+  x86_64) ARCH=amd64 ;;
+  aarch64) ARCH=arm64 ;;
+  *) echo "Unsupported architecture"; exit 1 ;;
+esac
+wget -c https://github.com/eloqdata/eloqdoc/releases/download/$VERSION/eloqdoc-$VERSION-rocks_s3-ubuntu24-$ARCH.tar.gz
 ```
 
 **Step-2**, uncompress the package to your `$HOME`.
 
 ```bash
-mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-$VERSION-rocks_s3-ubuntu24-amd64.tar.gz -C $HOME/eloqdoc-rocksdbcloud
+mkdir $HOME/eloqdoc-rocksdbcloud && tar -xf eloqdoc-$VERSION-rocks_s3-ubuntu24-$ARCH.tar.gz -C $HOME/eloqdoc-rocksdbcloud
 ```
 
 After uncompress the package, you should see three directories: `bin`, `lib`, and `etc`.
@@ -215,30 +221,45 @@ cd $HOME/eloqdoc-rocksdbcloud && ls
 mkdir db logs data
 ```
 
-**Step-4**, start a S3 emulator, takes `minio` as an example.
+**Step-4**, start RustFS as a local S3-compatible object store. Install and start
+[Docker Engine](https://docs.docker.com/engine/install/ubuntu/) first. Your user
+must be able to run `docker` commands; use `sudo docker` if required. Run the
+following example based on the
+[RustFS Docker guide](https://docs.rustfs.com/en/installation/container/docker):
 
 ```bash
-cd $HOME
-mkdir minio-service && cd minio-service
-wget https://dl.min.io/server/minio/release/linux-amd64/minio
-chmod +x minio
-./minio server ./data
+docker volume create eloqdoc-rustfs-data
+docker run -d --name eloqdoc-rustfs \
+  -p 127.0.0.1:9000:9000 \
+  -v eloqdoc-rustfs-data:/data \
+  -e RUSTFS_ADDRESS=0.0.0.0:9000 \
+  -e RUSTFS_ACCESS_KEY=rustfsadmin \
+  -e RUSTFS_SECRET_KEY=rustfsadmin \
+  -e RUSTFS_CONSOLE_ENABLE=false \
+  rustfs/rustfs:1.0.0 /data
+curl --noproxy '*' --fail --max-time 5 \
+  --retry 30 --retry-all-errors --retry-delay 1 \
+  http://127.0.0.1:9000/health/ready
 ```
 
-By default, `minio` listens on `http://127.0.0.1:9000`, whose default credentials is `minioadmin:minioadmin`,.
+This example exposes the S3 API at `http://127.0.0.1:9000` and uses
+`rustfsadmin:rustfsadmin` for local testing, matching the CI credentials.
 
 **Step-5**, go back to the package directory and start the server. The shipped
-configs already point at the local minio and use paths relative to the package
-directory, so no editing is needed to try it out:
+configs point at `http://127.0.0.1:9000` and use paths relative to the package
+directory. Override their placeholder S3 credentials with the values used above:
 
 ```bash
 cd $HOME/eloqdoc-rocksdbcloud
-./bin/eloqdoc --config=./etc/eloqdoc.conf --data_substrate_config=./etc/data_substrate.cnf
+./bin/eloqdoc --config=./etc/eloqdoc.conf \
+  --data_substrate_config=./etc/data_substrate.cnf \
+  --aws_access_key_id=rustfsadmin --aws_secret_key=rustfsadmin
 ```
 
 **Step-6**, open another terminal and run mongo client.
 
 ```bash
+cd $HOME/eloqdoc-rocksdbcloud
 ./bin/eloqdoc-cli --eval "db.t1.save({k: 1}); db.t1.find();"
 ```
 
