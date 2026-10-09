@@ -24,6 +24,7 @@
 #pragma once
 
 #include <boost/optional.hpp>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -38,6 +39,24 @@
 #include "mongo/db/pipeline/document.h"
 
 namespace mongo {
+
+/**
+ * @brief A stream's progress, for readers on other threads (serverStatus, §8): kept by the stream
+ * after every pull, read without a lock.
+ */
+struct CdcStreamStats {
+    /** The emit bound the stream last saw: every log group is complete through it, microseconds. */
+    std::atomic<uint64_t> emitBound{0};
+    /**
+     * The commit timestamp the stream has produced through, microseconds: the last event's, or
+     * the emit bound once a pull found nothing more. Its distance below emitBound is the lag.
+     */
+    std::atomic<uint64_t> producedThrough{0};
+    /** Entries that went unrecorded because a dedup set was full (cdc_dedup_set_overflow). */
+    std::atomic<uint64_t> dedupOverflows{0};
+    /** When the stream last pulled, milliseconds since the epoch; 0 before its first pull. */
+    std::atomic<long long> lastPullMillis{0};
+};
 
 /**
  * @brief Limits of a CdcEventStream; the defaults are the design's.
@@ -221,7 +240,33 @@ public:
         return _source;
     }
 
+    /**
+     * @brief The stream's progress, updated after every next(); readable from any thread while
+     * the stream lives.
+     *
+     * @return The stats.
+     */
+    const CdcStreamStats& stats() const {
+        return _stats;
+    }
+
 private:
+    /**
+     * @brief next()'s work: the next event, or none.
+     *
+     * @param deadline When to stop waiting.
+     * @param coro How to wait.
+     * @return The event, or none.
+     */
+    boost::optional<Document> _next(Date_t deadline, const CoroutineFunctors& coro);
+
+    /**
+     * @brief Brings _stats up to date after a pull.
+     *
+     * @param event What the pull returned.
+     */
+    void _publishStats(const boost::optional<Document>& event);
+
     /**
      * @brief A group's resume point from the token, until the group moves past T_K.
      */
@@ -363,6 +408,7 @@ private:
     const BSONObj _noToken;     ///< What invalidateToken() returns before the invalidate.
     uint64_t _duplicatesSuppressed = 0;
     uint64_t _dedupOverflows = 0;
+    CdcStreamStats _stats;  ///< See stats().
 };
 
 }  // namespace mongo

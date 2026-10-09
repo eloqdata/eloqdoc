@@ -84,9 +84,19 @@ TRANSIENT_CODES = {
 TOKEN_KIND_EVENT = 0
 TOKEN_KIND_WATERMARK = 1
 
+# The bootstraps a lost history may start before the stream catches up once (Consumer).
+MAX_REBOOTSTRAPS = 3
+# How close to the consumer's clock a watermark must be for the stream to count as caught up.
+CATCH_UP_WINDOW_US = 60 * 1000 * 1000
+
 
 class ConsumerHalted(Exception):
     """An error the consumer must not guess past: it stops with the saved token intact."""
+
+
+class HistoryLost(ConsumerHalted):
+    """The stream's position is older than the history the source keeps (ChangeStreamHistoryLost,
+    §4.5): nothing can resume from it, so the sink is bootstrapped again."""
 
 
 def token_timestamp(token):
@@ -97,6 +107,18 @@ def token_timestamp(token):
 def token_kind(token):
     """The kind a resume token records: 0 event, 1 watermark, 2 invalidate."""
     return int(token["_data"][18:20], 16)
+
+
+def shows_catch_up(token, start_ts, now_us):
+    """Whether an applied batch's token proves the stream has reached the source's tail: a
+    watermark above the position the stream started from (an unchanged opening watermark, which a
+    poll that timed out returns while its scan is pending, proves nothing), and within
+    CATCH_UP_WINDOW_US of the consumer's clock (a stream that advances but stays behind is not
+    caught up). Clock skew or a stalled checkpoint can only keep it from counting."""
+    if token is None or token_kind(token) != TOKEN_KIND_WATERMARK:
+        return False
+    ts = token_timestamp(token)
+    return ts > start_ts and now_us - ts <= CATCH_UP_WINDOW_US
 
 
 def is_transient(exc):
@@ -288,14 +310,18 @@ DML_TYPES = ("insert", "replace", "delete")
 class Applier:
     """Applies events to the sink in the order §6.1 requires, over a pool of slots."""
 
-    def __init__(self, sink, progress, slots=8, stop=None, in_scope=None):
+    def __init__(self, sink, progress, slots=8, stop=None, in_scope=None, fetch=None):
         """in_scope(db) says whether events in database db are applied; default all of them. The
-        stream is deployment-wide, so the events of every other database are skipped here."""
+        stream is deployment-wide, so the events of every other database are skipped here.
+        fetch(db, coll, document_key) reads a document from the source, or returns None if it is
+        gone: an insert or replace over 16 MB arrives without its document (fullDocumentOmitted,
+        §5.8) and is applied from that read; without fetch such an event halts the consumer."""
         self.sink = sink
         self.progress = progress
         self.slots = slots
         self.stop = stop or threading.Event()
         self.in_scope = in_scope or (lambda db: True)
+        self.fetch = fetch
         self.pool = ThreadPoolExecutor(max_workers=slots, thread_name_prefix="slot")
 
     def close(self):
@@ -311,11 +337,11 @@ class Applier:
             db, coll = event["ns"]["db"], event["ns"].get("coll", "")
             if not self.in_scope(db):
                 continue
-            if kind in DML_TYPES and kind != "delete" and "fullDocument" not in event:
-                # Point-reading the document by its key (§5.8) is plan E3, not built yet.
+            if (kind in DML_TYPES and kind != "delete" and "fullDocument" not in event and
+                    self.fetch is None):
                 raise ConsumerHalted(
                     f"{kind} on {db}.{coll} arrived without its document (fullDocumentOmitted: an "
-                    f"event over 16 MB), which this consumer cannot apply yet: "
+                    f"event over 16 MB), and this applier cannot read it from the source: "
                     f"{event['documentKey']}")
             if coll == VIEWS_COLLECTION:
                 # A view's definition changed: a DDL on the sink, behind the barrier.
@@ -357,14 +383,32 @@ class Applier:
         """One slot's share: per collection, in stream order, as ordered bulk writes."""
         groups = []
         for event in events:
+            op = self._op_of(event)
+            if op is None:
+                continue
             ns = (event["ns"]["db"], event["ns"]["coll"])
             if groups and groups[-1][0] == ns:
-                groups[-1][1].append(dml_op(event))
+                groups[-1][1].append(op)
             else:
-                groups.append((ns, [dml_op(event)]))
+                groups.append((ns, [op]))
         for (db, coll), ops in groups:
             retry_transient(f"bulkWrite on {db}.{coll}",
                             lambda: self.sink.bulk_write(db, coll, ops), self.stop)
+
+    def _op_of(self, event):
+        """The sink write for a DML event, or None for one to skip. An event without its document
+        is applied from the document the source holds now, read here in its slot: a newer version
+        is harmless, since the later events of that document follow in the same slot and re-apply
+        it in order; a document gone since is skipped, its delete event follows (§5.8)."""
+        if event["operationType"] == "delete" or "fullDocument" in event:
+            return dml_op(event)
+        db, coll, key = event["ns"]["db"], event["ns"]["coll"], event["documentKey"]
+        doc = retry_transient(f"read {db}.{coll} {key} for an event without its document",
+                              lambda: self.fetch(db, coll, key), self.stop)
+        if doc is None:
+            LOG.info("skipping an event without its document on %s.%s: %s is gone", db, coll, key)
+            return None
+        return ReplaceOne({"_id": key["_id"]}, doc, upsert=True)
 
     def _apply_view_event(self, event):
         """An event on system.views, as the view command it stands for."""
@@ -408,6 +452,8 @@ def open_stream(source, resume_after=None, max_await_ms=1000, stop=None):
         try:
             return source.watch(resume_after=resume_after, max_await_time_ms=max_await_ms)
         except OperationFailure as exc:
+            if exc.code == CHANGE_STREAM_HISTORY_LOST:
+                raise HistoryLost(f"opening the change stream: {exc}") from exc
             if exc.code != CHANGE_STREAM_START_NOT_READY and not is_transient(exc):
                 raise ConsumerHalted(f"opening the change stream: {exc}") from exc
             LOG.info("change stream not ready yet, retrying in %.1f s: %s", delay, exc)
@@ -436,8 +482,11 @@ class Consumer:
 
     def __init__(self, source, sink_client, databases=None, slots=8, batch=1000,
                  max_await_ms=1000, progress_name="progress", fail_before_publish=False,
-                 before_copy_collection=None, unsafe_skip_gate=False):
-        """before_copy_collection(db, coll) and unsafe_skip_gate are test hooks: the first runs
+                 before_copy_collection=None, unsafe_skip_gate=False,
+                 max_rebootstraps=MAX_REBOOTSTRAPS):
+        """max_rebootstraps bounds the bootstraps a lost history may start before the stream has
+        caught up once: each one drops the sink's in-scope data, so past it the consumer halts.
+        before_copy_collection(db, coll) and unsafe_skip_gate are test hooks: the first runs
         before each collection's copy, the second bootstraps without the cluster gate, to show
         what the gate prevents. Neither is reachable from the command line."""
         self.source = source
@@ -451,8 +500,12 @@ class Consumer:
         self.fail_before_publish = fail_before_publish
         self.before_copy_collection = before_copy_collection
         self.unsafe_skip_gate = unsafe_skip_gate
+        self.max_rebootstraps = max_rebootstraps
         self.stop = threading.Event()
         self.last_token = None
+        # Set once stream_from() applies a batch that shows it reached the source's tail
+        # (shows_catch_up).
+        self.caught_up = False
 
     def run(self):
         """Runs until stop is set or an error halts it."""
@@ -460,9 +513,30 @@ class Consumer:
             raise ConsumerHalted("the sink's write concern is unacknowledged (w: 0): a checkpoint "
                                  "could get ahead of the writes it covers")
         token = self.progress.load()
-        if token is None:
-            token = self.bootstrap()
-        self.stream_from(token)
+        rebootstraps = 0
+        while True:
+            if token is None:
+                token = self.bootstrap()
+            self.caught_up = False
+            try:
+                self.stream_from(token)
+                return
+            except HistoryLost as exc:
+                # The source no longer holds the history after the saved position, so the sink
+                # cannot catch up from it; a fresh bootstrap discards it and starts over (§8).
+                # Each one drops the sink's data, so only a few run before the stream has caught
+                # up once: a history kept shorter than a bootstrap takes would lose every one.
+                rebootstraps = 1 if self.caught_up else rebootstraps + 1
+                if rebootstraps > self.max_rebootstraps:
+                    raise ConsumerHalted(
+                        f"{exc}, again, after {self.max_rebootstraps} bootstraps in a row that "
+                        "never caught up with the source: its history retention "
+                        "(txlog_cdc_retention_seconds) is likely shorter than a bootstrap takes, "
+                        "or this consumer is too slow for it. Raise the retention or speed up "
+                        "the consumer, then start it again (runbook §4)") from exc
+                LOG.warning("%s; bootstrapping the sink again (%d of at most %d in a row)", exc,
+                            rebootstraps, self.max_rebootstraps)
+                token = None
 
     def in_scope(self, db):
         if db in SYSTEM_DATABASES:
@@ -588,8 +662,14 @@ class Consumer:
                             ops, ordered=False, bypass_document_validation=True),
                         self.stop)
 
+    def fetch_document(self, db, coll, document_key):
+        """The document the source holds now under document_key, or None if it is gone."""
+        return self.source[db][coll].find_one({"_id": document_key["_id"]})
+
     def stream_from(self, token):
-        applier = Applier(self.sink, self.progress, self.slots, self.stop, self.in_scope)
+        start_ts = token_timestamp(token)
+        applier = Applier(self.sink, self.progress, self.slots, self.stop, self.in_scope,
+                          self.fetch_document)
         try:
             with open_stream(self.source, token, self.max_await_ms, self.stop) as stream:
                 while not self.stop.is_set():
@@ -597,13 +677,14 @@ class Consumer:
                         events, batch_token = drain(stream, self.batch)
                     except OperationFailure as exc:
                         if exc.code == CHANGE_STREAM_HISTORY_LOST:
-                            raise ConsumerHalted(
-                                "the stream's history is gone (ChangeStreamHistoryLost): the "
-                                "sink must be bootstrapped again") from exc
+                            raise HistoryLost(
+                                "the stream's history is gone (ChangeStreamHistoryLost)") from exc
                         raise ConsumerHalted(f"reading the change stream: {exc}") from exc
                     if events or batch_token != self.last_token:
                         applier.apply_batch(events, batch_token)
                         self.last_token = batch_token
+                        if shows_catch_up(batch_token, start_ts, int(time.time() * 1e6)):
+                            self.caught_up = True
         finally:
             applier.close()
 
@@ -622,12 +703,17 @@ def main(argv=None):
     parser.add_argument("--progress-name", default="progress",
                         help="the checkpoint document's _id, to run several consumers into one "
                         "sink")
+    parser.add_argument("--max-rebootstraps", type=int, default=MAX_REBOOTSTRAPS,
+                        help="bootstraps a lost history (ChangeStreamHistoryLost) may start before "
+                        "the stream catches up once; past it the consumer halts, since each one "
+                        "drops the sink's data")
     parser.add_argument("--fail-before-publish", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     consumer = Consumer(pymongo.MongoClient(args.source), pymongo.MongoClient(args.sink),
                         args.databases, args.slots, args.batch, args.max_await_ms,
-                        args.progress_name, args.fail_before_publish)
+                        args.progress_name, args.fail_before_publish,
+                        max_rebootstraps=args.max_rebootstraps)
     try:
         consumer.run()
     except ConsumerHalted as exc:

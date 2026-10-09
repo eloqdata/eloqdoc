@@ -479,9 +479,11 @@ env.Library(
 env.Library(
     target="cdc_change_stream",
     source=[
+        "src/cdc/cdc_stream_registry.cpp",
         "src/cdc/document_source_eloq_change_stream.cpp",
     ],
     LIBDEPS=[
+        "$BUILD_DIR/mongo/db/commands/server_status",
         "$BUILD_DIR/mongo/db/pipeline/pipeline",
         "$BUILD_DIR/mongo/db/query/query_common",
         "$BUILD_DIR/mongo/db/server_parameters",

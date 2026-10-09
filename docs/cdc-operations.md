@@ -99,3 +99,109 @@ needs no restart: only the store's recovery finishes it.
 
 Do not delete or roll back the log service's data to get rid of the DDL: its logs are the only
 record that it happened, and the catalog, the store and every stream's DDL events depend on them.
+
+## 2. Schema changes stay paused: a bootstrap's pause was never resumed
+
+### What happens
+
+A consumer's bootstrap pauses schema changes cluster-wide with `eloqClusterGate {op: "pause"}`
+while it copies the catalog, and resumes them when the copy ends (design §6.2). The pause has no
+timeout: it lasts until someone resumes it, on every node group, across restarts and failovers.
+The reference consumer resumes it itself when its copy fails with an error; only a consumer that
+dies during the copy (killed, its host lost) leaves it in place.
+
+### Symptoms
+
+- Every schema change fails at once with `ClusterGatePaused` (5001), "Schema changes are paused
+  by the cluster gate; retry after it resumes": create and drop, implicit creates, index builds
+  and drops, `collMod`, and a view's create, `collMod` and drop. Reads and writes of documents are
+  not affected.
+- The gauge `cluster_gate_paused{ng_id}` reads 1 on the node groups' leaders, and the gate-age
+  alert (§4) fires.
+
+### Tell it apart from
+
+A bootstrap still copying. Its consumer logs `bootstrap: copying <db>.<collection>` lines, and its
+checkpoint in the sink, `admin.__eloq_cdc_progress`, reads `{state: "bootstrapping"}`. Resuming the
+gate under a running copy abandons that copy: DDL can then reach the source during the copy, and
+the sink can end up with a definition the stream contradicts. Wait for it, or stop it first.
+
+### Fix
+
+1. Make sure no consumer is copying: stop the consumer whose bootstrap paused the gate, if it is
+   still running.
+2. Resume the gate, as a user with the `eloqClusterGate` action on the cluster (`clusterManager`,
+   `clusterAdmin` or `root`): `db.adminCommand({eloqClusterGate: {op: "resume"}})`. It replies with
+   the resume's timestamp; resuming an open gate is harmless.
+3. Start the consumer again. Its checkpoint still says `bootstrapping`, so it bootstraps from the
+   start, pausing the gate again for its copy.
+
+## 3. A bootstrap cannot start: the gate is already paused
+
+### What happens
+
+`eloqClusterGate {op: "pause"}` fails with `ConflictingOperationInProgress` when the gate is
+already paused. Pauses do not stack, so that a second bootstrap cannot share a window the first one
+will close. The reference consumer then halts with "the cluster gate is already paused: another
+bootstrap is running, an earlier one was abandoned, or this consumer's own pause was completed
+after its reply was lost".
+
+### Fix
+
+Find which of the three it is. If another consumer is copying (§2, "Tell it apart from"), wait for
+it to finish, or stop it. Otherwise the pause is abandoned, or the reply to this consumer's own
+pause was lost and the pause completed anyway: resume the gate (§2, step 2) and start the consumer
+again. Two bootstraps at the same time are an operator error.
+
+## 4. Retention, lag and the alerts to set
+
+### History retention
+
+A change stream reads the log service's history, which the log service purges once it is
+checkpointed. `txlog_cdc_retention_seconds`, in the `[local]` section of the data substrate
+configuration (default 0), keeps every record from the last that many seconds before the
+checkpoint, on both log states (see
+[configuration-description.md](configuration-description.md#history-retention-for-change-streams)).
+**Set it above the longest a consumer may stay down or behind.** In this version a consumer whose
+position falls behind the retained history is not told: its stream resumes at the oldest record
+still kept, and the changes in between are lost to it (design §8). Retention is the only
+protection; when a consumer did fall behind, bootstrap it again, which drops the namespaces it
+mirrors on the sink and copies them afresh: stop the reference consumer, set its checkpoint
+document in `admin.__eloq_cdc_progress` to `{state: "bootstrapping"}` (or delete it), and start it.
+It also bootstraps again on its own when the source reports `ChangeStreamHistoryLost`, which a
+future log service will do once it tracks where its history begins; since each bootstrap drops the
+sink's data, it does so at most three times (`--max-rebootstraps`) before its stream has caught up
+with the source once, which takes a watermark above where the stream started and within a minute of
+the consumer's clock, and then halts: the history is kept for less time than a bootstrap takes, or
+the consumer is too slow for it. Raise `txlog_cdc_retention_seconds`, or speed the consumer up,
+before starting it again.
+
+### Lag
+
+- `cdc_arrival_complete_ts{lg_id}` is how far each log group's history is complete, in
+  microseconds; `time() - cdc_arrival_complete_ts / 1e6` is how far behind the wall clock every
+  stream must be at least. It normally stays within two checkpoint rounds (`checkpointer_interval`,
+  default 10 s); when it grows, a checkpoint is stalling, which `checkpoint_stall_rounds{ng_id}`
+  confirms (§1).
+- A consumer's own lag is the wall clock minus the timestamp of the token it saved last. The
+  reference consumer saves it in `admin.__eloq_cdc_progress` on the sink: the timestamp is the 16
+  hexadecimal digits after the first two of the token's `_data`, in microseconds.
+- `serverStatus`'s `eloqChangeStreams` section lists the server's open streams with each one's
+  lag (`lagMicros`: how far what it has produced lies below what it could already have) and
+  `idleMillis`, the time since its consumer last read from it. A stream's positions move only when
+  it is read, so a consumer that stopped reading shows as a lag that stands still while
+  `idleMillis` grows. `maxLagMicros` is the largest lag of all.
+- `cdc_scan_parked_requests{lg_id}` counts the streams waiting for new history on a log group's
+  leader; past `cdc_scan_max_parked` (default 1024) new waits are answered at once and the streams
+  poll instead.
+
+### Alerts
+
+The metrics are on the data substrate's metrics endpoint (`/eloq_metrics`, `[metrics]
+enable_metrics`):
+
+- **Gate age**: `max(cluster_gate_paused) == 1` held for longer than the longest copy you expect
+  (a duration rule: in Prometheus, `for:`). Nothing else surfaces a forgotten pause (§2).
+- **History lag**: `time() - min(cdc_arrival_complete_ts) / 1e6` above a few checkpoint rounds.
+- **Consumer lag**: the consumer's own lag above a margin well under `txlog_cdc_retention_seconds`,
+  so that it is noticed before history it still needs is purged.

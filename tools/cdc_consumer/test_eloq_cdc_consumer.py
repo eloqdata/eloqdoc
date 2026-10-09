@@ -170,6 +170,33 @@ class ApplierTest(unittest.TestCase):
         self.assertEqual(self.sink.calls, [])
         self.assertEqual(self.progress.saved, [])
 
+    def test_an_omitted_document_is_read_from_the_source(self):
+        reads = []
+
+        def fetch(db, coll, key):
+            reads.append((db, coll, key))
+            return {"_id": key["_id"], "v": "as the source holds it now"} if key["_id"] == 2 else None
+
+        applier = consumer.Applier(self.sink, self.progress, slots=4, fetch=fetch)
+        try:
+            present = dml("insert", "c", 2, 2)
+            gone = dml("replace", "c", 3, 3)
+            for event in (present, gone):
+                del event["fullDocument"]
+                event["fullDocumentOmitted"] = True
+            applier.apply_batch([dml("insert", "c", 1, 1), present, gone,
+                                 dml("delete", "c", 3, 4)], token(4))
+        finally:
+            applier.close()
+        self.assertEqual(sorted(reads, key=repr),
+                         [("app", "c", {"_id": 2}), ("app", "c", {"_id": 3})])
+        ops = [op for call in self.sink.calls for op in call[3]]
+        # The gone document's replace is skipped; its delete still applies.
+        self.assertEqual(sorted(ops, key=repr),
+                         sorted([("ReplaceOne", {"_id": 1}), ("ReplaceOne", {"_id": 2}),
+                                 ("DeleteOne", {"_id": 3})], key=repr))
+        self.assertEqual(self.progress.saved, [token(4)])
+
     def test_view_changes_become_view_commands(self):
         view = {"viewOn": "c", "pipeline": [{"$match": {"a": 1}}]}
         events = [dml("insert", "c", 1, 1),
@@ -306,6 +333,182 @@ class MongoSinkTest(unittest.TestCase):
         sink, _ = self.sink(OperationFailure("conflict", consumer.INDEX_KEY_SPECS_CONFLICT))
         with self.assertRaises(consumer.ConsumerHalted):
             sink.create_indexes("app", "c", [{"v": 2, "key": {"a": 1}, "name": "a_1"}])
+
+
+class FakeSource:
+    """A source whose watch() fails as told."""
+
+    def __init__(self, fail):
+        self.fail = fail
+
+    def watch(self, **kwargs):
+        raise self.fail
+
+
+class HistoryLostTest(unittest.TestCase):
+    def test_open_reports_a_lost_history(self):
+        lost = OperationFailure("history lost", consumer.CHANGE_STREAM_HISTORY_LOST)
+        with self.assertRaises(consumer.HistoryLost):
+            consumer.open_stream(FakeSource(lost), resume_after=token(1))
+
+    @staticmethod
+    def stub_consumer(stream_from, bootstrap):
+        """A consumer with a saved token, whose stream and bootstrap are the given functions."""
+        class Loaded:
+            def load(self):
+                return token(1)
+
+        class Sink:
+            write_concern = WriteConcern()
+
+        run = consumer.Consumer.__new__(consumer.Consumer)
+        run.sink_client = Sink()
+        run.progress = Loaded()
+        run.max_rebootstraps = consumer.MAX_REBOOTSTRAPS
+        run.caught_up = False
+        run.stream_from = stream_from
+        run.bootstrap = bootstrap
+        return run
+
+    def test_a_lost_history_bootstraps_again(self):
+        calls = []
+
+        def stream_from(tok):
+            calls.append(("stream", tok))
+            if len(calls) == 1:
+                raise consumer.HistoryLost("the stream's history is gone")
+
+        def bootstrap():
+            calls.append(("bootstrap",))
+            return token(9)
+
+        self.stub_consumer(stream_from, bootstrap).run()
+        self.assertEqual(calls, [("stream", token(1)), ("bootstrap",), ("stream", token(9))])
+
+    def test_a_history_lost_after_every_bootstrap_halts(self):
+        bootstraps = []
+
+        def stream_from(tok):
+            raise consumer.HistoryLost("the stream's history is gone")
+
+        def bootstrap():
+            bootstraps.append(1)
+            return token(9)
+
+        with self.assertRaises(consumer.ConsumerHalted) as caught:
+            self.stub_consumer(stream_from, bootstrap).run()
+        self.assertNotIsInstance(caught.exception, consumer.HistoryLost)
+        self.assertIn("txlog_cdc_retention_seconds", str(caught.exception))
+        self.assertEqual(len(bootstraps), consumer.MAX_REBOOTSTRAPS)
+
+    def test_catching_up_restarts_the_count(self):
+        streams, bootstraps = [], []
+        run = None
+
+        def stream_from(tok):
+            streams.append(tok)
+            # The third stream catches up with the source before it loses its history.
+            if len(streams) == 3:
+                run.caught_up = True
+            raise consumer.HistoryLost("the stream's history is gone")
+
+        def bootstrap():
+            bootstraps.append(1)
+            return token(9)
+
+        run = self.stub_consumer(stream_from, bootstrap)
+        with self.assertRaises(consumer.ConsumerHalted):
+            run.run()
+        # Two before the catch-up, then the count starts over: one for it and two more.
+        self.assertEqual(len(bootstraps), 2 + consumer.MAX_REBOOTSTRAPS)
+
+
+class CatchUpTest(unittest.TestCase):
+    NOW = 1790000000000000
+    WATERMARK = consumer.TOKEN_KIND_WATERMARK
+
+    def test_an_unchanged_opening_watermark_proves_nothing(self):
+        # What a poll that timed out returns while its scan is still pending.
+        start = self.NOW - 1000
+        self.assertFalse(consumer.shows_catch_up(token(start, self.WATERMARK), start, self.NOW))
+
+    def test_an_advanced_watermark_far_behind_the_clock_is_not_caught_up(self):
+        start = self.NOW - 3600 * 1000 * 1000
+        old = start + 1000 * 1000
+        self.assertFalse(consumer.shows_catch_up(token(old, self.WATERMARK), start, self.NOW))
+
+    def test_an_advanced_watermark_at_the_tail_is(self):
+        start = self.NOW - 3600 * 1000 * 1000
+        self.assertTrue(consumer.shows_catch_up(token(self.NOW - 5 * 1000 * 1000, self.WATERMARK),
+                                                start, self.NOW))
+
+    def test_an_event_token_never_is(self):
+        start = self.NOW - 3600 * 1000 * 1000
+        self.assertFalse(consumer.shows_catch_up(token(self.NOW, consumer.TOKEN_KIND_EVENT),
+                                                 start, self.NOW))
+        self.assertFalse(consumer.shows_catch_up(None, start, self.NOW))
+
+
+class ScriptedStream:
+    """A change stream that plays a script: each step is a resume token, returned once by a
+    try_next() that finds nothing, or an exception, raised by try_next()."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.resume_token = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def try_next(self):
+        step = self.script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        self.resume_token = step
+        return None
+
+
+class StreamFromTest(unittest.TestCase):
+    def consumer_on(self, script):
+        class Source:
+            def watch(self, **kwargs):
+                return ScriptedStream(script)
+
+        run = consumer.Consumer.__new__(consumer.Consumer)
+        run.source = Source()
+        run.sink = FakeSink()
+        run.progress = FakeProgress()
+        run.slots = 2
+        run.stop = threading.Event()
+        run.batch = 10
+        run.max_await_ms = 10
+        run.last_token = None
+        run.caught_up = False
+        run.databases = None
+        return run
+
+    def test_a_timed_out_poll_is_no_catch_up(self):
+        import time as clock
+        start = int(clock.time() * 1e6)
+        lost = OperationFailure("history lost", consumer.CHANGE_STREAM_HISTORY_LOST)
+        # The poll times out with its scan still pending: the opening watermark, unchanged.
+        run = self.consumer_on([token(start, consumer.TOKEN_KIND_WATERMARK), lost])
+        with self.assertRaises(consumer.HistoryLost):
+            run.stream_from(token(start, consumer.TOKEN_KIND_WATERMARK))
+        self.assertFalse(run.caught_up)
+
+    def test_a_watermark_advanced_to_the_tail_is(self):
+        import time as clock
+        now = int(clock.time() * 1e6)
+        start = now - 3600 * 1000 * 1000
+        lost = OperationFailure("history lost", consumer.CHANGE_STREAM_HISTORY_LOST)
+        run = self.consumer_on([token(now, consumer.TOKEN_KIND_WATERMARK), lost])
+        with self.assertRaises(consumer.HistoryLost):
+            run.stream_from(token(start, consumer.TOKEN_KIND_WATERMARK))
+        self.assertTrue(run.caught_up)
 
 
 class TokenTest(unittest.TestCase):

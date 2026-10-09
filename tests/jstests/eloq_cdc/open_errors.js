@@ -67,4 +67,22 @@
         admin.runCommand({setParameter: 1, cdc_scan_max_bytes: 32 * 1024 * 1024 + 1}));
     assert.commandWorked(admin.runCommand({setParameter: 1, cdc_scan_max_bytes: 32 * 1024 * 1024}));
     assert.commandWorked(admin.runCommand({setParameter: 1, cdc_scan_max_bytes: originalPage}));
+
+    // The read buffer, the dedup set and the long-poll wait: runtime-settable within their bounds.
+    const bounds = {
+        cdc_cursor_buffer_bytes: {dflt: 64 * 1024 * 1024, low: 1, high: 4 * 1024 * 1024 * 1024},
+        cdc_dedup_set_bytes: {dflt: 4 * 1024 * 1024, low: 0, high: 1024 * 1024 * 1024},
+        cdc_scan_max_wait_ms: {dflt: 30000, low: 1, high: 600000},
+    };
+    for (let name of Object.keys(bounds)) {
+        const b = bounds[name];
+        const current =
+            assert.commandWorked(admin.runCommand({getParameter: 1, [name]: 1}))[name];
+        assert.eq(current, b.dflt, name);
+        assert.commandFailed(admin.runCommand({setParameter: 1, [name]: b.low - 1}), name);
+        assert.commandFailed(admin.runCommand({setParameter: 1, [name]: b.high + 1}), name);
+        assert.commandWorked(admin.runCommand({setParameter: 1, [name]: b.low}), name);
+        assert.commandWorked(admin.runCommand({setParameter: 1, [name]: b.high}), name);
+        assert.commandWorked(admin.runCommand({setParameter: 1, [name]: current}), name);
+    }
 })();

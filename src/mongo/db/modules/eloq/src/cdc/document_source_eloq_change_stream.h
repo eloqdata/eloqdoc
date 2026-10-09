@@ -61,6 +61,9 @@ public:
                                    std::unique_ptr<CdcEventStream> stream,
                                    Document spec);
 
+    /** Removes the stream from the server's registry of open streams (serverStatus). */
+    ~DocumentSourceEloqChangeStream() override;
+
     GetNextResult getNext() final;
 
     const char* getSourceName() const final;
@@ -85,6 +88,7 @@ private:
     std::unique_ptr<CdcEventStream> _stream;
     const Document _spec;
     BSONObj _lastEmitted;  ///< The _id of the last event handed to the user's stages.
+    uint64_t _registryId;  ///< The stream's id in CdcStreamRegistry.
 };
 
 /**

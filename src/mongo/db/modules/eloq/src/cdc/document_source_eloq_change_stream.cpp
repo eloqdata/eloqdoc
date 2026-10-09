@@ -24,9 +24,9 @@
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/sharder.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service.h"
 #include "mongo/db/modules/eloq/src/cdc/cdc_scan_transport.h"
+#include "mongo/db/modules/eloq/src/cdc/cdc_stream_registry.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/pipeline/document_source_change_stream.h"
-#include "mongo/db/pipeline/document_source_change_stream_close_cursor.h"
 #include "mongo/db/pipeline/resume_token.h"
 #include "mongo/db/query/find_common.h"
 #include "mongo/db/server_parameters.h"
@@ -67,6 +67,69 @@ MONGO_EXPORT_SERVER_PARAMETER(cdc_scan_max_bytes,
             return Status(ErrorCodes::BadValue,
                           str::stream() << "cdc_scan_max_bytes must be between 1 and "
                                         << kMaxScanPageBytes << ", the log service's cap");
+        }
+        return Status::OK();
+    });
+
+namespace {
+
+/** The largest read buffer, dedup set and long-poll wait a server parameter accepts. */
+constexpr long long kMaxCursorBufferBytes = 4LL * 1024 * 1024 * 1024;
+constexpr long long kMaxDedupSetBytes = 1LL * 1024 * 1024 * 1024;
+constexpr int kMaxScanWaitMs = 10 * 60 * 1000;
+
+}  // namespace
+
+/**
+ * A change stream's read buffer, in bytes (§5.8): records received and not yet consumed, plus
+ * cdc_scan_max_bytes reserved for each scan in flight. A new scan is issued only while that count
+ * is below it, except for the log group whose boundary holds the others back. Read when a stream
+ * opens. Settable at runtime.
+ */
+MONGO_EXPORT_SERVER_PARAMETER(cdc_cursor_buffer_bytes,
+                              long long,
+                              CdcScanSourceOptions().bufferBytes)
+    ->withValidator([](const long long& potentialNewValue) {
+        if (potentialNewValue <= 0 || potentialNewValue > kMaxCursorBufferBytes) {
+            return Status(ErrorCodes::BadValue,
+                          str::stream() << "cdc_cursor_buffer_bytes must be between 1 and "
+                                        << kMaxCursorBufferBytes);
+        }
+        return Status::OK();
+    });
+
+/**
+ * The bytes of (transaction, namespace, key) entries one log group's dedup set holds at one
+ * timestamp (§5.5, §5.8). Past it further entries go unrecorded, so a forward-write duplicate
+ * among them may be emitted twice, an idempotent repeat; 0 records nothing. Read when a stream
+ * opens. Settable at runtime.
+ */
+MONGO_EXPORT_SERVER_PARAMETER(cdc_dedup_set_bytes,
+                              long long,
+                              CdcEventStreamOptions().dedupSetBytes)
+    ->withValidator([](const long long& potentialNewValue) {
+        if (potentialNewValue < 0 || potentialNewValue > kMaxDedupSetBytes) {
+            return Status(ErrorCodes::BadValue,
+                          str::stream() << "cdc_dedup_set_bytes must be between 0 and "
+                                        << kMaxDedupSetBytes);
+        }
+        return Status::OK();
+    });
+
+/**
+ * The longest a change stream asks the log service to hold one scan open while nothing new has
+ * arrived (the long poll, §5.8); a getMore's own remaining time bounds it too, and the log service
+ * caps it with its cdc_scan_max_park_ms. Read when a stream opens. Settable at runtime.
+ */
+MONGO_EXPORT_SERVER_PARAMETER(cdc_scan_max_wait_ms,
+                              int,
+                              static_cast<int>(durationCount<Milliseconds>(
+                                  CdcScanSourceOptions().maxWait)))
+    ->withValidator([](const int& potentialNewValue) {
+        if (potentialNewValue <= 0 || potentialNewValue > kMaxScanWaitMs) {
+            return Status(ErrorCodes::BadValue,
+                          str::stream() << "cdc_scan_max_wait_ms must be between 1 and "
+                                        << kMaxScanWaitMs);
         }
         return Status::OK();
     });
@@ -114,7 +177,19 @@ DocumentSourceEloqChangeStream::DocumentSourceEloqChangeStream(
     const boost::intrusive_ptr<ExpressionContext>& expCtx,
     std::unique_ptr<CdcEventStream> stream,
     Document spec)
-    : DocumentSource(expCtx), _stream(std::move(stream)), _spec(std::move(spec)) {}
+    : DocumentSource(expCtx), _stream(std::move(stream)), _spec(std::move(spec)) {
+    const Value all = _spec[DocumentSourceChangeStreamSpec::kAllChangesForClusterFieldName];
+    const bool deployment = all.getType() == Bool && all.getBool();
+    const bool database = !deployment && expCtx->ns.isCollectionlessAggregateNS();
+    _registryId = CdcStreamRegistry::get().add(
+        deployment ? "deployment" : database ? "database" : "collection",
+        deployment ? "" : database ? expCtx->ns.db().toString() : expCtx->ns.ns(),
+        &_stream->stats());
+}
+
+DocumentSourceEloqChangeStream::~DocumentSourceEloqChangeStream() {
+    CdcStreamRegistry::get().remove(_registryId);
+}
 
 DocumentSource::GetNextResult DocumentSourceEloqChangeStream::getNext() {
     OperationContext* opCtx = pExpCtx->opCtx;
@@ -200,6 +275,9 @@ std::list<boost::intrusive_ptr<DocumentSource>> makeEloqChangeStreamStages(
                                                    : CdcStreamScope::collection(expCtx->ns.ns());
     CdcEventStreamOptions options;
     options.source.maxBytesPerScan = static_cast<uint32_t>(cdc_scan_max_bytes.load());
+    options.source.bufferBytes = cdc_cursor_buffer_bytes.load();
+    options.source.maxWait = Milliseconds(cdc_scan_max_wait_ms.load());
+    options.dedupSetBytes = cdc_dedup_set_bytes.load();
     auto stream = std::make_unique<CdcEventStream>(
         std::make_shared<TxLogCdcScanTransport>(supportedLog()), scope, options);
 
@@ -247,12 +325,11 @@ std::list<boost::intrusive_ptr<DocumentSource>> makeEloqChangeStreamStages(
                             : DocumentSourceChangeStreamSpec::kResumeAfterFieldName,
                         Value(stream->openingToken()));
 
+    // DocumentSourceChangeStream::createFromBson() adds the stage that closes a collection-level
+    // stream's cursor on the pull after its invalidate event (§5.2).
     std::list<boost::intrusive_ptr<DocumentSource>> stages;
     stages.push_back(boost::intrusive_ptr<DocumentSource>(
         new DocumentSourceEloqChangeStream(expCtx, std::move(stream), serialized.freeze())));
-    // Closes a collection-level stream's cursor on the pull after its invalidate event (§5.2);
-    // it ignores every other event, and serializes to nothing, since this factory adds it.
-    stages.push_back(DocumentSourceCloseCursor::create(expCtx));
     return stages;
 }
 

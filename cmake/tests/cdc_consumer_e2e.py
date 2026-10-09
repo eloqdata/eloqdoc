@@ -23,7 +23,10 @@ Each scenario starts a fresh source node and a fresh sink node and runs the cons
   (iv)  views a and b on orders, then a on b, a back on orders, and b on a, all tried during the
         copy: with the gate the three view changes are refused until the copy ends and replay
         converges; without it the copy holds the last definitions, and replaying the first change
-        over them would make a cycle, which the sink refuses, so the consumer halts.
+        over them would make a cycle, which the sink refuses, so the consumer halts;
+  (v)   documents just under 16 MB, whose events would pass the limit and so arrive without them
+        (fullDocumentOmitted): the consumer reads them from the source, and skips one deleted
+        since.
 
 The source needs the change stream, so a WAL; a node built with fault points is not required.
 Requires pymongo.
@@ -392,6 +395,45 @@ def scenario_view_race(source, sink, gate):
         consumer.stop()
 
 
+def scenario_oversized(source, sink):
+    """(v) Events over 16 MB arrive without their documents; the consumer reads them."""
+    setup_source(source.client)
+    consumer = ConsumerThread(source.client, sink.client)
+    try:
+        wait_converged(source.client, sink.client, "before the large documents")
+        db = source.client[DB]
+        watcher = db.watch(max_await_time_ms=1000)
+        watcher.try_next()
+        # About 200 bytes under BSON's 16 MB: insertable, but its event, which adds the token,
+        # namespace and key, would not be.
+        pad = 16 * 1024 * 1024 - 200
+        db.blobs.insert_one({"_id": "kept", "pad": "a" * pad})
+        db.blobs.replace_one({"_id": "kept"}, {"pad": "b" * pad})
+        db.blobs.insert_one({"_id": "gone", "pad": "c" * pad})
+        db.blobs.delete_one({"_id": "gone"})
+        db.orders.insert_one({"_id": "after-blobs", "qty": 0})
+
+        omitted = []
+        deadline = time.monotonic() + CONVERGE_TIMEOUT_S
+        while len(omitted) < 3 and time.monotonic() < deadline:
+            event = watcher.try_next()
+            if event and event["ns"].get("coll") == "blobs" and \
+                    event["operationType"] in ("insert", "replace"):
+                assert event.get("fullDocumentOmitted") is True, event.keys()
+                assert "fullDocument" not in event, event.keys()
+                omitted.append(event["documentKey"]["_id"])
+        watcher.close()
+        assert omitted == ["kept", "kept", "gone"], omitted
+
+        wait_converged(source.client, sink.client, "after the large documents")
+        assert sink.client[DB].blobs.find_one({"_id": "kept"})["pad"][:1] == "b"
+        assert sink.client[DB].blobs.find_one({"_id": "gone"}) is None
+        assert consumer.error is None, consumer.error
+    finally:
+        consumer.stop()
+    print("PASS (v) events over 16 MB were applied from documents read on the source", flush=True)
+
+
 def scenario_crash_before_publish(source, sink):
     """(iii) Stopping between the copy and publishing T0 makes the next run bootstrap again."""
     setup_source(source.client)
@@ -438,7 +480,7 @@ def main():
     parser.add_argument("--scenario", action="append",
                         help="Run only this scenario (converge, index-race-gate, "
                              "index-race-no-gate, crash-before-publish, view-race-gate, "
-                             "view-race-no-gate); may be repeated")
+                             "view-race-no-gate, oversized); may be repeated")
     args = parser.parse_args()
     if hasattr(os, "sched_getaffinity"):
         os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:8])
@@ -448,7 +490,8 @@ def main():
                  ("index-race-no-gate", lambda s, k: scenario_index_race(s, k, False)),
                  ("crash-before-publish", scenario_crash_before_publish),
                  ("view-race-gate", lambda s, k: scenario_view_race(s, k, True)),
-                 ("view-race-no-gate", lambda s, k: scenario_view_race(s, k, False)))
+                 ("view-race-no-gate", lambda s, k: scenario_view_race(s, k, False)),
+                 ("oversized", scenario_oversized))
     for label, scenario in scenarios:
         if args.scenario and label not in args.scenario:
             continue

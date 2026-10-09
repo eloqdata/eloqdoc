@@ -180,6 +180,31 @@ void CdcEventStream::openAt(const CdcResumeToken& token) {
 }
 
 boost::optional<Document> CdcEventStream::next(Date_t deadline, const CoroutineFunctors& coro) {
+    boost::optional<Document> event = _next(deadline, coro);
+    _publishStats(event);
+    return event;
+}
+
+void CdcEventStream::_publishStats(const boost::optional<Document>& event) {
+    const uint64_t bound = _source.emitBound();
+    _stats.emitBound.store(bound, std::memory_order_relaxed);
+    if (event) {
+        // An event's clusterTime holds its commit timestamp as (seconds, microseconds).
+        const Value clusterTime = (*event)["clusterTime"];
+        if (clusterTime.getType() == bsonTimestamp) {
+            const Timestamp ts = clusterTime.getTimestamp();
+            _stats.producedThrough.store(
+                static_cast<uint64_t>(ts.getSecs()) * 1000000 + ts.getInc(),
+                std::memory_order_relaxed);
+        }
+    } else if (_source.drained()) {
+        _stats.producedThrough.store(bound, std::memory_order_relaxed);
+    }
+    _stats.dedupOverflows.store(_dedupOverflows, std::memory_order_relaxed);
+    _stats.lastPullMillis.store(Date_t::now().toMillisSinceEpoch(), std::memory_order_relaxed);
+}
+
+boost::optional<Document> CdcEventStream::_next(Date_t deadline, const CoroutineFunctors& coro) {
     invariant(!_openingToken.isEmpty());
     for (;;) {
         if (_invalidated) {

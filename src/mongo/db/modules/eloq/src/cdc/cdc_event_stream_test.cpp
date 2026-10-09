@@ -419,6 +419,34 @@ TEST(CdcEventStream, FullDedupSetProducesTheRepeatAgain) {
     ASSERT_EQ(stream.dedupOverflows(), 2u);
 }
 
+TEST(CdcEventStream, StatsFollowThePulls) {
+    auto log = std::make_shared<CdcFakeLogService>(std::vector<uint32_t>{0});
+    log->setBound(0, 4);
+    CdcEventStreamOptions options = fastOptions();
+    options.dedupSetBytes = 1;  // records nothing: every change counts as an overflow
+    CdcEventStream stream(log, CdcStreamScope::deployment(), options);
+    ASSERT(stream.openFresh(Date_t::now() + Seconds(5), kNoCoro));
+    ASSERT_EQ(stream.stats().lastPullMillis.load(), 0);
+
+    log->addDataBlob(0,
+                     5000123,
+                     1,
+                     7,
+                     BlobBuilder().collection("test.c").insert(doc(1, 1)).insert(doc(2, 2)).done());
+    log->setBound(0, 6000000);
+    const boost::optional<Document> first = stream.next(Date_t::now() + Seconds(5), kNoCoro);
+    ASSERT(first);
+    ASSERT_EQ(stream.stats().producedThrough.load(), 5000123u);
+    ASSERT_GT(stream.stats().lastPullMillis.load(), 0);
+
+    // Drained, the stream has produced through its emit bound: no lag.
+    ASSERT_EQ(drain(stream).size(), 1u);
+    ASSERT_EQ(stream.stats().producedThrough.load(), stream.stats().emitBound.load());
+    ASSERT_GTE(stream.stats().emitBound.load(), 5000123u);
+    ASSERT_EQ(stream.dedupOverflows(), 2u);
+    ASSERT_EQ(stream.stats().dedupOverflows.load(), 2u);
+}
+
 // ------------------------------------------------------------------------------------------------
 // DDL events and invalidate
 // ------------------------------------------------------------------------------------------------
