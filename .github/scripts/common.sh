@@ -316,8 +316,12 @@ build_eloqdoc() {
       --install-mode=hygienic \
       --disable-warnings-as-errors \
       -j"${BUILD_JOBS}" \
-      install-core
+      install-core "build/${build_type}/mongo/db/modules/eloq/eloq_write_set_test"
   echo "==> SCons build finished in $(( $(date +%s) - start_time ))s"
+
+  echo "==> Verify serialized write-set accounting"
+  env LD_LIBRARY_PATH="${install_prefix}/lib:${LD_LIBRARY_PATH:-}" \
+    "build/${build_type}/mongo/db/modules/eloq/eloq_write_set_test"
 
   log_disk_usage "after build"
 }

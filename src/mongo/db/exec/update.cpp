@@ -187,7 +187,37 @@ UpdateStage::UpdateStage(OperationContext* opCtx,
     _specificStats.isDocReplacement = params.driver->isDocReplacement();
 }
 
-BSONObj UpdateStage::transformAndUpdate(const Snapshotted<BSONObj>& oldObj, RecordId& recordId) {
+void UpdateStage::enableWriteSetBatching() {
+    invariant(_params.request->isMulti() && !_params.request->shouldReturnAnyDocs());
+    invariant(!_params.request->isExplain() && getOpCtx()->recoveryUnit()->getWriteSetLimitBytes());
+    _writeSetBatching = true;
+    confirmBatch();
+}
+
+void UpdateStage::confirmBatch() {
+    invariant(_writeSetBatching);
+    for (size_t i = 0; i < _pendingPosition; ++i) {
+        _updatedRecordIds->insert(_pendingRecordIds[i]);
+        _queuedRecordIds.erase(_pendingRecordIds[i]);
+    }
+    _pendingRecordIds.erase(_pendingRecordIds.begin(),
+                            _pendingRecordIds.begin() + _pendingPosition);
+    _pendingPosition = 0;
+    _confirmedStats = _specificStats;
+    _confirmedKeysInserted = _params.opDebug->additiveMetrics.keysInserted;
+    _confirmedKeysDeleted = _params.opDebug->additiveMetrics.keysDeleted;
+}
+
+void UpdateStage::rewindBatch() {
+    invariant(_writeSetBatching);
+    _pendingPosition = 0;
+    _specificStats = _confirmedStats;
+    _params.opDebug->additiveMetrics.keysInserted = _confirmedKeysInserted;
+    _params.opDebug->additiveMetrics.keysDeleted = _confirmedKeysDeleted;
+}
+
+boost::optional<BSONObj> UpdateStage::transformAndUpdate(const Snapshotted<BSONObj>& oldObj,
+                                                         RecordId& recordId) {
     const UpdateRequest* request = _params.request;
     UpdateDriver* driver = _params.driver;
     CanonicalQuery* cq = _params.canonicalQuery;
@@ -335,7 +365,14 @@ BSONObj UpdateStage::transformAndUpdate(const Snapshotted<BSONObj>& oldObj, Reco
                                                           true,
                                                           driver->modsAffectIndices(),
                                                           _params.opDebug,
-                                                          &args);
+                                                          &args,
+                                                          _writeSetBatching);
+                if (_writeSetBatching && newRecordId.isNull()) {
+                    // No document/index writes were made. Leaving this nested unit uncommitted
+                    // would poison the outer batch even though capacity exhaustion is normal.
+                    wunit.commit();
+                    return boost::none;
+                }
             }
         }
 
@@ -350,7 +387,8 @@ BSONObj UpdateStage::transformAndUpdate(const Snapshotted<BSONObj>& oldObj, Reco
         // updatedRecordIds.
         //
         // This must be done after the wunit commits so we are sure we won't be rolling back.
-        if (_updatedRecordIds && (newRecordId != recordId || driver->modsAffectIndices())) {
+        if (!_writeSetBatching && _updatedRecordIds &&
+            (newRecordId != recordId || driver->modsAffectIndices())) {
             _updatedRecordIds->insert(newRecordId);
         }
     }
@@ -484,6 +522,7 @@ bool UpdateStage::doneUpdating() {
     // We're done updating if either the child has no more results to give us, or we've
     // already gotten a result back and we're not a multi-update.
     return _idRetrying == WorkingSet::INVALID_ID && _idReturning == WorkingSet::INVALID_ID &&
+        (!_writeSetBatching || _pendingPosition == _pendingRecordIds.size()) &&
         (child()->isEOF() || (_specificStats.nMatched > 0 && !_params.request->isMulti()));
 }
 
@@ -556,7 +595,17 @@ PlanStage::StageState UpdateStage::doWork(WorkingSetID* out) {
     // Either retry the last WSM we worked on or get a new one from our child.
     WorkingSetID id;
     StageState status;
-    if (_idRetrying == WorkingSet::INVALID_ID) {
+    const bool replaying = _writeSetBatching && _pendingPosition < _pendingRecordIds.size();
+    if (replaying) {
+        // Force ensureStillMatches to re-fetch under the new transaction and re-evaluate the
+        // original query. Never carry a prepared BSON result or ticket over a commit/abort.
+        id = _ws->allocate();
+        auto member = _ws->get(id);
+        member->recordId = _pendingRecordIds[_pendingPosition];
+        member->obj = Snapshotted<BSONObj>(SnapshotId(), BSONObj());
+        _ws->transitionToRecordIdAndObj(id);
+        status = ADVANCED;
+    } else if (_idRetrying == WorkingSet::INVALID_ID) {
         status = child()->work(&id);
     } else {
         status = ADVANCED;
@@ -593,11 +642,21 @@ PlanStage::StageState UpdateStage::doWork(WorkingSetID* out) {
             return PlanStage::NEED_TIME;
         }
 
+        if (_writeSetBatching && !replaying) {
+            if (!_queuedRecordIds.insert(recordId).second) {
+                return PlanStage::NEED_TIME;
+            }
+            _pendingRecordIds.push_back(recordId);
+        }
+
         bool docStillMatches;
         try {
             docStillMatches = write_stage_common::ensureStillMatches(
                 _collection, getOpCtx(), _ws, id, _params.canonicalQuery);
         } catch (const WriteConflictException&) {
+            if (_writeSetBatching) {
+                throw;
+            }
             // There was a problem trying to detect if the document still exists, so retry.
             memberFreer.Dismiss();
             return prepareToRetryWSM(id, out);
@@ -609,6 +668,9 @@ PlanStage::StageState UpdateStage::doWork(WorkingSetID* out) {
             if (shouldRestartUpdateIfNoLongerMatches(_params)) {
                 throw WriteConflictException();
             }
+            if (_writeSetBatching) {
+                ++_pendingPosition;
+            }
             return PlanStage::NEED_TIME;
         }
 
@@ -616,12 +678,15 @@ PlanStage::StageState UpdateStage::doWork(WorkingSetID* out) {
         // is allowed to free the memory.
         member->makeObjOwnedIfNeeded();
 
-        // Save state before making changes
-        WorkingSetCommon::prepareForSnapshotChange(_ws);
-        try {
-            child()->saveState();
-        } catch (const WriteConflictException&) {
-            std::terminate();
+        // A batch keeps its snapshot and scan open while admitting documents. Only its owner
+        // saves/restores at a real transaction boundary.
+        if (!_writeSetBatching) {
+            WorkingSetCommon::prepareForSnapshotChange(_ws);
+            try {
+                child()->saveState();
+            } catch (const WriteConflictException&) {
+                std::terminate();
+            }
         }
 
         // If we care about the pre-updated version of the doc, save it out here.
@@ -630,20 +695,28 @@ PlanStage::StageState UpdateStage::doWork(WorkingSetID* out) {
             oldObj = member->obj.value().getOwned();
         }
 
-        BSONObj newObj;
+        boost::optional<BSONObj> newObj;
         try {
-            // Do the update, get us the new version of the doc.
             newObj = transformAndUpdate(member->obj, recordId);
         } catch (const WriteConflictException&) {
+            if (_writeSetBatching) {
+                throw;
+            }
             memberFreer.Dismiss();  // Keep this member around so we can retry updating it.
             return prepareToRetryWSM(id, out);
+        }
+
+        if (!newObj) {
+            invariant(_writeSetBatching);
+            *out = WorkingSet::INVALID_ID;
+            return PlanStage::NEED_BATCH_COMMIT;
         }
 
         // Set member's obj to be the doc we want to return.
         if (_params.request->shouldReturnAnyDocs()) {
             if (_params.request->shouldReturnNewDocs()) {
                 member->obj = Snapshotted<BSONObj>(getOpCtx()->recoveryUnit()->getSnapshotId(),
-                                                   newObj.getOwned());
+                                                   newObj->getOwned());
             } else {
                 invariant(_params.request->shouldReturnOldDocs());
                 member->obj.setValue(oldObj);
@@ -654,6 +727,10 @@ PlanStage::StageState UpdateStage::doWork(WorkingSetID* out) {
 
         // This should be after transformAndUpdate to make sure we actually updated this doc.
         ++_specificStats.nMatched;
+        if (_writeSetBatching) {
+            ++_pendingPosition;
+            return PlanStage::NEED_TIME;
+        }
 
         // Restore state after modification
 

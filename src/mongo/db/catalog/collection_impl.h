@@ -230,7 +230,8 @@ public:
                             bool enforceQuota,
                             bool indexesAffected,
                             OpDebug* opDebug,
-                            OplogUpdateEntryArgs* args) final;
+                            OplogUpdateEntryArgs* args,
+                            bool allowBatchCommit = false) final;
 
     bool updateWithDamagesSupported() const final;
 

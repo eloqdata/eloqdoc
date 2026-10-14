@@ -246,6 +246,11 @@ public:
                                       size_t nDocs,
                                       RecordId* idsOut = nullptr) override;
 
+    size_t calculateUpdateWriteBytes(OperationContext* opCtx,
+                                     const RecordId& id,
+                                     const char* data,
+                                     int len) override;
+
     Status updateRecord(OperationContext* opCtx,
                         const RecordId& id,
                         const char* data,
@@ -294,6 +299,10 @@ public:
     void waitForAllEarlierOplogWritesToBeVisible(OperationContext* opCtx) const override;
 
 private:
+    // Counting and writing share the complete encoding path, including creating indexes.
+    StatusWith<size_t> _updateRecord(
+        OperationContext* opCtx, const RecordId& id, const char* data, int len, bool write);
+
     Status _insertRecords(OperationContext* opCtx,
                           Record* records,
                           const Timestamp* timestamps,

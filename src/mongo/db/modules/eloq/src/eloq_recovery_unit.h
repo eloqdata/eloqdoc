@@ -36,6 +36,8 @@
 #include "mongo/db/modules/eloq/src/base/eloq_table_schema.h"
 #include "mongo/db/modules/eloq/src/eloq_cursor.h"
 
+#include <set>
+
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc_protocol.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_execution.h"
@@ -53,6 +55,8 @@ public:
         std::shared_ptr<const Eloq::MongoTableSchema> _schema;
         std::shared_ptr<const Eloq::MongoTableSchema> _dirtySchema;
         std::vector<const SecondaryIndex*> _creatingIndexes;  // unordered
+        // Versions replaced by this transaction's logical schema updates (e.g. multikey).
+        std::set<uint64_t> _ownSchemaVersions;
     };
 
 public:
@@ -72,6 +76,14 @@ public:
     void preallocateSnapshot() override;
 
     SnapshotId getSnapshotId() const override;
+
+    size_t getWriteSetBytes() const override {
+        return _active ? _txm->DataWriteSetBytes() : 0;
+    }
+
+    size_t getWriteSetLimitBytes() const override {
+        return txservice::ReadWriteSet::MaxWriteSetBytesCnt;
+    }
 
     Status setTimestamp(Timestamp timestamp) override;
     void setCommitTimestamp(Timestamp timestamp) override;
@@ -158,6 +170,10 @@ public:
 
     const DiscoveredTable& discoveredTable(const txservice::TableName& tableName) const;
 
+    // Reacquire transactional catalog state when a saved cursor crosses a commit or yield.
+    // Reject external schema changes; permit this operation's committed multikey metadata.
+    void restoreTable(const txservice::TableName& tableName, uint64_t expectedVersion);
+
     const Eloq::MongoKeySchema* getIndexSchema(const txservice::TableName& tableName) const;
     const Eloq::MongoKeySchema* getIndexSchema(const txservice::TableName& tableName,
                                                const txservice::TableName& indexName) const;
@@ -199,6 +215,12 @@ private:
     Changes _changes;
 
     absl::flat_hash_map<txservice::TableName, DiscoveredTable> _discoveredTableMap;
+    struct CommittedSchema {
+        std::set<uint64_t> versions;
+        std::string image;
+    };
+    // Kept across batches, cleared when the RecoveryUnit is recycled. No borrowed schemas.
+    absl::flat_hash_map<txservice::TableName, CommittedSchema> _committedSchemas;
     std::unordered_map<txservice::TableName, BSONObj> _unreadyTableMap;
     // butil::Timer _timer;
 };

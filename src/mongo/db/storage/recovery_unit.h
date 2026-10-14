@@ -212,6 +212,16 @@ public:
      */
     virtual SnapshotId getSnapshotId() const = 0;
 
+    /** Serialized data-write bytes in the current transaction, including index writes. */
+    virtual size_t getWriteSetBytes() const {
+        return 0;
+    }
+
+    /** Hard admission limit; zero means this engine does not support write-set batching. */
+    virtual size_t getWriteSetLimitBytes() const {
+        return 0;
+    }
+
     /**
      * Sets a timestamp to assign to future writes in a transaction.
      * All subsequent writes will be assigned this timestamp.

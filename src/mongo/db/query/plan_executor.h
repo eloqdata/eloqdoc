@@ -404,7 +404,9 @@ public:
      * error occurs, it is illegal to subsequently access the collection, since it may have been
      * dropped.
      */
-    Status executePlan();
+    // When provided, stop normally at NEED_BATCH_COMMIT and set the output to true. The root
+    // is not EOF: its owner must save/commit/restore before calling executePlan again.
+    Status executePlan(bool* needsBatchCommit = nullptr);
 
     //
     // Concurrency-related methods.
@@ -552,7 +554,9 @@ private:
     ExecState waitForInserts(CappedInsertNotifierData* notifierData,
                              Snapshotted<BSONObj>* errorObj);
 
-    ExecState getNextImpl(Snapshotted<BSONObj>* objOut, RecordId* dlOut);
+    ExecState getNextImpl(Snapshotted<BSONObj>* objOut,
+                          RecordId* dlOut,
+                          bool* needsBatchCommit = nullptr);
 
 
     /**

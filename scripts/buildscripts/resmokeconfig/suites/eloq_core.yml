@@ -877,6 +877,7 @@ selector:
   # - tests/jstests/core/uniqueness.js # 41: Unique index.
   - tests/jstests/core/unset.js
   - tests/jstests/core/unset2.js
+  - tests/jstests/core/update_many_write_set_batches.js
   - tests/jstests/core/update2.js
   - tests/jstests/core/update3.js
   - tests/jstests/core/update5.js

@@ -285,7 +285,8 @@ public:
                                         bool enforceQuota,
                                         bool indexesAffected,
                                         OpDebug* opDebug,
-                                        OplogUpdateEntryArgs* args) = 0;
+                                        OplogUpdateEntryArgs* args,
+                                        bool allowBatchCommit) = 0;
 
         virtual bool updateWithDamagesSupported() const = 0;
 
@@ -574,6 +575,10 @@ public:
      * Sets 'args.updatedDoc' to the updated version of the document with damages applied, on
      * success.
      * 'opDebug' Optional argument. When not null, will be used to record operation statistics.
+     * With allowBatchCommit, returns a null RecordId if this entire document would exceed the
+     * remaining write-set budget. No writes have been added in that case; the caller must end
+     * its empty nested WriteUnitOfWork normally before committing the outer batch. A document
+     * that exceeds even an empty transaction throws TransactionTooLarge.
      * @return the post update location of the doc (may or may not be the same as oldLocation)
      */
     inline RecordId updateDocument(OperationContext* const opCtx,
@@ -583,9 +588,17 @@ public:
                                    const bool enforceQuota,
                                    const bool indexesAffected,
                                    OpDebug* const opDebug,
-                                   OplogUpdateEntryArgs* const args) {
-        return this->_impl().updateDocument(
-            opCtx, oldLocation, oldDoc, newDoc, enforceQuota, indexesAffected, opDebug, args);
+                                   OplogUpdateEntryArgs* const args,
+                                   bool allowBatchCommit = false) {
+        return this->_impl().updateDocument(opCtx,
+                                            oldLocation,
+                                            oldDoc,
+                                            newDoc,
+                                            enforceQuota,
+                                            indexesAffected,
+                                            opDebug,
+                                            args,
+                                            allowBatchCommit);
     }
 
     inline bool updateWithDamagesSupported() const {

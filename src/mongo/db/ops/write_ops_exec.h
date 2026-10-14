@@ -66,6 +66,8 @@ struct WriteResult {
 WriteResult performInserts(OperationContext* opCtx,
                            const write_ops::Insert& op,
                            bool fromMigrate = false);
+/** Whether an ordinary multi-update may own its storage transactions and batch retries. */
+bool canBatchUpdateMany(OperationContext* opCtx);
 WriteResult performUpdates(OperationContext* opCtx, const write_ops::Update& op);
 WriteResult performDeletes(OperationContext* opCtx, const write_ops::Delete& op);
 
