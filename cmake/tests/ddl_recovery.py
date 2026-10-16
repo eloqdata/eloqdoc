@@ -391,6 +391,24 @@ def scenario_alter_after_commit(node):
     print("PASS (vii) an ALTER killed after its commit log was rolled forward", flush=True)
 
 
+def scenario_alter_after_prepare(node):
+    """(viii) An ALTER killed after its prepare log is rolled forward from it, and the documents
+    written before the crash are replayed into the table."""
+    db = node.client.ddl_recovery
+    db.prepared.insert_many([{"_id": i, "k": i % 4} for i in range(10)])
+    validator = {"k": {"$exists": True}}
+    crash_during(node, "upsert_table_crash_after_prepare_log",
+                 lambda: db.command({"collMod": "prepared", "validator": validator}))
+    wait_until(lambda: validator_of(node.client.ddl_recovery, "prepared") == validator,
+               "applied the ALTER killed after its prepare log")
+    prepared = node.client.ddl_recovery.prepared
+    assert prepared.count_documents({}) == 10, prepared.count_documents({})
+    use_across_restart(node, "prepared", preloaded=10)
+    assert validator_of(node.client.ddl_recovery, "prepared") == validator
+    print("PASS (viii) an ALTER killed after its prepare log was rolled forward, its table's "
+          "documents replayed", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -417,7 +435,8 @@ def main():
                             ("index-rollback", scenario_add_index_rolled_back),
                             ("index-rollback-commit", scenario_add_index_rollback_after_commit),
                             ("create-abandoned-commit", scenario_abandoned_create_after_commit),
-                            ("alter-commit", scenario_alter_after_commit)):
+                            ("alter-commit", scenario_alter_after_commit),
+                            ("alter-prepare", scenario_alter_after_prepare)):
         if args.scenario and label not in args.scenario:
             continue
         node = Node(args, label)

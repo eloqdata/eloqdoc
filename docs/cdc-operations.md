@@ -3,7 +3,8 @@
 Conditions in a deployment that serves change streams which need an operator, how to recognize
 each one, and what to do. The design behind them is in
 [cdc-change-stream.md](cdc-change-stream.md); its §8 lists every failure mode, most of which need
-no action.
+no action. How to run the reference consumer is in its manual,
+[tools/cdc_consumer/README.md](../tools/cdc_consumer/README.md).
 
 ## 1. A schema change's data-store step keeps failing: every stream stalls
 
@@ -37,7 +38,10 @@ has passed it (design §4.2, §5.7), so:
   grows too.
 
 There is no way to cancel the DDL. Restarting the node does not undo it: recovery reads its log
-and finishes it (see "If the store cannot be fixed soon" below).
+and finishes it (see "If the store cannot be fixed soon" below). Any other node restarted
+meanwhile stays down with it: its recovery restores the DDL's write lock on its copy of the
+table's catalog entry, and its start-up reads every collection's catalog, so it serves nothing
+until the DDL commits (data substrate `docs/range-split-schema-op-recovery.md` §5).
 
 ### Symptoms
 
@@ -107,8 +111,9 @@ record that it happened, and the catalog, the store and every stream's DDL event
 A consumer's bootstrap pauses schema changes cluster-wide with `eloqClusterGate {op: "pause"}`
 while it copies the catalog, and resumes them when the copy ends (design §6.2). The pause has no
 timeout: it lasts until someone resumes it, on every node group, across restarts and failovers.
-The reference consumer resumes it itself when its copy fails with an error; only a consumer that
-dies during the copy (killed, its host lost) leaves it in place.
+The reference consumer resumes it itself when its copy fails with an error, before it starts the
+bootstrap over; only a consumer that dies during the copy (killed, its host lost) leaves it in
+place.
 
 ### Symptoms
 
@@ -190,7 +195,10 @@ before starting it again.
   lag (`lagMicros`: how far what it has produced lies below what it could already have) and
   `idleMillis`, the time since its consumer last read from it. A stream's positions move only when
   it is read, so a consumer that stopped reading shows as a lag that stands still while
-  `idleMillis` grows. `maxLagMicros` is the largest lag of all.
+  `idleMillis` grows. `maxLagMicros` is the largest lag of all. `checkpointIntervalMillis` is the
+  node's checkpoint round: a change normally reaches the streams within one round, plus up to
+  `checkpointer_delay_seconds` (default 5 s) with MVCC, the most a round's checkpoint timestamp
+  sits below the round's own.
 - `cdc_scan_parked_requests{lg_id}` counts the streams waiting for new history on a log group's
   leader; past `cdc_scan_max_parked` (default 1024) new waits are answered at once and the streams
   poll instead.

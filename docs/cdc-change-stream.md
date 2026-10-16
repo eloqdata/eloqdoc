@@ -1646,11 +1646,15 @@ during idle time. It does, and the stream depends on it:
   completion of an empty round). `need_truncate_log_` is true by default and
   is cleared only by data-sync tasks that skipped entries, which an idle
   round does not run. Standby nodes never notify; leaders do.
-- Under MVCC the reported timestamp is lowered by `ckpt_delay_time_`, or
-  held at the oldest snapshot transaction's start (`GetNewCheckpointTs`);
-  that delays the tail by a constant, or until that transaction ends, but
-  never prevents it. The constant is the data substrate's
-  `checkpointer_delay_seconds` (default 5 s).
+- Under MVCC the reported timestamp is lowered for snapshot transactions
+  still running: to the oldest one's start, but never more than
+  `ckpt_delay_time_` below the round's timestamp, and not at all when none
+  started below it (`GetNewCheckpointTs`). It is a cache residency choice
+  (entries updated above the checkpoint stay dirty, so the page cleaner
+  keeps them in memory) and does not wait for any transaction to end. That
+  delays the tail by at most the constant and never prevents it. The
+  constant is the data substrate's `checkpointer_delay_seconds` (default
+  5 s).
 
 So within about one `checkpointer_interval` after the last transaction
 finishes (plus the MVCC delay if enabled), every logger's
@@ -2440,10 +2444,13 @@ position is recorded:
    collections and `system.js` with their documents; a view by its
    definition alone, a `create` with its `viewOn`, `pipeline` and
    `collation`, since it has no indexes or documents of its own; no other
-   system collection. The definitions are read from `system.views`, the
-   documents whose changes the stream reports, so the copy and the replay
-   start from the same records. View changes are held still too (the
-   gate bullet above), so the copy reads the views exactly as at `T0`,
+   system collection. The definitions are read with `listCollections`,
+   which on EloqDoc lists views from a fresh read of `system.views`
+   (`ViewCatalog::iterate`), the documents whose changes the stream
+   reports, so the copy and the replay start from the same records; it
+   needs only `readAnyDatabase`, whereas a direct read of `system.views`
+   needs a privilege no built-in role grants. View changes are held still
+   too (the gate bullet above), so the copy reads the views exactly as at `T0`,
    even through a cursor that spans several transactions, and replay
    applies only changes made after the resume, each over a set of views
    that existed on the source. Replaying view changes over a later copy,
@@ -2663,7 +2670,12 @@ through, 0 once a pull finds nothing more), `emitBound`, `producedThrough`,
 before its first): both
 positions move only when the stream is pulled, so a consumer that stopped
 reading shows as a stream whose lag stands still while `idleMillis` grows.
-Still to add: fence rejections.
+The section also reports the node's `checkpointIntervalMillis`, read from
+the running checkpointer: a change reaches the streams within one round,
+plus up to `checkpointer_delay_seconds` with MVCC (§5.7). The streams take
+the checkpoint timestamp the node groups report as their watermark as is,
+so they need not know the delay, and the section does not report it. Still
+to add: fence rejections.
 
 ## 9. Follow-ups after v1
 
@@ -2787,8 +2799,14 @@ connector over the same scan RPC.
    requests under a forced leader step-down. *Threshold settled in PR 6
    (C7):* the event's estimated size against `BSONObjMaxUserSize`, as §5.8's
    limits table records, end to end in PR 14 (`cdc_consumer_e2e.py` (v)).
-   *Still open:* the cancellation pairing under a forced step-down, which
-   needs a multi-node log group (plan A5).
+   *Cancellation pairing tested 2026-10-10* on three processes sharing one
+   log group (`cmake/tests/multinode/cdc_step_down.py`): parked scans across
+   a braft transfer, the loss of a majority (the leader answered its parked
+   requests about 2 s later) and the leader's death, each with every event
+   delivered exactly once afterwards; and 30 parked requests whose reader
+   node is killed, so that `NotifyOnCancel` fires for each, at the moment
+   the leader steps down, five rounds: each answered once, nothing left
+   parked on any node, the old leader alive.
 9. The batch loops' call placement (§5.3 step 4). *Resolved against the
    tree:* there are **two** loops, `generateBatch` in `getmore_cmd.cpp`
    and `handleCursorCommand` in `run_aggregate.cpp`, both recording at
@@ -2825,21 +2843,32 @@ connector over the same scan RPC.
    later one; a non-change-stream cursor carries no such field.
    *Tested in PR 6 and PR 9* (`post_batch_resume_token.js`,
    `post_batch_resume_token_stash.js`, `invalidate.js`, `id_integrity.js`,
-   `resume_token_integrity_test`), except a stashed last document in the
-   aggregate loop and the row that needs a batch cut by size there, which a
-   real server cannot reach; the C++ test of both loops against the fake
-   logger was not written.
+   `resume_token_integrity_test`). The two aggregate-loop rows a real
+   server never reaches, a first batch holding events and one cut by size
+   with its last document stashed, are tested since 2026-10-10 through the
+   real loop rather than a C++ copy of it: the test-only fail point
+   `eloqChangeStreamFirstBatchWait` lets the opening aggregate wait for its
+   scans (`post_batch_resume_token_first_batch.js`).
 10. Idle-tail emission (§5.7): a test that writes one transaction, then
     stops all writes, and asserts that a deployment-level stream delivers
     its events within `checkpointer_interval` plus `ckpt_delay_time_` and
     then keeps advancing `postBatchResumeToken` every round with no
     further events. Confirm the value and meaning of `ckpt_delay_time_`
     in the EloqDoc configuration, since it adds directly to tail latency.
-    *Partly done in PR 6 (F3):* `eloq_cdc/idle_tail.js` writes, stops and
-    checks that the events arrive and the watermark keeps advancing, within a
-    generous wait rather than the tight bound. `ckpt_delay_time_` is the data
-    substrate's `checkpointer_delay_seconds` (default 5 s), applied only with
-    MVCC (§5.7).
+    *Done:* `eloq_cdc/idle_tail.js` (PR 6, F3) writes, stops and checks that
+    the event arrives with the first checkpoint round that can carry it,
+    and that the watermark then advances twice more with no events. It
+    counts rounds, not seconds (since 2026-10-15; a wall-clock bound from
+    2026-10-10 left 5 s for two rounds' own durations and the scan, which a
+    loaded CI runner may exceed): every round's report advances the
+    watermark once, and before the event it may advance once for a round
+    that took its timestamp before the commit, plus once for each round the
+    checkpoint delay spans (`1 + ceil(delay / round)`, two at a 10 s
+    round). The node reports the round in `serverStatus`'
+    `eloqChangeStreams` section (`checkpointIntervalMillis`, read from the
+    running checkpointer). `ckpt_delay_time_` is the data substrate's
+    `checkpointer_delay_seconds` (default 5 s), applied only with MVCC
+    (§5.7); the server does not report it, so the test assumes the default.
 11. The cluster gate used by bootstrap (§6.2): the
     optional `cluster_gate {mode, paused}` field on
     `ClusterConfigRecord`, carried through copy, assignment and
@@ -2918,12 +2947,21 @@ connector over the same scan RPC.
     *Mostly done in PRs 10 to 13* (plan D1–D9, E2, E5): `ClusterGate-Test`,
     `LogStateClusterGate-Test`, `cmake/tests/cluster_gate.py` (i)–(xi), and
     `cdc_consumer_e2e.py` (ii), the `{x:1}` → drop → `{y:1}` history with and
-    without the gate, and (iv), views changed during the copy. *Still open,*
-    for want of a multi-node harness with a log service and failover (D9):
-    log-group and node-group leader changes, a second node group failing
-    over, cluster scale and split-flush under the gate, the gauge on every
-    node of a cluster, a recovered op not being gated, and an index build in
-    flight finishing under a pause (an admitted create is tested).
+    without the gate, and (iv), views changed during the copy. *Multi-node
+    part done 2026-10-10* (`cmake/tests/multinode/cluster_gate_multinode.py`
+    (a)–(l), three processes, one node group each, one log group on all
+    three): DDL refused and admitted through every node, the gauge on every
+    node, a log group leader change, each node's restart and a whole cluster
+    restart under a pause, one gate item replayed per node group with a log
+    group per node, pause and resume killed after their log with and without
+    a second node group failing over, coordinator and participant killed in
+    the install, a range split under the gate, a create and an index build
+    in flight finishing under a waiting pause, recovered from their prepare
+    logs or not, and the gauge's reset when a node stops leading its node
+    group, its process alive. *Not covered:* a node group's leader moving to
+    another node, which needs a standby holding the data (EloqDoc streams no
+    document writes to standbys, and a voter holds none), and cluster scale,
+    which needs a data store service and a log service outside the nodes.
 
 ## Key files
 

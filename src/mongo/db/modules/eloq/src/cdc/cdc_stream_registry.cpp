@@ -22,6 +22,8 @@
 
 #include "mongo/bson/bsonobjbuilder.h"
 #include "mongo/db/commands/server_status.h"
+#include "mongo/db/modules/eloq/data_substrate/core/include/data_substrate.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_service.h"
 #include "mongo/util/time_support.h"
 
 namespace mongo {
@@ -55,15 +57,17 @@ constexpr int kMaxListedStreams = 1000;
 
 /**
  * @brief serverStatus' eloqChangeStreams section:
- * { open, maxLagMicros, dedupSetOverflows,
+ * { open, maxLagMicros, dedupSetOverflows, checkpointIntervalMillis,
  *   streams: [{scope, ns, lagMicros, emitBound, producedThrough, dedupSetOverflows, idleMillis}],
  *   streamsTruncated }.
  *
  * A stream's lag is how far the timestamp it has produced through lies below the emit bound it
  * last saw: what its consumer could already have. Both move only when the stream is pulled, so
  * idleMillis, the time since its last pull (-1 before its first), tells a caught-up stream from
- * one whose consumer stopped reading. dedupSetOverflows counts the changes a full dedup set did not record (§5.8),
- * over the server's lifetime; each may have been returned twice, an idempotent repeat.
+ * one whose consumer stopped reading. dedupSetOverflows counts the changes a full dedup set did not
+ * record (§5.8), over the server's lifetime; each may have been returned twice, an idempotent
+ * repeat. checkpointIntervalMillis is this node's checkpoint round: the streams' watermark, the log
+ * group's lowest reported checkpoint timestamp, advances at most once a round (§5.7).
  */
 class EloqChangeStreamsSection : public ServerStatusSection {
 public:
@@ -106,6 +110,10 @@ public:
         section.append("open", open);
         section.append("maxLagMicros", maxLag);
         section.append("dedupSetOverflows", static_cast<long long>(overflows));
+        const txservice::Checkpointer* checkpointer =
+            DataSubstrate::Instance().GetTxService()->GetCheckpointer();
+        section.append("checkpointIntervalMillis",
+                       1000LL * static_cast<long long>(checkpointer->CheckpointInterval()));
         section.append("streams", streams.arr());
         if (open > kMaxListedStreams) {
             section.append("streamsTruncated", true);

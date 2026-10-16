@@ -61,15 +61,14 @@ public:
         log_agent_.RemoveCcNodeGroup(cc_node_group_id, term);
     }
 
-    void ReplayLog(uint32_t cc_node_group_id,
+    bool ReplayLog(uint32_t cc_node_group_id,
                    int64_t term,
                    const std::string& source_ip,
                    uint16_t source_port,
-                   int log_group,
-                   uint64_t start_ts,
-                   std::atomic<bool>& interrupt) override {
-        log_agent_.ReplayLog(
-            cc_node_group_id, term, source_ip, source_port, log_group, start_ts, interrupt);
+                   uint32_t log_group_id,
+                   uint64_t start_ts) override {
+        return log_agent_.ReplayLogOnce(
+            cc_node_group_id, term, source_ip, source_port, log_group_id, start_ts);
     }
 
     txservice::RecoverTxStatus RecoverTx(uint64_t tx_number,

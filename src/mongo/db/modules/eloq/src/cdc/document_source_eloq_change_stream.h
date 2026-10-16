@@ -79,7 +79,8 @@ public:
 private:
     /**
      * @brief The deadline of the batch being built: the awaitData getMore's, or now for the
-     * aggregate's first batch.
+     * aggregate's first batch (later by the eloqChangeStreamFirstBatchWait fail point's waitMs,
+     * in tests).
      *
      * @return The deadline.
      */

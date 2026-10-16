@@ -17,9 +17,10 @@ Each scenario starts a fresh source node and a fresh sink node and runs the cons
         gate the first is refused with ClusterGatePaused and the three wait out the copy, and
         replay converges on {y:1}; without it they run during the copy, which then holds {y:1},
         and replay halts on {x:1} (§6.2);
-  (iii) a consumer that halts during the copy resumes the gate on its way out; one that stops
-        between the copy and publishing T0 leaves no usable checkpoint; the next run bootstraps
-        again and converges;
+  (iii) a consumer whose copy keeps failing starts the bootstrap over until its retries run out,
+        then halts with the gate resumed; one whose copy fails once starts over, the gate open
+        between the attempts (DDL runs there), and converges; one that stops between the copy and
+        publishing T0 leaves no usable checkpoint; the next run bootstraps again and converges;
   (iv)  views a and b on orders, then a on b, a back on orders, and b on a, all tried during the
         copy: with the gate the three view changes are refused until the copy ends and replay
         converges; without it the copy holds the last definitions, and replaying the first change
@@ -435,19 +436,50 @@ def scenario_oversized(source, sink):
 
 
 def scenario_crash_before_publish(source, sink):
-    """(iii) Stopping between the copy and publishing T0 makes the next run bootstrap again."""
+    """(iii) A copy that keeps failing gives up after its retries; one that fails once starts over,
+    with the gate open in between; stopping between the copy and publishing T0 makes the next run
+    bootstrap again."""
     setup_source(source.client)
 
     def fail_copy(dbname, coll):
         raise cdc.ConsumerHalted("test hook: the copy failed")
 
-    failed = ConsumerThread(source.client, sink.client, before_copy_collection=fail_copy)
+    failed = ConsumerThread(source.client, sink.client, before_copy_collection=fail_copy,
+                            max_copy_retries=1, copy_retry_delay_s=1)
     failed.thread.join(timeout=180)
     assert isinstance(failed.error, cdc.ConsumerHalted), failed.error
-    assert "the copy failed" in str(failed.error), failed.error
+    assert "gave up after 2 attempts" in str(failed.error), failed.error
     # The halted consumer resumed the gate on its way out: DDL runs at once.
     source.client[DB].create_collection("after_failed_copy")
     source.client[DB].drop_collection("after_failed_copy")
+
+    failed_once = threading.Event()
+    ddl_ran = threading.Event()
+    open_between = []
+
+    def fail_first_copy(dbname, coll):
+        if not failed_once.is_set():
+            failed_once.set()
+            raise cdc.ConsumerHalted("test hook: the first copy failed")
+        if not open_between:
+            open_between.append(ddl_ran.is_set())
+
+    retried = ConsumerThread(source.client, sink.client, before_copy_collection=fail_first_copy)
+    try:
+        assert failed_once.wait(timeout=120), "the first copy never started"
+        # Between the attempts the gate is open: DDL runs during the wait.
+        retry_ddl(lambda: source.client[DB].create_collection("between_attempts"))
+        retry_ddl(lambda: source.client[DB].drop_collection("between_attempts"))
+        ddl_ran.set()
+        wait_converged(source.client, sink.client, "after the copy started over")
+        assert retried.error is None, retried.error
+        assert open_between == [True], "the second attempt started before the DDL could run"
+    finally:
+        retried.stop()
+
+    # A fresh bootstrap, as an operator forces one (README, "Forcing a fresh bootstrap").
+    sink.client.admin[cdc.PROGRESS_COLLECTION].update_one(
+        {"_id": "progress"}, {"$set": {"state": "bootstrapping"}})
     first = ConsumerThread(source.client, sink.client, fail_before_publish=True)
     first.thread.join(timeout=180)
     assert isinstance(first.error, cdc.ConsumerHalted), first.error
@@ -460,8 +492,9 @@ def scenario_crash_before_publish(source, sink):
         assert second.error is None, second.error
     finally:
         second.stop()
-    print("PASS (iii) a run halted in its copy resumed the gate; a run stopped before publishing "
-          "T0 bootstrapped again and converged", flush=True)
+    print("PASS (iii) a copy that kept failing gave up and resumed the gate; one that failed once "
+          "started over with the gate open in between; a run stopped before publishing T0 "
+          "bootstrapped again and converged", flush=True)
 
 
 def main():

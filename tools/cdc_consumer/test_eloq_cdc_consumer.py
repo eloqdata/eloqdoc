@@ -365,6 +365,9 @@ class HistoryLostTest(unittest.TestCase):
         run.sink_client = Sink()
         run.progress = Loaded()
         run.max_rebootstraps = consumer.MAX_REBOOTSTRAPS
+        run.max_copy_retries = consumer.MAX_COPY_RETRIES
+        run.copy_retry_delay_s = 0
+        run.stop = threading.Event()
         run.caught_up = False
         run.stream_from = stream_from
         run.bootstrap = bootstrap
@@ -421,6 +424,135 @@ class HistoryLostTest(unittest.TestCase):
             run.run()
         # Two before the catch-up, then the count starts over: one for it and two more.
         self.assertEqual(len(bootstraps), 2 + consumer.MAX_REBOOTSTRAPS)
+
+
+class CopyRetryTest(unittest.TestCase):
+    @staticmethod
+    def retrying(bootstrap, max_copy_retries=consumer.MAX_COPY_RETRIES):
+        """A consumer whose bootstrap() is the given function, with no wait between attempts."""
+        run = consumer.Consumer.__new__(consumer.Consumer)
+        run.max_copy_retries = max_copy_retries
+        run.copy_retry_delay_s = 0
+        run.stop = threading.Event()
+        run.bootstrap = bootstrap
+        return run
+
+    def test_a_failed_copy_starts_over(self):
+        attempts = []
+
+        def bootstrap():
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise consumer.CopyFailed("bootstrap: the copy failed: boom")
+            return token(5)
+
+        self.assertEqual(self.retrying(bootstrap).bootstrap_with_retries(), token(5))
+        self.assertEqual(len(attempts), 3)
+
+    def test_failed_copies_give_up_after_the_retries(self):
+        attempts = []
+
+        def bootstrap():
+            attempts.append(1)
+            raise consumer.CopyFailed("bootstrap: the copy failed: boom")
+
+        with self.assertRaises(consumer.ConsumerHalted) as caught:
+            self.retrying(bootstrap, max_copy_retries=2).bootstrap_with_retries()
+        self.assertNotIsInstance(caught.exception, consumer.CopyFailed)
+        self.assertIn("gave up after 3 attempts", str(caught.exception))
+        self.assertEqual(len(attempts), 3)
+
+    def test_a_stop_while_waiting_halts(self):
+        attempts = []
+
+        def bootstrap():
+            attempts.append(1)
+            run.stop.set()
+            raise consumer.CopyFailed("bootstrap: the copy failed: boom")
+
+        run = self.retrying(bootstrap)
+        with self.assertRaises(consumer.ConsumerHalted) as caught:
+            run.bootstrap_with_retries()
+        self.assertIn("stopped while waiting", str(caught.exception))
+        self.assertEqual(len(attempts), 1)
+
+    @staticmethod
+    def bootstrapping(copy_error):
+        """A consumer whose real bootstrap() pauses and resumes a recorded gate and whose copy of
+        its one database raises copy_error."""
+        class Progress:
+            def mark_bootstrapping(self):
+                pass
+
+        class Sink:
+            def database_names(self):
+                return []
+
+        class Source:
+            def list_database_names(self):
+                return ["app"]
+
+        def copy_database(db):
+            raise copy_error
+
+        run = consumer.Consumer.__new__(consumer.Consumer)
+        run.progress, run.sink, run.source = Progress(), Sink(), Source()
+        run.databases = None
+        run.stop = threading.Event()
+        run.gate_ops = []
+        run.gate = lambda op: run.gate_ops.append(op) or 1
+        run.pick_t0 = lambda pause_ts: token(2, kind=consumer.TOKEN_KIND_WATERMARK)
+        run.copy_database = copy_database
+        return run
+
+    def test_a_copy_error_resumes_the_gate_and_raises_copy_failed(self):
+        error = OperationFailure("not master", 10107)
+        run = self.bootstrapping(error)
+        with self.assertRaises(consumer.CopyFailed) as caught:
+            run.bootstrap()
+        self.assertIs(caught.exception.__cause__, error)
+        self.assertEqual(run.gate_ops, ["pause", "resume"])
+
+    def test_a_stop_during_the_copy_is_not_a_failed_copy(self):
+        run = self.bootstrapping(consumer.ConsumerHalted("x: stopped while retrying"))
+        run.stop.set()
+        with self.assertRaises(consumer.ConsumerHalted) as caught:
+            run.bootstrap()
+        self.assertNotIsInstance(caught.exception, consumer.CopyFailed)
+        self.assertEqual(run.gate_ops, ["pause", "resume"])
+
+
+class CopyDatabaseTest(unittest.TestCase):
+    def test_views_come_from_the_listing(self):
+        """A view is created on the sink from listCollections' definition, after the collections
+        are copied; the source's system.views, which no built-in role may read, is never read,
+        and only collections are copied as collections."""
+        view = {"viewOn": "items", "pipeline": [{"$match": {"x": {"$lt": 10}}}]}
+        listing = [{"name": "items", "type": "collection", "options": {}},
+                   {"name": "system.views", "type": "collection", "options": {}},
+                   {"name": "cheap", "type": "view", "options": view}]
+
+        class SourceDb:
+            def list_collections(self, filter=None):
+                return [info for info in listing
+                        if all(info.get(k) == v for k, v in (filter or {}).items())]
+
+            def __getitem__(self, coll):
+                raise AssertionError(f"read {coll} on the source")
+
+        calls = []
+
+        class Sink:
+            def put_view(self, db, name, definition):
+                calls.append(("view", db, name, definition))
+
+        run = consumer.Consumer.__new__(consumer.Consumer)
+        run.source = {"app": SourceDb()}
+        run.sink = Sink()
+        run.stop = threading.Event()
+        run.copy_collection = lambda db, coll: calls.append(("copy", db, coll))
+        run.copy_database("app")
+        self.assertEqual(calls, [("copy", "app", "items"), ("view", "app", "cheap", view)])
 
 
 class CatchUpTest(unittest.TestCase):

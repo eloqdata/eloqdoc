@@ -24,9 +24,12 @@ Bootstrap (§6.2): invalidate the checkpoint, drop the in-scope databases on the
 cluster gate (eloqClusterGate), pick T0 from a fresh stream (a watermark at or above the pause's
 timestamp, or an event token above it), copy collection definitions (without unique and
 expireAfterSeconds, §6.3, §6.4) and documents, resume the gate, publish {streaming, T0} and apply
-the stream after T0.
+the stream after T0. A bootstrap whose copy fails resumes the gate and starts over from the first
+step, after a wait, at most --max-copy-retries times in a row.
 
 Usage: eloq_cdc_consumer.py --source mongodb://eloqdoc:27017 --sink mongodb://sink:27017
+The manual, with the privileges, the exit statuses and what to do when it halts, is README.md next
+to this file.
 """
 
 import argparse
@@ -86,6 +89,10 @@ TOKEN_KIND_WATERMARK = 1
 
 # The bootstraps a lost history may start before the stream catches up once (Consumer).
 MAX_REBOOTSTRAPS = 3
+# The times in a row a bootstrap whose copy failed is started over (Consumer), and the wait before
+# the first; each later wait is twice the one before.
+MAX_COPY_RETRIES = 3
+COPY_RETRY_DELAY_S = 10
 # How close to the consumer's clock a watermark must be for the stream to count as caught up.
 CATCH_UP_WINDOW_US = 60 * 1000 * 1000
 
@@ -97,6 +104,12 @@ class ConsumerHalted(Exception):
 class HistoryLost(ConsumerHalted):
     """The stream's position is older than the history the source keeps (ChangeStreamHistoryLost,
     §4.5): nothing can resume from it, so the sink is bootstrapped again."""
+
+
+class CopyFailed(ConsumerHalted):
+    """The bootstrap failed between pausing the gate and resuming it, picking T0 or copying: a new
+    bootstrap drops whatever was copied and starts over with a new T0 (§6.2), so the copy is never
+    repaired, only done again."""
 
 
 def token_timestamp(token):
@@ -483,9 +496,12 @@ class Consumer:
     def __init__(self, source, sink_client, databases=None, slots=8, batch=1000,
                  max_await_ms=1000, progress_name="progress", fail_before_publish=False,
                  before_copy_collection=None, unsafe_skip_gate=False,
-                 max_rebootstraps=MAX_REBOOTSTRAPS):
+                 max_rebootstraps=MAX_REBOOTSTRAPS, max_copy_retries=MAX_COPY_RETRIES,
+                 copy_retry_delay_s=COPY_RETRY_DELAY_S):
         """max_rebootstraps bounds the bootstraps a lost history may start before the stream has
         caught up once: each one drops the sink's in-scope data, so past it the consumer halts.
+        max_copy_retries bounds the times in a row a bootstrap whose copy failed starts over, the
+        first after copy_retry_delay_s seconds and each later one after twice the wait before it.
         before_copy_collection(db, coll) and unsafe_skip_gate are test hooks: the first runs
         before each collection's copy, the second bootstraps without the cluster gate, to show
         what the gate prevents. Neither is reachable from the command line."""
@@ -501,6 +517,8 @@ class Consumer:
         self.before_copy_collection = before_copy_collection
         self.unsafe_skip_gate = unsafe_skip_gate
         self.max_rebootstraps = max_rebootstraps
+        self.max_copy_retries = max_copy_retries
+        self.copy_retry_delay_s = copy_retry_delay_s
         self.stop = threading.Event()
         self.last_token = None
         # Set once stream_from() applies a batch that shows it reached the source's tail
@@ -516,7 +534,7 @@ class Consumer:
         rebootstraps = 0
         while True:
             if token is None:
-                token = self.bootstrap()
+                token = self.bootstrap_with_retries()
             self.caught_up = False
             try:
                 self.stream_from(token)
@@ -555,8 +573,35 @@ class Consumer:
             self.stop)
         return reply["pauseTs" if op == "pause" else "resumeTs"]
 
+    def bootstrap_with_retries(self):
+        """bootstrap(), started over while its copy fails; returns T0, already published.
+
+        Each attempt drops the sink's in-scope data and copies everything again, so no error needs
+        telling apart: whatever broke the copy, a fresh attempt is correct. Between attempts the
+        gate is open, so schema changes are refused only while a copy runs. After
+        max_copy_retries failures in a row the consumer halts: an error that does not clear (a
+        missing privilege, a full sink) would otherwise drop the sink and pause schema changes
+        again and again."""
+        delay = self.copy_retry_delay_s
+        retries = 0
+        while True:
+            try:
+                return self.bootstrap()
+            except CopyFailed as exc:
+                if retries >= self.max_copy_retries:
+                    raise ConsumerHalted(
+                        f"{exc}; gave up after {retries + 1} attempts in a row. Fix the cause, then "
+                        "start the consumer again") from exc
+                retries += 1
+                LOG.warning("%s; bootstrapping again in %g s (retry %d of at most %d)", exc,
+                            delay, retries, self.max_copy_retries)
+            if self.stop.wait(delay):
+                raise ConsumerHalted("stopped while waiting to bootstrap again")
+            delay *= 2
+
     def bootstrap(self):
-        """§6.2 steps 1 to 6; returns T0, already published."""
+        """§6.2 steps 1 to 6; returns T0, already published. A failure between pausing the gate
+        and resuming it, other than a stop, resumes the gate and raises CopyFailed."""
         # 1. Withdraw the checkpoint before touching the sink.
         retry_transient("mark bootstrapping", self.progress.mark_bootstrapping, self.stop)
         for db in self.sink.database_names():
@@ -584,10 +629,13 @@ class Consumer:
             for db in self.source.list_database_names():
                 if self.in_scope(db):
                     self.copy_database(db)
-        except BaseException:
-            # The checkpoint says bootstrapping, so the next run copies again from step 1; the gate
-            # need not wait for an operator meanwhile. Only a consumer that dies leaves it paused.
+        except BaseException as exc:
+            # The checkpoint says bootstrapping, so the next attempt, in this run or the next,
+            # copies again from step 1; the gate need not wait for an operator meanwhile. Only a
+            # consumer that dies leaves it paused.
             self.resume_after_failure()
+            if isinstance(exc, Exception) and not self.stop.is_set():
+                raise CopyFailed(f"bootstrap: the copy failed: {exc}") from exc
             raise
         # 5. Resume the gate.
         self.gate("resume")
@@ -624,11 +672,12 @@ class Consumer:
         for info in list(self.source[db].list_collections()):
             if info.get("type", "collection") != "view" and replicated_collection(info["name"]):
                 self.copy_collection(db, info["name"])
-        # A view has no indexes or documents of its own; only its definition is copied, read from
-        # system.views, the documents whose changes the stream reports, so the copy and the replay
-        # start from the same records.
-        for definition in list(self.source[db][VIEWS_COLLECTION].find()):
-            name = definition["_id"][len(db) + 1:]
+        # A view has no indexes or documents of its own; only its definition is copied. EloqDoc
+        # lists views from a fresh read of system.views, the documents whose changes the stream
+        # reports, so the copy and the replay start from the same records; listing them needs no
+        # privilege on system.views, which no built-in role grants.
+        for info in list(self.source[db].list_collections(filter={"type": "view"})):
+            name, definition = info["name"], info.get("options", {})
             retry_transient(f"create view {db}.{name}",
                             lambda: self.sink.put_view(db, name, definition), self.stop)
 
@@ -707,13 +756,18 @@ def main(argv=None):
                         help="bootstraps a lost history (ChangeStreamHistoryLost) may start before "
                         "the stream catches up once; past it the consumer halts, since each one "
                         "drops the sink's data")
+    parser.add_argument("--max-copy-retries", type=int, default=MAX_COPY_RETRIES,
+                        help="times in a row a bootstrap whose copy failed starts over, after "
+                        f"{COPY_RETRY_DELAY_S} s and then twice as long each time; past it the "
+                        "consumer halts")
     parser.add_argument("--fail-before-publish", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     consumer = Consumer(pymongo.MongoClient(args.source), pymongo.MongoClient(args.sink),
                         args.databases, args.slots, args.batch, args.max_await_ms,
                         args.progress_name, args.fail_before_publish,
-                        max_rebootstraps=args.max_rebootstraps)
+                        max_rebootstraps=args.max_rebootstraps,
+                        max_copy_retries=args.max_copy_retries)
     try:
         consumer.run()
     except ConsumerHalted as exc:

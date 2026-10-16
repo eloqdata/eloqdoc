@@ -30,6 +30,7 @@
 #include "mongo/db/pipeline/resume_token.h"
 #include "mongo/db/query/find_common.h"
 #include "mongo/db/server_parameters.h"
+#include "mongo/util/fail_point_service.h"
 #include "mongo/util/mongoutils/str.h"
 
 namespace mongo {
@@ -45,6 +46,14 @@ MONGO_EXPORT_SERVER_PARAMETER(cdc_open_wait_ms, int, 30000)
         }
         return Status::OK();
     });
+
+/**
+ * Test only (configureFailPoint, with test commands enabled): the aggregate that opens a change
+ * stream waits up to {waitMs: <n>} for its scans instead of returning at once, so its first batch
+ * can carry events and be cut by its batchSize or by the reply's size, which the batch loop in
+ * run_aggregate.cpp otherwise never sees (docs/cdc-change-stream.md §10 item 9).
+ */
+MONGO_FAIL_POINT_DEFINE(eloqChangeStreamFirstBatchWait);
 
 namespace {
 
@@ -246,7 +255,13 @@ Date_t DocumentSourceEloqChangeStream::_batchDeadline() const {
     // An awaitData getMore has no operation deadline; its maxTimeMS (default 1 s) is here. The
     // aggregate that opens the stream never sets it, so its first batch does not wait.
     const AwaitDataState& state = awaitDataState(pExpCtx->opCtx);
-    return state.shouldWaitForInserts ? state.waitForInsertsDeadline : Date_t::now();
+    if (state.shouldWaitForInserts) {
+        return state.waitForInsertsDeadline;
+    }
+    MONGO_FAIL_POINT_BLOCK(eloqChangeStreamFirstBatchWait, wait) {
+        return Date_t::now() + Milliseconds(wait.getData()["waitMs"].numberInt());
+    }
+    return Date_t::now();
 }
 
 std::list<boost::intrusive_ptr<DocumentSource>> makeEloqChangeStreamStages(

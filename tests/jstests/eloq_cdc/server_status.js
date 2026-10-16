@@ -3,7 +3,8 @@
  * is listed with its scope and namespace; its lag is how far what it has produced lies below the
  * emit bound it last saw, 0 once a getMore finds nothing more; dedupSetOverflows counts the changes
  * a full dedup set did not record, per stream and over the server's lifetime; a closed stream
- * leaves the list and keeps its overflows in the total.
+ * leaves the list and keeps its overflows in the total. The section also reports the node's
+ * checkpoint round and checkpoint delay, which bound how soon a change reaches the streams.
  */
 (function() {
     "use strict";
@@ -38,6 +39,7 @@
     try {
         EloqCdcUtil.settleDdl(db.getMongo());
         const before = section();
+        assert.gt(before.checkpointIntervalMillis, 0, tojson(before));
         const id = assert.commandWorked(EloqCdcUtil.openRaw(db.getMongo(), testDB.getName(), 1, {}))
                        .cursor.id;
         assert.eq(mine().length, 1, tojson(section()));
