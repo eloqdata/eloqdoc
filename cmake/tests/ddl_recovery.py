@@ -48,7 +48,8 @@ from pymongo import MongoClient
 from pymongo.errors import AutoReconnect, OperationFailure, PyMongoError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from server_smoke_config import substrate_config  # noqa: E402
+from server_smoke_config import (TX_PORT_BLOCK, free_node_port,  # noqa: E402,F401
+                                 reap_process_group, substrate_config)
 
 COMMAND_NOT_SUPPORTED = 115
 KEY_TOO_LONG = 17280
@@ -69,16 +70,22 @@ class Node:
     def __init__(self, args, label):
         self.args = args
         self.root = Path(tempfile.mkdtemp(prefix=f"eloqdoc-ddl-recovery-{label}-"))
-        self.port = args.port or free_port()
+        self.port = args.port or free_node_port()
         self.process = None
         self.client = None
+        # The ports a restart reuses: the mongo port, and the data substrate's when this script
+        # chose them (a --substrate-config template fixes its own).
+        self.ports = [self.port]
         (self.root / "db").mkdir()
         config = self.root / "data_substrate.cnf"
         if args.substrate_config:
             template = args.substrate_config.read_text(encoding="utf-8")
             config.write_text(template.replace("{root}", str(self.root)), encoding="utf-8")
         else:
-            config.write_text(substrate_config(self.root, free_port(), free_port(),
+            tx_port = free_node_port(TX_PORT_BLOCK)
+            hm_port = free_node_port()
+            self.ports += list(range(tx_port, tx_port + TX_PORT_BLOCK)) + [hm_port]
+            config.write_text(substrate_config(self.root, tx_port, hm_port,
                                                args.data_store, args.log_state, os.environ),
                               encoding="utf-8")
         (self.root / "eloqdoc.yaml").write_text(json.dumps({
@@ -117,6 +124,13 @@ class Node:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
+        self._reap()
+
+    def kill(self):
+        """Kills the node, as a crash of its host does."""
+        self.process.kill()
+        self.process.wait()
+        self._reap()
 
     def wait_for_crash(self):
         """Waits for the node the armed fault point killed."""
@@ -124,6 +138,11 @@ class Node:
             self.process.wait(timeout=60)
         except subprocess.TimeoutExpired:
             raise AssertionError("the fault point did not kill the node")
+        self._reap()
+
+    def _reap(self):
+        """Clears the node's process group and ports before a restart (reap_process_group())."""
+        reap_process_group(self.process, self.ports)
 
     def close(self, keep_logs):
         self.stop()

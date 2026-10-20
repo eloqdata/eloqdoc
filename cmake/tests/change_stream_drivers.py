@@ -25,7 +25,6 @@ import argparse
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -37,7 +36,8 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure, PyMongoError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from server_smoke_config import substrate_config  # noqa: E402
+from server_smoke_config import (TX_PORT_BLOCK, free_node_port,  # noqa: E402
+                                 reap_process_group, substrate_config)
 
 CHANGE_STREAM_START_NOT_READY = 5000
 CLIENTS_DIR = Path(__file__).resolve().parent / "change_stream_clients"
@@ -49,12 +49,6 @@ MAVEN_CENTRAL = "https://repo1.maven.org/maven2/org/mongodb"
 # The scenarios each fresh server runs: (iii) must arm its fault before the first checkpoint
 # round, so it has a server of its own.
 SERVER_GROUPS = (("opening", ["opening", "resume"]), ("not-ready", ["not-ready"]))
-
-
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def token_timestamp(token):
@@ -73,8 +67,11 @@ class Server:
     def __init__(self, args, label):
         self.args = args
         self.root = Path(tempfile.mkdtemp(prefix=f"eloqdoc-cdc-drivers-{label}-"))
-        self.port = args.port or free_port()
+        self.port = args.port or free_node_port()
         self.process = None
+        # The ports stop() waits for: the mongo port, and the data substrate's when this script
+        # chose them (a --substrate-config template fixes its own).
+        self.ports = [self.port]
 
     def start(self):
         (self.root / "db").mkdir(exist_ok=True)
@@ -84,7 +81,10 @@ class Server:
             template = self.args.substrate_config.read_text(encoding="utf-8")
             config.write_text(template.replace("{root}", str(self.root)), encoding="utf-8")
         else:
-            config.write_text(substrate_config(self.root, free_port(), free_port(),
+            tx_port = free_node_port(TX_PORT_BLOCK)
+            hm_port = free_node_port()
+            self.ports += list(range(tx_port, tx_port + TX_PORT_BLOCK)) + [hm_port]
+            config.write_text(substrate_config(self.root, tx_port, hm_port,
                                                self.args.data_store, self.args.log_state,
                                                os.environ), encoding="utf-8")
         server_config = self.root / "eloqdoc.yaml"
@@ -119,6 +119,7 @@ class Server:
                 self.process.wait(timeout=60)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+        reap_process_group(self.process, self.ports)
         if keep_logs and self.args.diagnostics_dir:
             target = self.args.diagnostics_dir / self.root.name
             target.mkdir(parents=True, exist_ok=True)

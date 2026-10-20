@@ -147,8 +147,10 @@ def main():
                             "mapreduce.shardedfinish", "shardConnPoolStats"):
                 assert command not in commands, "distributed command retained: " + command
             print("PASS standalone command registration", flush=True)
-            db.records.insert_many([{"k": i, "v": i % 2} for i in range(10)])
+            # A unique index is built only on an empty collection (index_create_impl.cpp):
+            # build it first, so that the inserts and the update below go through it.
             db.records.create_index("k", unique=True, background=True)
+            db.records.insert_many([{"k": i, "v": i % 2} for i in range(10)])
             assert db.records.find_one({"k": 3})["v"] == 1
             db.records.update_one({"k": 3}, {"$set": {"v": 7}})
             assert db.records.find_one({"k": 3})["v"] == 7

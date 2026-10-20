@@ -48,7 +48,7 @@ from pymongo.errors import AutoReconnect, OperationFailure
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ddl_recovery import (Node, crash_during, fault_points_compiled_in,  # noqa: E402
-                          free_port, wait_until)
+                          free_node_port, wait_until)
 
 UNAUTHORIZED = 13
 CONFLICTING_OPERATION_IN_PROGRESS = 117
@@ -202,8 +202,7 @@ def scenario_restart(node):
     node.stop()
     node.start()
     check_paused(node, "iii-clean")
-    node.process.kill()
-    node.process.wait()
+    node.kill()
     node.start()
     check_paused(node, "iii-kill")
     gate(node, "resume")
@@ -390,7 +389,8 @@ def wait_for(predicate, timeout_s, what):
 
 def scenario_metrics(node):
     """(xi) The cluster gate and change data capture gauges, as the metrics endpoint reports them."""
-    port = free_port()
+    port = free_node_port()
+    node.ports.append(port)
     node.stop()
     with (node.root / "data_substrate.cnf").open("a", encoding="utf-8") as config:
         config.write(f"\n[metrics]\nenable_metrics=true\nmetrics_port={port}\n")
