@@ -63,7 +63,10 @@ until the DDL commits (data substrate `docs/range-split-schema-op-recovery.md` �
   ```
 
   with the same `<txn>` as the retry warning.
-- The `checkpoint_stall_rounds` gauge of that node group rises round after round.
+- Every log group's `cdc_arrival_complete_ts` stops advancing: each log group's history is
+  complete only up to the lowest checkpoint the node groups report, and this node group's no
+  longer moves. Once the stall ends, the node's `checkpoint_advance_interval_seconds` histogram
+  records an interval about as long as the stall.
 - Change streams return empty batches whose `postBatchResumeToken` stops advancing; consumer
   lag grows. The DDL command itself may still be waiting, or its client may have timed out; the
   DDL goes on regardless.
@@ -95,8 +98,8 @@ node. Recovery finds the commit log and resumes the DDL under a write intent on 
 catalog entry instead of the write lock (design §8, the row for a DDL kv write that keeps
 failing). An intent does not hold back the checkpoint, so the streams resume while the DDL keeps
 retrying; it still keeps every other DDL off the table, and the retry warnings go on until the
-store recovers. Check after the restart that `checkpoint_stall_rounds` returns to zero and the
-streams' tokens advance again.
+store recovers. Check after the restart that the checkpoint stall warning stops, every log
+group's `cdc_arrival_complete_ts` advances again, and the streams' tokens advance again.
 
 A DDL whose retries do not stall the streams, an index build retrying its data under its intent,
 needs no restart: only the store's recovery finishes it.
@@ -186,8 +189,10 @@ before starting it again.
 - `cdc_arrival_complete_ts{lg_id}` is how far each log group's history is complete, in
   microseconds; `time() - cdc_arrival_complete_ts / 1e6` is how far behind the wall clock every
   stream must be at least. It normally stays within two checkpoint rounds (`checkpointer_interval`,
-  default 10 s); when it grows, a checkpoint is stalling, which `checkpoint_stall_rounds{ng_id}`
-  confirms (§1).
+  default 10 s); when it grows, a checkpoint is stalling: the server log's checkpoint stall
+  warning names the node group and the transaction that pins it (§1), and
+  `checkpoint_advance_interval_seconds` records the stall's length once the checkpoint advances
+  again.
 - A consumer's own lag is the wall clock minus the timestamp of the token it saved last. The
   reference consumer saves it in `admin.__eloq_cdc_progress` on the sink: the timestamp is the 16
   hexadecimal digits after the first two of the token's `_data`, in microseconds.

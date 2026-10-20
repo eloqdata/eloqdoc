@@ -693,8 +693,9 @@ EloqKV's fast catalog read (`LocalCcHandler::ReleaseCatalogRead`).
       stream and log truncation stall until the store recovers or the
       operator intervenes. This is the same availability trade-off as the
       existing behavior for a stuck write lock (§5.7), surfaces through the
-      same `checkpoint_stall_rounds` gauge plus a warning in the log for
-      every retry, and buys a single, consistent failure path. For create it applies only
+      same checkpoint stall warning and `cdc_arrival_complete_ts` standing
+      still, plus a warning in the log for every retry, and buys a single,
+      consistent failure path. For create it applies only
       to the catalog row, a single write; the kv tables are created before the
       lock.
     In the normal case the write lock is held across the commit log and one
@@ -1627,8 +1628,10 @@ depends on them.
 10 s, `core/src/tx_service_init.cpp`), so end-to-end latency is roughly one to
 two intervals plus the consumer's poll. Deployments that need less lower the
 interval. A stuck write lock pins `ckpt_ts` and therefore the stream, exactly
-as a lagging shard pins a sharded MongoDB change stream; the existing
-`checkpoint_stall_rounds` gauge already alerts on it.
+as a lagging shard pins a sharded MongoDB change stream; the checkpoint stall
+warning in the server log names the node group and the pinning transaction,
+and `cdc_arrival_complete_ts` stops advancing, which the runbook's
+history-lag alert watches ([cdc-operations.md](cdc-operations.md) §4).
 
 **Tail records and idle periods.** The last records written before a quiet
 period sit at some timestamp `T`, and nothing after them will ever push the
@@ -2634,9 +2637,9 @@ capped collections on the sink (§9).
 |---|---|---|
 | Log group leader change | `NotLeader` on scan | Refresh leader, retry from the same continuation, which advances only on success (§5.8); nothing is lost or duplicated |
 | EloqDoc node serving the cursor dies | Cursor gone | Driver surfaces the error; consumer reopens with its token on any node |
-| Checkpoint stalls (stuck lock) | `arrival_complete_ts` stops, stream pauses | `checkpoint_stall_rounds` gauge; orphan-lock recovery unblocks it |
+| Checkpoint stalls (stuck lock) | `arrival_complete_ts` stops, stream pauses | the checkpoint stall warning in the log, naming the pinning transaction, and `cdc_arrival_complete_ts` standing still; orphan-lock recovery unblocks it |
 | A create's kv tables fail (before its commit log) | the step is not retried: the create gives up at once, under its write intent, which pins nothing: it drops what it created and fails with `DATA_STORE_ERROR`; no event, no stall | the error log names the table; retry the create once the store is back; kv tables whose drop also failed stay orphaned, empty, and a later create of the name writes them again |
-| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | `checkpoint_stall_rounds` alert and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores a write intent on the coordinator's node group: the op keeps retrying under it, holding back neither the checkpoint nor DML, and no other DDL runs on the table; no rollback path exists. Runbook: [cdc-operations.md](cdc-operations.md) §1 |
+| DDL kv write keeps failing after the commit log (create, drop) | the catalog write lock is retained through the retry (§4.4(b)), so `ckpt_ts` of that node group and `arrival_complete_ts` on every logger stop: **all streams stall** and log truncation pauses until the store recovers; the table itself is unavailable | the history-lag alert on `cdc_arrival_complete_ts`, the checkpoint stall warning and the retry warnings in the log, which name the table; fix the store; the op rolls forward on its own, or via recovery if the coordinator fails, which restores a write intent on the coordinator's node group: the op keeps retrying under it, holding back neither the checkpoint nor DML, and no other DDL runs on the table; no rollback path exists. Runbook: [cdc-operations.md](cdc-operations.md) §1 |
 | Consumer down longer than retention | `PositionTruncated` → `ChangeStreamHistoryLost` once loggers track the history boundary (§4.5); **in v1 undetected**, the scan silently resumes at the smallest surviving key | Re-bootstrap (§6.2): drop the in-scope namespaces on the sink, then snapshot and replay from a new `T0`. In v1, prevent rather than detect: set `txlog_cdc_retention_seconds` (§4.5) above the worst-case consumer lag and alert on the lag metric |
 | Sink unreachable | Consumer stops acknowledging | Nothing happens on the source; retention is the budget |
 | DDL attempted while the bootstrap cluster gate is paused (mode `ddl`) | the DDL fails fast with a retriable error (§6.2) | expected; the operator scheduled the bootstrap window; retry after the copy |
@@ -2648,7 +2651,7 @@ capped collections on the sink (§9).
 | Pages that take the cursor over its buffer cap | every in-flight response is admitted in full, prefetch pauses (§5.8) | memory peak is the cap plus one page per log group, where a page is `max_bytes` or one oversized record; a single record is bounded by the source's transaction limits (§5.8 gives the formula) |
 | Event document over 16 MB | delivered with `fullDocumentOmitted: true` (§5.8) | consumer point-reads the document from the source |
 | `killCursors` / idle timeout with scans in flight | in-flight RPCs cancelled, responses dropped, no blocking (§5.8) | none |
-| Stream opened before the first checkpoint round completes, and the bound is still zero after `cdc_open_wait_ms` | open fails with `ChangeStreamStartNotReady` (§5.1) | consumer retries the open; the message says whether the wait was shorter than one checkpoint round (raise `cdc_open_wait_ms` or `maxTimeMS`) or rounds are not completing (`checkpoint_stall_rounds`, server log) |
+| Stream opened before the first checkpoint round completes, and the bound is still zero after `cdc_open_wait_ms` | open fails with `ChangeStreamStartNotReady` (§5.1) | consumer retries the open; the message says whether the wait was shorter than one checkpoint round (raise `cdc_open_wait_ms` or `maxTimeMS`) or rounds are not completing (the checkpoint stall warning in the server log) |
 
 Metrics, exported on the data substrate's metrics endpoint (`/eloq_metrics`)
 when `[metrics] enable_metrics` is on:
@@ -2659,7 +2662,12 @@ when `[metrics] enable_metrics` is on:
 - `cdc_scan_parked_requests{lg_id}` (log service, the leader): scans parked
   by the long poll (§5.8), at most `cdc_scan_max_parked`.
 - `cluster_gate_paused{ng_id}` (tx service): see §6.2, Observability.
-- `checkpoint_stall_rounds{ng_id}` (tx service): see the table above.
+- The tx service's checkpoint metrics, node level:
+  `checkpoint_advance_interval_seconds` (the time between a node group's
+  checkpoint advances, so a stall shows only once it ends),
+  `checkpoint_attempt_interval_seconds` and `checkpoint_failures_total{reason}`.
+  A stall in progress shows in the checkpoint stall warning in the log and in
+  `cdc_arrival_complete_ts` standing still (the table above).
 
 Per stream, in `serverStatus`'s `eloqChangeStreams` section (EloqDoc):
 `open`, `maxLagMicros`, `dedupSetOverflows` (over the server's lifetime) and
