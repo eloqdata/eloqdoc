@@ -446,6 +446,14 @@ void DatabaseImpl::clearTmpCollections(OperationContext* opCtx) {
         invariant(NamespaceString::normal(ns));
 
         CollectionCatalogEntry* coll = _dbEntry->getCollectionCatalogEntry(opCtx, ns);
+        if (!coll) {
+            // The names come from the data store's table list (EloqKVEngine::listCollections),
+            // the entry from the tx service's catalog. A drop that has committed but not yet
+            // deleted its row from the store is still listed but has no entry; recovery rolls
+            // such a drop forward after the node has started, while this sweep runs. Its
+            // collection is gone already.
+            continue;
+        }
 
         CollectionOptions options = coll->getCollectionOptions(opCtx);
 
