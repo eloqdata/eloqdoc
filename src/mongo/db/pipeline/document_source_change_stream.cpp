@@ -330,6 +330,20 @@ intrusive_ptr<DocumentSource> createTransformationStage(
         expCtx, changeStreamSpec, fcv, isIndependentOfAnyCollection));
 }
 
+/**
+ * Rejects a $changeStream spec that names more than one resume option.
+ *
+ * Both checks of combined resume options (a resume token with a start time, and resumeAfter with
+ * startAfter) go through this one assertion, so that every combination fails with the same code:
+ * an assertion code must be unique to its site, which SCons's error code check enforces.
+ *
+ * @param atMostOne whether the options the caller checks name at most one starting point.
+ */
+void uassertAtMostOneResumeOption(bool atMostOne) {
+    uassert(
+        40674, "Only one type of resume option is allowed, but multiple were found.", atMostOne);
+}
+
 list<intrusive_ptr<DocumentSource>> buildPipeline(
     const intrusive_ptr<ExpressionContext>& expCtx,
     const DocumentSourceChangeStreamSpec spec,
@@ -359,9 +373,8 @@ list<intrusive_ptr<DocumentSource>> buildPipeline(
     auto resumeAfterClusterTime = spec.getResumeAfterClusterTimeDeprecated();
     auto startAtOperationTime = spec.getStartAtOperationTime();
 
-    uassert(40674,
-            "Only one type of resume option is allowed, but multiple were found.",
-            !resumeStage || (!resumeAfterClusterTime && !startAtOperationTime));
+    uassertAtMostOneResumeOption(!resumeStage ||
+                                 (!resumeAfterClusterTime && !startAtOperationTime));
 
     if (resumeAfterClusterTime) {
         if (fcv >= ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo40) {
@@ -470,9 +483,7 @@ list<intrusive_ptr<DocumentSource>> DocumentSourceChangeStream::createFromBson(
 
     const bool shouldLookupPostImage = (fullDocOption == "updateLookup"_sd);
 
-    uassert(40674,
-            "Only one type of resume option is allowed, but multiple were found.",
-            !(spec.getResumeAfter() && spec.getStartAfter()));
+    uassertAtMostOneResumeOption(!(spec.getResumeAfter() && spec.getStartAfter()));
 
     if (hasStageFactory()) {
         // Every event of the storage engine's own stream carries its full document, so

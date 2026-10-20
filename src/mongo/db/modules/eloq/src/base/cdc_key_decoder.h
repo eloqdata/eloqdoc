@@ -28,8 +28,8 @@ namespace mongo {
  * A CDC delete event has only the logged key to recover documentKey._id from: no record follows
  * a Delete op in the redo log (docs/cdc-change-stream.md, F1/F3). The stock KeyString::toBson
  * cannot be used with empty type bits -- it would read every numeric as kInt, narrowing an int64
- * _id above 32 bits with int(integerPart), and would uassert(50810) on a key with a fractional
- * part or a decimal.
+ * _id above 32 bits with int(integerPart), and would fail assertion 50810 on a key with a
+ * fractional part or a decimal.
  *
  * This decoder never consults type bits. That is exact on byte consumption, because in KeyString
  * V1 the layout of every branch is fixed by the CType byte and by marker bits inside the key

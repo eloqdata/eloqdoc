@@ -398,9 +398,10 @@ env.CppUnitTest(
     ],
 )
 
-# CDC wire codecs (docs/cdc-change-stream.md §5.4 step 3 and §5.6). These decode logged bytes and
-# build resume tokens; they touch neither the storage engine nor the tx service, so they are kept
-# out of storage_eloq_core to stay linkable from the change-stream stages and cheap to unit test.
+# CDC wire codecs (docs/cdc-change-stream.md, section 5.4 step 3 and section 5.6). These decode
+# logged bytes and build resume tokens; they touch neither the storage engine nor the tx service, so
+# they are kept out of storage_eloq_core to stay linkable from the change-stream stages and cheap to
+# unit test. SCons reads this file with Python 2: keep it ASCII.
 env.Library(
     target="cdc_codec",
     source=[
@@ -428,9 +429,9 @@ env.CppUnitTest(
     ],
 )
 
-# CDC scan path (docs/cdc-change-stream.md §5.3 steps 1-2, §5.8): the per-cursor wait object, the
-# CdcScan client, and the record source that merges the log groups. It reaches the log service
-# only through the tx service's TxLog.
+# CDC scan path (docs/cdc-change-stream.md, section 5.3 steps 1-2, section 5.8): the per-cursor
+# wait object, the CdcScan client, and the record source that merges the log groups. It reaches
+# the log service only through the tx service's TxLog.
 env.Library(
     target="cdc_scan",
     source=[
@@ -458,8 +459,9 @@ env.CppUnitTest(
     ],
 )
 
-# The change stream's event producer (docs/cdc-change-stream.md §5.3 step 3, §5.4, §5.4a, §5.6):
-# decodes the records the scan source releases into event documents with their resume tokens.
+# The change stream's event producer (docs/cdc-change-stream.md, sections 5.3 step 3, 5.4, 5.4a
+# and 5.6): decodes the records the scan source releases into event documents with their resume
+# tokens.
 env.Library(
     target="cdc_stream",
     source=[
@@ -474,8 +476,9 @@ env.Library(
     ],
 )
 
-# EloqDoc's $changeStream stage (docs/cdc-change-stream.md §5.1, §5.2): the pipeline stage over the
-# event stream, and the factory storage_eloq installs so that $changeStream expands into it.
+# EloqDoc's $changeStream stage (docs/cdc-change-stream.md, sections 5.1 and 5.2): the pipeline
+# stage over the event stream, and the factory storage_eloq installs so that $changeStream expands
+# into it.
 env.Library(
     target="cdc_change_stream",
     source=[
