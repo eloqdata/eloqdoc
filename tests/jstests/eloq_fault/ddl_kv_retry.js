@@ -8,7 +8,8 @@
  * - upsert_table_create_kv_table_fail: creating the new table's kv tables, after the prepare log
  *   and before the commit log, fails once. The create drops what it created, fails with a commit
  *   log at timestamp 0, and the command fails; the name stays free, and a later create of it
- *   succeeds.
+ *   succeeds. A table_name parameter aims the fault at one table; without it, the first create
+ *   to reach it takes it, which may be the server's own (its feature document).
  * - upsert_table_update_sequence_fail on a create: the sequence table update, also before the
  *   commit log, fails once, with the same outcome.
  * - upsert_table_kv_write_fail on a create: the catalog row, written after the commit log at the

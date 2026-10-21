@@ -368,8 +368,12 @@ def scenario_abandoned_create_after_commit(node):
     """(vi) A create that gave up, killed after its failing commit log, stays failed."""
     db = node.client.ddl_recovery
     db.create_collection("anchor")
-    # The kv tables fail once, before the commit log: the create gives up.
-    node.client.admin.command({"eloqFaultInject": "upsert_table_create_kv_table_fail"})
+    # The kv tables fail once, before the commit log: the create gives up. The
+    # fault is aimed at this collection: the server creates its feature
+    # document beside the first collections, and that create would consume
+    # the one-shot fault instead.
+    node.client.admin.command({"eloqFaultInject": "upsert_table_create_kv_table_fail",
+                               "params": "table_name=ddl_recovery.abandoned"})
     crash_during(node, "upsert_table_crash_after_commit_log",
                  lambda: db.create_collection("abandoned"))
     wait_until(lambda: create_when_free(node.client.ddl_recovery, "abandoned"),
