@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Two EloqStore instances in one process, on a cluster of three node groups with voters, run as
-separate processes (EloqStore docs/architecture/10-bindings-and-embedding.md, EloqStoreModule).
+"""One EloqStore hosting two data shards, on a cluster of three node groups with voters, run as
+separate processes (EloqStore docs/architecture/02-runtime-and-lifecycle.md, "Data store shards").
 
 With node_group_replica_num 3, every node votes in every node group, and a voter leads a node group
-while its own node is down. The voter's data store service then opens a second EloqStore instance
-for that node group's shard, beside its own; one EloqStore module runs both on the brpc workers.
-The test kills node 1, waits for a voter to lead node group 1, writes and reads through every node
-meanwhile, restarts node 1, waits for node group 1 to come back to it (the voter stops its second
-instance), and checks that the voter still serves and that every document, those written during
-the takeover included, reads through every node. Use cloud mode: the shard's data is shared, so the
+while its own node is down. The voter's data store service then attaches that node group's data
+shard to its one EloqStore, beside its own shard, at the group's new term. The test kills node 1,
+waits for a voter to lead node group 1, writes and reads through every node meanwhile, restarts
+node 1, waits for node group 1 to come back to it (the voter detaches the shard; its store runs
+on), and checks that the voter still serves and that every document, those written during the
+takeover included, reads through every node. Use cloud mode: the shard's data is shared, so the
 voter serves node group 1's current data (in local mode it would open its own stale copy).
 
 Usage: voter_takeover.py --server <eloqdoc> --root <dir> --cloud <file> [--lib-dir <dir>] [--keep]
@@ -88,7 +88,7 @@ def scenario_takeover(cluster):
         time.sleep(0.5)
     opened = voter.current_log_lines(f"OpenDataStore success for DSS shard {DOWN}")
     assert opened, f"node {voter.index} leads node group {DOWN} without opening its shard"
-    log(f"node {voter.index} leads node group {DOWN} with a second EloqStore instance")
+    log(f"node {voter.index} leads node group {DOWN} with its data shard attached beside its own")
     cluster.wait_catalog_reads()
     insert_round(cluster, "during")
     expected += 50 * (len(cluster.nodes) - 1)
@@ -106,18 +106,20 @@ def scenario_takeover(cluster):
         time.sleep(0.5)
     returning.wait_serving()
     returning.wait_recovered()
+    # The voter's store keeps running for its own shard: it detaches node group 1's.
+    detached = voter.current_log_lines(f"Detached data store shard {DOWN}")
+    assert detached, f"node {voter.index} never detached node group {DOWN}'s data shard"
     stopped = voter.current_log_lines("EloqStore is stopped.")
-    assert stopped, f"node {voter.index} never stopped node group {DOWN}'s instance"
-    log(f"node group {DOWN} is back on node {DOWN}; node {voter.index} stopped its second "
-        f"instance")
+    assert not stopped, f"node {voter.index} stopped its EloqStore instead of detaching"
+    log(f"node group {DOWN} is back on node {DOWN}; node {voter.index} detached its data shard")
     cluster.wait_catalog_reads()
     insert_round(cluster, "after")
     expected += 50 * len(cluster.nodes)
     check_counts(cluster, expected)
     assert voter.process.poll() is None, f"node {voter.index} exited"
-    print(f"PASS node {voter.index} ran node group {DOWN}'s EloqStore instance beside its own "
-          f"while node {DOWN} was down, stopped it when the group came back, and kept serving; "
-          f"all {expected} documents per collection read through every node", flush=True)
+    print(f"PASS node {voter.index} hosted node group {DOWN}'s data shard beside its own while "
+          f"node {DOWN} was down, detached it when the group came back, and kept serving; all "
+          f"{expected} documents per collection read through every node", flush=True)
 
 
 def main():
