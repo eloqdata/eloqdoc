@@ -167,9 +167,14 @@ def fault_points_compiled_in(node):
         raise
 
 
-def crash_during(node, fault, ddl):
-    """Arms a fault point that kills the node, runs the DDL that reaches it, and restarts."""
-    node.client.admin.command({"eloqFaultInject": fault, "params": "action=PANIC"})
+def crash_during(node, fault, ddl, table=None):
+    """Arms a fault point that kills the node, runs the DDL that reaches it, and restarts.
+
+    An upsert-table fault takes the DDL's table: the server's own DDLs (its feature document,
+    created beside a database's first collections) run concurrently and would reach an unaimed
+    fault first."""
+    params = "action=PANIC" + (f";table_name={table}" if table else "")
+    node.client.admin.command({"eloqFaultInject": fault, "params": params})
     try:
         ddl()
         raise AssertionError(f"{fault} did not kill the node: the DDL returned")
@@ -257,7 +262,7 @@ def scenario_create_after_prepare(node):
     db = node.client.ddl_recovery
     db.create_collection("anchor")  # the database exists before the fault is armed
     crash_during(node, "upsert_table_crash_after_prepare_log",
-                 lambda: db.create_collection("after_prepare"))
+                 lambda: db.create_collection("after_prepare"), table="ddl_recovery.after_prepare")
     wait_until(lambda: "after_prepare" in node.client.ddl_recovery.list_collection_names(),
                "created the collection killed after its prepare log")
     check_created_at_catalog_version(node, "after_prepare")
@@ -270,7 +275,7 @@ def scenario_create_after_commit(node):
     db = node.client.ddl_recovery
     db.create_collection("anchor")
     crash_during(node, "upsert_table_crash_after_commit_log",
-                 lambda: db.create_collection("after_commit"))
+                 lambda: db.create_collection("after_commit"), table="ddl_recovery.after_commit")
     wait_until(lambda: "after_commit" in node.client.ddl_recovery.list_collection_names(),
                "created the collection killed after its commit log")
     check_created_at_catalog_version(node, "after_commit")
@@ -282,7 +287,8 @@ def scenario_drop_after_commit(node):
     """(iii) A drop killed after its commit log is rolled forward from it."""
     db = node.client.ddl_recovery
     db.dropped.insert_many([{"_id": i} for i in range(100)])
-    crash_during(node, "upsert_table_crash_after_commit_log", lambda: db.dropped.drop())
+    crash_during(node, "upsert_table_crash_after_commit_log", lambda: db.dropped.drop(),
+                 table="ddl_recovery.dropped")
     wait_until(lambda: "dropped" not in node.client.ddl_recovery.list_collection_names(),
                "dropped the collection killed after its commit log")
     # The name is free, and a collection created under it starts empty.
@@ -368,14 +374,13 @@ def scenario_abandoned_create_after_commit(node):
     """(vi) A create that gave up, killed after its failing commit log, stays failed."""
     db = node.client.ddl_recovery
     db.create_collection("anchor")
-    # The kv tables fail once, before the commit log: the create gives up. The
-    # fault is aimed at this collection: the server creates its feature
-    # document beside the first collections, and that create would consume
-    # the one-shot fault instead.
+    # The kv tables fail once, before the commit log: the create gives up. Aimed at this
+    # collection, like the crash below: the server's feature document create would consume the
+    # one-shot fault instead.
     node.client.admin.command({"eloqFaultInject": "upsert_table_create_kv_table_fail",
                                "params": "table_name=ddl_recovery.abandoned"})
     crash_during(node, "upsert_table_crash_after_commit_log",
-                 lambda: db.create_collection("abandoned"))
+                 lambda: db.create_collection("abandoned"), table="ddl_recovery.abandoned")
     wait_until(lambda: create_when_free(node.client.ddl_recovery, "abandoned"),
                "released the name of the create that gave up")
     # Only the create that succeeded afterwards left a record.
@@ -398,7 +403,8 @@ def scenario_alter_after_commit(node):
     db.altered.insert_many([{"_id": i, "k": i % 4} for i in range(10)])
     validator = {"k": {"$exists": True}}
     crash_during(node, "upsert_table_crash_after_commit_log",
-                 lambda: db.command({"collMod": "altered", "validator": validator}))
+                 lambda: db.command({"collMod": "altered", "validator": validator}),
+                 table="ddl_recovery.altered")
     wait_until(lambda: validator_of(node.client.ddl_recovery, "altered") == validator,
                "applied the ALTER killed after its commit log")
     # The documents written before the crash were replayed into the table.
@@ -421,7 +427,8 @@ def scenario_alter_after_prepare(node):
     db.prepared.insert_many([{"_id": i, "k": i % 4} for i in range(10)])
     validator = {"k": {"$exists": True}}
     crash_during(node, "upsert_table_crash_after_prepare_log",
-                 lambda: db.command({"collMod": "prepared", "validator": validator}))
+                 lambda: db.command({"collMod": "prepared", "validator": validator}),
+                 table="ddl_recovery.prepared")
     wait_until(lambda: validator_of(node.client.ddl_recovery, "prepared") == validator,
                "applied the ALTER killed after its prepare log")
     prepared = node.client.ddl_recovery.prepared
