@@ -1,8 +1,7 @@
 # EloqDoc Change Data Capture: log scan and change streams
 
-**Status: design, implemented through milestone M2** (plan PR 9; the PR
-table of [cdc-implementation-plan.md](cdc-implementation-plan.md) tracks what
-remains, the cluster gate and the reference consumer among it). This document
+**Status: implemented** (v1, milestones M0 to M4: every PR in the sequence of
+[cdc-implementation-plan.md](cdc-implementation-plan.md) is done). This document
 specifies v1 of CDC for EloqDoc: a pull-model change stream served by the
 EloqDoc runtime, sourced from the log service, and consumed by an external
 process that writes into a destination MongoDB. The "Key files" section lists

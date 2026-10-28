@@ -1,6 +1,7 @@
 # EloqDoc CDC: implementation plan
 
-**Status: draft plan for [cdc-change-stream.md](cdc-change-stream.md).** This
+**Status: complete** for [cdc-change-stream.md](cdc-change-stream.md): every PR
+in the §9 sequence is done, and §11 lists what stays out of scope. This
 document sequences that design into workstreams, milestones and PRs. It does
 not restate the design; every task points at the section that specifies it
 (`§n` refers to the design doc), and the §10 checklist items are assigned to
