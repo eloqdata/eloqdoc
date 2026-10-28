@@ -64,13 +64,18 @@ def log(msg):
 
 class Reader:
     """A change stream on the collection through one node, read by a thread with raw getMores;
-    keeps the _id of every insert event, in order, and the first error."""
+    keeps the _id of every insert event, in order, and the first error.
+
+    The readers of a node share its client, so each reader runs its commands in an explicit
+    session of its own: the server refuses a getMore from a session other than the cursor's, and
+    implicit sessions come from the client's shared pool, where concurrent readers can swap them."""
 
     def __init__(self, node):
         self.node_index = node.index
         self.client = node.client()
+        self.session = self.client.start_session()
         reply = self.client[DB].command({"aggregate": COLL, "pipeline": [{"$changeStream": {}}],
-                                         "cursor": {}})
+                                         "cursor": {}}, session=self.session)
         self.cursor_id = reply["cursor"]["id"]
         self.ids = [event["documentKey"]["_id"] for event in reply["cursor"]["firstBatch"]
                     if event["operationType"] == "insert"]
@@ -83,7 +88,8 @@ class Reader:
         while not self.stop.is_set():
             try:
                 reply = self.client[DB].command({"getMore": self.cursor_id, "collection": COLL,
-                                                 "maxTimeMS": GETMORE_WAIT_MS})
+                                                 "maxTimeMS": GETMORE_WAIT_MS},
+                                                session=self.session)
             except PyMongoError as exc:
                 if not self.stop.is_set():
                     self.error = exc
@@ -95,9 +101,11 @@ class Reader:
         self.stop.set()
         self.thread.join(timeout=GETMORE_WAIT_MS / 1000 + 30)
         try:
-            self.client[DB].command({"killCursors": COLL, "cursors": [self.cursor_id]})
+            self.client[DB].command({"killCursors": COLL, "cursors": [self.cursor_id]},
+                                    session=self.session)
         except PyMongoError:
             pass
+        self.session.end_session()
 
 
 def wait_delivered(readers, count, first=0, timeout_s=DELIVERY_TIMEOUT_S):
