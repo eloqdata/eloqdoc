@@ -1673,6 +1673,24 @@ MONGO_REGISTER_SHIM(Database::userCreateNS)
         collectionOptions.collation = collator ? collator->getSpec().toBSON() : BSONObj();
     }
 
+    // EloqDoc: the create-table transaction commits on its own before the collection is built.
+    // Whatever the collection's constructor would refuse must be refused here instead, or the
+    // failed create leaves a table that listCollections and the next startup trip over.
+    if (!collectionOptions.validator.isEmpty()) {
+        Status allowed = Collection::checkValidatorAllowed(NamespaceString(ns), boost::none);
+        if (!allowed.isOK()) {
+            return allowed;
+        }
+    }
+    auto validationLevel = Collection::parseValidationLevel(collectionOptions.validationLevel);
+    if (!validationLevel.isOK()) {
+        return validationLevel.getStatus();
+    }
+    auto validationAction = Collection::parseValidationAction(collectionOptions.validationAction);
+    if (!validationAction.isOK()) {
+        return validationAction.getStatus();
+    }
+
     if (!collectionOptions.validator.isEmpty()) {
         // boost::intrusive_ptr<ExpressionContext> expCtx(
         //     new ExpressionContext(opCtx, collator.get()));
