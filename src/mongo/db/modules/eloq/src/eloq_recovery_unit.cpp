@@ -613,7 +613,8 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                                                     const txservice::TableName& tableName,
                                                     uint64_t keySchemaVersion,
                                                     std::vector<txservice::ScanBatchTuple>& batch,
-                                                    bool isForWrite) {
+                                                    bool isForWrite,
+                                                    bool pointReadOnMiss) {
     MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV. tableName: " << tableName.StringView()
                  << ", batch size: " << batch.size();
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -645,7 +646,6 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
 
     bool isForShare = false;
     bool readLocal = false;
-    bool point_read_on_miss = true;
     txservice::BatchReadTxRequest batchReadTxReq(&tableName,
                                                  keySchemaVersion,
                                                  sortedBatch,
@@ -655,7 +655,7 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                                                  coro.yieldFuncPtr,
                                                  coro.resumeFuncPtr,
                                                  _txm,
-                                                 point_read_on_miss);
+                                                 pointReadOnMiss);
     _txm->Execute(&batchReadTxReq);
     batchReadTxReq.Wait();
 

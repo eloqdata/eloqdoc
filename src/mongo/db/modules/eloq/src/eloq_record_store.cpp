@@ -1005,9 +1005,10 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
-    // Check all keys for duplicates
+    // Load a whole slice on a miss so sequential inserts can reuse it for
+    // duplicate checks on subsequent keys.
     txservice::TxErrorCode err =
-        ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
+        ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true, false);
     if (err != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "EloqRecordStore::batchCheckDuplicateKey batchGetKV failed, table: "
                      << _tableName.StringView() << ", error: " << txservice::TxErrorMessage(err);

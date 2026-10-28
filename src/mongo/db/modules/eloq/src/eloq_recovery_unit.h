@@ -163,7 +163,8 @@ public:
                                                     const txservice::TableName& tableName,
                                                     uint64_t keySchemaVersion,
                                                     std::vector<txservice::ScanBatchTuple>& batch,
-                                                    bool isForWrite);
+                                                    bool isForWrite,
+                                                    bool pointReadOnMiss = true);
 
     void notifyReloadCache(OperationContext* opCtx);
 
