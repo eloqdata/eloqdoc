@@ -113,14 +113,12 @@ MONGO_EXPORT_SERVER_PARAMETER(cdc_cursor_buffer_bytes,
  * among them may be emitted twice, an idempotent repeat; 0 records nothing. Read when a stream
  * opens. Settable at runtime.
  */
-MONGO_EXPORT_SERVER_PARAMETER(cdc_dedup_set_bytes,
-                              long long,
-                              CdcEventStreamOptions().dedupSetBytes)
+MONGO_EXPORT_SERVER_PARAMETER(cdc_dedup_set_bytes, long long, CdcEventStreamOptions().dedupSetBytes)
     ->withValidator([](const long long& potentialNewValue) {
         if (potentialNewValue < 0 || potentialNewValue > kMaxDedupSetBytes) {
             return Status(ErrorCodes::BadValue,
-                          str::stream() << "cdc_dedup_set_bytes must be between 0 and "
-                                        << kMaxDedupSetBytes);
+                          str::stream()
+                              << "cdc_dedup_set_bytes must be between 0 and " << kMaxDedupSetBytes);
         }
         return Status::OK();
     });
@@ -130,15 +128,15 @@ MONGO_EXPORT_SERVER_PARAMETER(cdc_dedup_set_bytes,
  * arrived (the long poll, §5.8); a getMore's own remaining time bounds it too, and the log service
  * caps it with its cdc_scan_max_park_ms. Read when a stream opens. Settable at runtime.
  */
-MONGO_EXPORT_SERVER_PARAMETER(cdc_scan_max_wait_ms,
-                              int,
-                              static_cast<int>(durationCount<Milliseconds>(
-                                  CdcScanSourceOptions().maxWait)))
+MONGO_EXPORT_SERVER_PARAMETER(
+    cdc_scan_max_wait_ms,
+    int,
+    static_cast<int>(durationCount<Milliseconds>(CdcScanSourceOptions().maxWait)))
     ->withValidator([](const int& potentialNewValue) {
         if (potentialNewValue <= 0 || potentialNewValue > kMaxScanWaitMs) {
             return Status(ErrorCodes::BadValue,
-                          str::stream() << "cdc_scan_max_wait_ms must be between 1 and "
-                                        << kMaxScanWaitMs);
+                          str::stream()
+                              << "cdc_scan_max_wait_ms must be between 1 and " << kMaxScanWaitMs);
         }
         return Status::OK();
     });
@@ -190,10 +188,13 @@ DocumentSourceEloqChangeStream::DocumentSourceEloqChangeStream(
     const Value all = _spec[DocumentSourceChangeStreamSpec::kAllChangesForClusterFieldName];
     const bool deployment = all.getType() == Bool && all.getBool();
     const bool database = !deployment && expCtx->ns.isCollectionlessAggregateNS();
-    _registryId = CdcStreamRegistry::get().add(
-        deployment ? "deployment" : database ? "database" : "collection",
-        deployment ? "" : database ? expCtx->ns.db().toString() : expCtx->ns.ns(),
-        &_stream->stats());
+    _registryId = CdcStreamRegistry::get().add(deployment     ? "deployment"
+                                                   : database ? "database"
+                                                              : "collection",
+                                               deployment     ? ""
+                                                   : database ? expCtx->ns.db().toString()
+                                                              : expCtx->ns.ns(),
+                                               &_stream->stats());
 }
 
 DocumentSourceEloqChangeStream::~DocumentSourceEloqChangeStream() {

@@ -405,9 +405,9 @@ void toBsonValueCanonical(uint8_t ctype,
             break;
         }
 
-        //
-        // Numerics. No bytes of any of these branches depend on the type bits.
-        //
+            //
+            // Numerics. No bytes of any of these branches depend on the type bits.
+            //
 
         case CType::kNumericNaN:
             // Consumes nothing. Double and decimal NaN compare equal.
@@ -585,14 +585,12 @@ void toBsonValueCanonical(uint8_t ctype,
                 encodedFraction = (encodedFraction << 8) | readType<uint8_t>(reader, inverted);
             }
 
-            const double bin =
-                static_cast<double>(encodedFraction & ~3ULL) * kInvPow256[fracBytes];
+            const double bin = static_cast<double>(encodedFraction & ~3ULL) * kInvPow256[fracBytes];
 
             // With no fraction bytes of its own the value is an 8-byte integer part plus a
             // fraction, which the encoder only produces for a decimal with a continuation.
-            const uint8_t dcm = fracBytes
-                ? static_cast<uint8_t>(encodedFraction & 3)
-                : kDCMHasContinuationLargerThanDoubleRoundedUpTo15Digits;
+            const uint8_t dcm = fracBytes ? static_cast<uint8_t>(encodedFraction & 3)
+                                          : kDCMHasContinuationLargerThanDoubleRoundedUpTo15Digits;
 
             if (dcm == kDCMEqualToDouble) {
                 // Exact for a double original; equal in value for a decimal that is a double.
@@ -602,8 +600,8 @@ void toBsonValueCanonical(uint8_t ctype,
 
             Decimal128 dec;
             if (dcm == kDCMEqualToDoubleRoundedUpTo15Digits) {
-                dec = Decimal128(
-                    bin, Decimal128::kRoundTo15Digits, Decimal128::kRoundTowardPositive);
+                dec =
+                    Decimal128(bin, Decimal128::kRoundTo15Digits, Decimal128::kRoundTowardPositive);
             } else {
                 // An integer comparison, deliberately. key_string.cpp:1710 writes the same test
                 // against a double kMaxIntForDouble, which promotes integerPart to double and so
@@ -611,10 +609,10 @@ void toBsonValueCanonical(uint8_t ctype,
                 // 'bin' is then rebuilt from a binary fraction that cannot hold the integer part,
                 // and the value comes back one unit low. The encoding is not lossy; only that
                 // expression is.
-                dec = integerPart > kMaxIntForDouble
-                    ? Decimal128(integerPart)
-                    : Decimal128(
-                          bin, Decimal128::kRoundTo34Digits, Decimal128::kRoundTowardPositive);
+                dec = integerPart > kMaxIntForDouble ? Decimal128(integerPart)
+                                                     : Decimal128(bin,
+                                                                  Decimal128::kRoundTo34Digits,
+                                                                  Decimal128::kRoundTowardPositive);
                 dec = readDecimalContinuation(reader, inverted, dec);
             }
             *stream << (isNegative ? dec.negate() : dec);
@@ -649,9 +647,7 @@ BSONObj CdcKeyDecoder::toBsonCanonical(const char* buffer, size_t len, Ordering 
 BSONObj CdcKeyDecoder::decodeIdKey(StringData keyString, StringData fieldName) {
     BSONObj decoded = toBsonCanonical(keyString, Ordering::make(BSONObj()));
     BSONObjIterator it(decoded);
-    uassert(ErrorCodes::BadValue,
-            "CDC key: primary key decoded to no value.",
-            it.more());
+    uassert(ErrorCodes::BadValue, "CDC key: primary key decoded to no value.", it.more());
     BSONElement value = it.next();
     uassert(ErrorCodes::BadValue,
             str::stream() << "CDC key: primary key decoded to more than one value: " << decoded,
@@ -673,8 +669,7 @@ BSONObj CdcKeyDecoder::decodeLoggedIdKey(StringData loggedKey,
     memcpy(&len, loggedKey.rawData(), sizeof(len));
     uassert(ErrorCodes::BadValue,
             str::stream() << "CDC key: logged key length " << len << " exceeds the "
-                          << (loggedKey.size() - sizeof(uint16_t))
-                          << " bytes that follow it.",
+                          << (loggedKey.size() - sizeof(uint16_t)) << " bytes that follow it.",
             loggedKey.size() - sizeof(uint16_t) >= len);
 
     StringData keyString(loggedKey.rawData() + sizeof(uint16_t), len);

@@ -23,8 +23,8 @@
 
 #pragma once
 
-#include <boost/optional.hpp>
 #include <atomic>
+#include <boost/optional.hpp>
 #include <cstdint>
 #include <map>
 #include <memory>

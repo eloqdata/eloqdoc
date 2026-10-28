@@ -260,7 +260,7 @@ TEST(CdcKeyDecoder, EightByteIntegerPartWithAFraction) {
     // fracBytes == 0: the integer part fills all eight bytes, so no fraction bytes remain and
     // the decimal-continuation marker is implied rather than read from the key. This row of the
     // §5.4 table had no coverage.
-    const std::vector<std::string> values = {"36028797018963969.5",     // 2**55 + 1, fractional
+    const std::vector<std::string> values = {"36028797018963969.5",  // 2**55 + 1, fractional
                                              "-36028797018963969.5",
                                              "1000000000000000000.5",
                                              "9223372036854775807.5"};  // LLONG_MAX + a fraction
@@ -401,8 +401,7 @@ TEST(CdcKeyDecoder, OtherScalarTypes) {
 TEST(CdcKeyDecoder, NestedDocument) {
     assertDecodesCanonically(BSON("" << BSON("a" << 1 << "b"
                                                  << "two"
-                                                 << "c"
-                                                 << 3.5)),
+                                                 << "c" << 3.5)),
                              "nested document");
 }
 
@@ -414,8 +413,7 @@ TEST(CdcKeyDecoder, NestedDocumentWithWideNumerics) {
 }
 
 TEST(CdcKeyDecoder, NestedArray) {
-    assertDecodesCanonically(BSON("" << BSON_ARRAY(1 << "two" << 3.5 << BSONNULL)),
-                             "nested array");
+    assertDecodesCanonically(BSON("" << BSON_ARRAY(1 << "two" << 3.5 << BSONNULL)), "nested array");
 }
 
 TEST(CdcKeyDecoder, DeeplyNested) {
@@ -431,8 +429,7 @@ TEST(CdcKeyDecoder, DeeplyNested) {
 TEST(CdcKeyDecoder, DecodeIdKeyNamesTheField) {
     const BSONObj key = BSON("" << 42);
     const KeyString ks(KeyString::kLatestVersion, key, allAscending());
-    const BSONObj id =
-        CdcKeyDecoder::decodeIdKey(StringData(ks.getBuffer(), ks.getSize()));
+    const BSONObj id = CdcKeyDecoder::decodeIdKey(StringData(ks.getBuffer(), ks.getSize()));
     ASSERT_BSONOBJ_EQ(id, BSON("_id" << 42));
 }
 
@@ -461,9 +458,9 @@ TEST(CdcKeyDecoder, DecodeLoggedIdKeyStripsLengthPrefix) {
 }
 
 TEST(CdcKeyDecoder, DecodeLoggedIdKeyRejectsTruncatedInput) {
-    ASSERT_THROWS_CODE(
-        CdcKeyDecoder::decodeLoggedIdKey(StringData("\x05", 1)), AssertionException,
-        ErrorCodes::BadValue);
+    ASSERT_THROWS_CODE(CdcKeyDecoder::decodeLoggedIdKey(StringData("\x05", 1)),
+                       AssertionException,
+                       ErrorCodes::BadValue);
 
     // A length prefix that promises more bytes than follow.
     std::string logged;
@@ -475,8 +472,7 @@ TEST(CdcKeyDecoder, DecodeLoggedIdKeyRejectsTruncatedInput) {
 }
 
 TEST(CdcKeyDecoder, DecodeIdKeyRejectsMultiValuedKey) {
-    const KeyString ks(
-        KeyString::kLatestVersion, BSON("" << 1 << "" << 2), allAscending());
+    const KeyString ks(KeyString::kLatestVersion, BSON("" << 1 << "" << 2), allAscending());
     ASSERT_THROWS_CODE(CdcKeyDecoder::decodeIdKey(StringData(ks.getBuffer(), ks.getSize())),
                        AssertionException,
                        ErrorCodes::BadValue);

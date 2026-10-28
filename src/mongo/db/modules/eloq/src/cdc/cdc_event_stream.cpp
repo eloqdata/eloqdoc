@@ -193,9 +193,9 @@ void CdcEventStream::_publishStats(const boost::optional<Document>& event) {
         const Value clusterTime = (*event)["clusterTime"];
         if (clusterTime.getType() == bsonTimestamp) {
             const Timestamp ts = clusterTime.getTimestamp();
-            _stats.producedThrough.store(
-                static_cast<uint64_t>(ts.getSecs()) * 1000000 + ts.getInc(),
-                std::memory_order_relaxed);
+            _stats.producedThrough.store(static_cast<uint64_t>(ts.getSecs()) * 1000000 +
+                                             ts.getInc(),
+                                         std::memory_order_relaxed);
         }
     } else if (_source.drained()) {
         _stats.producedThrough.store(bound, std::memory_order_relaxed);

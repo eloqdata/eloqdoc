@@ -123,8 +123,7 @@ private:
         if (!_inSection) {
             return;
         }
-        const uint32_t kvLen =
-            static_cast<uint32_t>(_blob.size() - _kvLenAt - sizeof(uint32_t));
+        const uint32_t kvLen = static_cast<uint32_t>(_blob.size() - _kvLenAt - sizeof(uint32_t));
         std::string encoded;
         appendNative<uint32_t>(&encoded, kvLen);
         _blob.replace(_kvLenAt, sizeof(uint32_t), encoded);
@@ -294,8 +293,7 @@ TEST(CdcBlobDecoder, SkipsExcludedDatabasesInEveryScope) {
         ASSERT_EQ(entries[0].ns, "test.c");
     }
     // Even asked for by name: the consumer's own progress document must never be mirrored.
-    ASSERT_TRUE(
-        decodeAll(blob, CdcStreamScope::collection("admin.__eloq_cdc_progress")).empty());
+    ASSERT_TRUE(decodeAll(blob, CdcStreamScope::collection("admin.__eloq_cdc_progress")).empty());
 }
 
 TEST(CdcBlobDecoder, DatabaseScopeTakesOnlyItsOwnDatabase) {
@@ -414,8 +412,7 @@ TEST(CdcBlobDecoder, TrailingSectionsOutOfScopeEndTheWalk) {
 }
 
 TEST(CdcBlobDecoder, EmptyKeyAndEmptyDocument) {
-    const std::string blob =
-        BlobBuilder().collection("test.c").insert(""_sd, BSONObj()).done();
+    const std::string blob = BlobBuilder().collection("test.c").insert(""_sd, BSONObj()).done();
 
     const auto entries = decodeAll(blob, CdcStreamScope::deployment());
     ASSERT_EQ(entries.size(), 1U);
@@ -428,11 +425,8 @@ TEST(CdcBlobDecoder, EmptyKeyAndEmptyDocument) {
 //
 
 TEST(CdcBlobDecoder, RejectsTruncatedBlobAtEveryPrefix) {
-    const std::string blob = BlobBuilder()
-                                 .collection("test.c")
-                                 .insert("K1", BSON("_id" << 1))
-                                 .remove("K2")
-                                 .done();
+    const std::string blob =
+        BlobBuilder().collection("test.c").insert("K1", BSON("_id" << 1)).remove("K2").done();
 
     for (size_t len = 1; len < blob.size(); ++len) {
         // Any prefix of a well-formed blob is malformed: a header or an entry is cut in two.
@@ -550,9 +544,8 @@ TEST(CdcBlobDecoder, RejectsAnUnknownOperationByte) {
         b.opaqueBytes(entry);
         blob = b.done();
     }
-    ASSERT_THROWS_CODE(decodeAll(blob, CdcStreamScope::deployment()),
-                       AssertionException,
-                       ErrorCodes::BadValue);
+    ASSERT_THROWS_CODE(
+        decodeAll(blob, CdcStreamScope::deployment()), AssertionException, ErrorCodes::BadValue);
 }
 
 TEST(CdcBlobDecoder, RejectsASectionLengthPastTheEndOfTheBlob) {
@@ -564,9 +557,8 @@ TEST(CdcBlobDecoder, RejectsASectionLengthPastTheEndOfTheBlob) {
     appendNative<uint32_t>(&huge, 0xFFFFFF);
     blob.replace(kvLenAt, sizeof(uint32_t), huge);
 
-    ASSERT_THROWS_CODE(decodeAll(blob, CdcStreamScope::deployment()),
-                       AssertionException,
-                       ErrorCodes::BadValue);
+    ASSERT_THROWS_CODE(
+        decodeAll(blob, CdcStreamScope::deployment()), AssertionException, ErrorCodes::BadValue);
 }
 
 }  // namespace

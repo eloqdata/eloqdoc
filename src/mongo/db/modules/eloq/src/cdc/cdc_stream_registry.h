@@ -90,10 +90,10 @@ public:
     }
 
 private:
-    mutable stdx::mutex _mutex;            ///< Guards the members below.
-    std::map<uint64_t, Entry> _entries;    ///< The open streams, by id.
-    uint64_t _nextId = 1;                  ///< The next stream's id.
-    uint64_t _closedDedupOverflows = 0;    ///< The overflows of the streams removed.
+    mutable stdx::mutex _mutex;          ///< Guards the members below.
+    std::map<uint64_t, Entry> _entries;  ///< The open streams, by id.
+    uint64_t _nextId = 1;                ///< The next stream's id.
+    uint64_t _closedDedupOverflows = 0;  ///< The overflows of the streams removed.
 };
 
 }  // namespace mongo
