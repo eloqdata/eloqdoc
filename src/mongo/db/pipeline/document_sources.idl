@@ -83,8 +83,8 @@ structs:
               type: object
               optional: true
               description: An EloqDoc resume token after which the stream resumes, including an
-                           invalidate token (docs/cdc-change-stream.md §5.2, §5.6). At most one
-                           of resumeAfter and startAfter may be given.
+                           invalidate token (docs/cdc-change-stream.md sections 5.2 and 5.6). At
+                           most one of resumeAfter and startAfter may be given.
           $_resumeAfterClusterTime:
               cpp_name: resumeAfterClusterTimeDeprecated
               type: ResumeTokenClusterTime
