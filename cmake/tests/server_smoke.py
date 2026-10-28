@@ -12,7 +12,6 @@ import datetime
 import json
 import os
 from pathlib import Path
-import socket
 import signal
 import subprocess
 import tempfile
@@ -24,14 +23,8 @@ from bson.int64 import Int64
 from pymongo.errors import AutoReconnect, OperationFailure, PyMongoError
 from pymongo.read_concern import ReadConcern
 
-from server_smoke_config import substrate_config
+from server_smoke_config import TX_PORT_BLOCK, free_node_port, substrate_config
 from server_smoke_diagnostics import describe_exit, report_failure, wait_for_clean_shutdown
-
-
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def eventually(predicate, timeout=60):
@@ -70,10 +63,12 @@ def main():
     root = Path(tempfile.mkdtemp(prefix="eloqdoc-server-smoke-"))
     print("Fixture:", root, flush=True)
     (root / "db").mkdir()
-    port, tx_port = free_port(), free_port()
+    # The node listens on TX_PORT_BLOCK consecutive ports from tx_port; free_node_port checks
+    # them all and stays below the ephemeral range other processes' clients draw from.
+    port, tx_port = free_node_port(), free_node_port(TX_PORT_BLOCK)
     config = root / "data_substrate.cnf"
     try:
-        config_text = substrate_config(root, tx_port, free_port(), args.data_store,
+        config_text = substrate_config(root, tx_port, free_node_port(), args.data_store,
                                        args.log_state, os.environ,
                                        # One worker makes a blocking shutdown wait deadlock
                                        # deterministically if TTL still needs that worker.
