@@ -76,6 +76,9 @@ Status TxErrorCodeToMongoStatus(txservice::TxErrorCode txErr) {
         case txservice::TxErrorCode::REQUESTD_TABLE_NOT_EXISTS:
             err = ErrorCodes::NamespaceNotFound;
             break;
+        case txservice::TxErrorCode::CLUSTER_GATED:
+            err = ErrorCodes::ClusterGatePaused;
+            break;
         default:
             err = ErrorCodes::UnknownError;
             break;

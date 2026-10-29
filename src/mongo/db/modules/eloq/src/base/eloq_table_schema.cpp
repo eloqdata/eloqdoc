@@ -254,10 +254,14 @@ MongoTableSchema::MongoTableSchema(const txservice::TableName& table_name,
     invariant(!meta_data_str_.empty());
     meta_data_obj_ = mongo::BSONObj(meta_data_str_.c_str()).getOwned();
 
+    // A table whose version the image does not record (0, the unknown
+    // timestamp) is one the image's DDL creates: it takes the schema's version
+    // (CatalogFactory::CreateTableSchema).
     if (mongo::KVCatalog::FeatureTracker::isFeatureDocument(meta_data_obj_)) {
         uint64_t key_schema_ts = key_schemas_ts.GetKeySchemaTs(table_name);
-        key_schema_ts = key_schema_ts == 1 ? version_ : key_schema_ts;
+        key_schema_ts = key_schema_ts == 0 ? version_ : key_schema_ts;
         key_schema_ = std::make_unique<MongoEmptyKeySchema>(key_schema_ts);
+        RecordKeySchemasTs();
         return;
     }
 
@@ -267,7 +271,7 @@ MongoTableSchema::MongoTableSchema(const txservice::TableName& table_name,
 
     // pk
     uint64_t key_schema_ts = key_schemas_ts.GetKeySchemaTs(table_name);
-    key_schema_ts = key_schema_ts == 1 ? version_ : key_schema_ts;
+    key_schema_ts = key_schema_ts == 0 ? version_ : key_schema_ts;
     const mongo::CollectionCatalogEntry::IndexMetaData& index_meta_data =
         md_.indexes[md_.findIndexOffset("_id_")];
     invariant(index_meta_data.ready);
@@ -284,7 +288,7 @@ MongoTableSchema::MongoTableSchema(const txservice::TableName& table_name,
             txservice::TableName index_name =
                 MongoIndexToTxServiceTableName(md_.ns, name, is_unique);
             uint64_t key_schema_ts = key_schemas_ts.GetKeySchemaTs(index_name);
-            key_schema_ts = key_schema_ts == 1 ? version_ : key_schema_ts;
+            key_schema_ts = key_schema_ts == 0 ? version_ : key_schema_ts;
 
             auto sk_schema =
                 std::make_unique<MongoKeySchema>(index_name, key_schema_ts, ns, &index_meta_data);
@@ -294,6 +298,24 @@ MongoTableSchema::MongoTableSchema(const txservice::TableName& table_name,
                 txservice::SecondaryKeySchema(std::move(sk_schema), key_schema_.get()));
         }
     }
+    RecordKeySchemasTs();
+}
+
+void MongoTableSchema::RecordKeySchemasTs() {
+    txservice::TableKeySchemaTs resolved{txservice::TableEngine::EloqDoc};
+    resolved.pk_schema_ts_ = key_schema_->SchemaTs();
+    for (const auto& [kid, index] : indexes_) {
+        resolved.sk_schemas_ts_.emplace(index.first, index.second.SchemaTs());
+    }
+    txservice::TableKeySchemaTs recorded{txservice::TableEngine::EloqDoc};
+    size_t offset = 0;
+    recorded.Deserialize(key_schemas_ts_str_.data(), offset);
+    if (recorded.pk_schema_ts_ == resolved.pk_schema_ts_ &&
+        recorded.sk_schemas_ts_ == resolved.sk_schemas_ts_) {
+        return;
+    }
+    key_schemas_ts_str_ = resolved.Serialize();
+    schema_image_ = EloqDS::SerializeSchemaImage(meta_data_str_, kv_info_str_, key_schemas_ts_str_);
 }
 
 txservice::TableSchema::uptr MongoTableSchema::Clone() const {

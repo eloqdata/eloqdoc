@@ -109,10 +109,14 @@ class ServerFixtureTest(unittest.TestCase):
         self.assertNotIn("strategy", job)
         commands = "\n".join(step.get("run", "") for step in job["steps"])
         self.assertIn("-DELOQDOC_REGISTER_INTEGRATION_TESTS=ON", commands)
+        # eloq_fault needs the fault points; without them it would not run at all.
+        self.assertIn("-DWITH_FAULT_INJECT=ON", commands)
         for phase in ("integration", "jstests", "tpcc"):
             self.assertIn("cmake_ci_runtime.sh build/cmake-ci " + phase, commands)
         runtime = (source / ".github/scripts/cmake_ci_runtime.sh").read_text()
-        self.assertIn("--suites=eloq_basic,eloq_core", runtime)
+        self.assertIn("suites=eloq_basic,eloq_core,eloq_cdc", runtime)
+        self.assertIn('suites="$suites,eloq_fault"', runtime)
+        self.assertIn('"--suites=$suites"', runtime)
         self.assertIn("--no-tests=error", runtime)
         self.assertIn('--server "$build_dir/eloqdoc"', runtime)
         shell = (source / ".github/scripts/build_cmake_test_shell.sh").read_text()

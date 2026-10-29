@@ -1,0 +1,33 @@
+# EloqDoc change streams (docs/cdc-change-stream.md): DML and DDL events, scopes, resume,
+# a collection stream's invalidate, postBatchResumeToken, the _id integrity check, the idle tail,
+# streams on missing namespaces and the server side of bootstrap (the cluster gate), against a
+# server with a log service on a RocksDB or RocksDB-Cloud log state; plus shell_resume_token.js and
+# shell_watch_helpers.js, which exercise the shell alone. Events surface once per checkpoint round,
+# so the server tests wait accordingly. bootstrap.js pauses schema changes cluster-wide for a
+# while, so the suite must not run tests in parallel.
+test_kind: js_test
+
+selector:
+  roots:
+  - tests/jstests/eloq_cdc/*.js
+executor:
+  archive:
+    hooks:
+      - ValidateCollections
+  config:
+    shell_options:
+      readMode: commands
+      eval: load("tests/jstests/libs/override_methods/detect_spawning_own_mongod.js");
+  hooks:
+  - class: ValidateCollections
+    shell_options:
+      global_vars:
+        TestData:
+          skipValidationOnNamespaceNotFound: false
+  - class: CleanEveryN
+    n: 20
+  fixture:
+    class: MongoDFixture
+    mongod_options:
+      set_parameters:
+        enableTestCommands: 1

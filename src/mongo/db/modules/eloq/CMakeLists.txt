@@ -27,6 +27,22 @@ endif()
 
 add_definitions(-DELOQ_MODULE_ELOQDOC)
 
+# Compile the data substrate's fault points in. The eloqFaultInject test command arms them, and the
+# eloq_fault jstest suite needs them. On by default for Debug builds, as in EloqKV; CI turns it on
+# for the build that runs eloq_fault. A compile option, not a definition: the top-level CMakeLists
+# passes data_substrate's COMPILE_DEFINITIONS to every Mongo target, and the fault macros are used
+# only inside the data substrate.
+if(CMAKE_BUILD_TYPE MATCHES "^[Dd][Ee][Bb][Uu][Gg]$")
+  set(_eloq_fault_inject_default ON)
+else()
+  set(_eloq_fault_inject_default OFF)
+endif()
+option(WITH_FAULT_INJECT "Compile the data substrate's fault points in (eloq_fault jstests)"
+       ${_eloq_fault_inject_default})
+if(WITH_FAULT_INJECT)
+  add_compile_options(-DWITH_FAULT_INJECT)
+endif()
+
 # --- ELOQ Metrics Options ---
 option(ENABLE_BENCHMARK "Enable Google Benchmark for eloq_metrics." OFF)
 option(WITH_GLOG "Enable glog for eloq_metrics module (distinct from BRPC_WITH_GLOG)." OFF) # Note: This is specific to eloq_metrics

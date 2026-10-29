@@ -35,6 +35,16 @@ public:
         _threadGroups = threadGroups;
     }
 
+    /**
+     * What this module is to brpc's module registry, which places it by type.
+     *
+     * @return eloq::ModuleType::kRuntime: the service executor is EloqDoc's API-layer runtime,
+     * registered in the registry's runtime range rather than an infrastructure slot.
+     */
+    eloq::ModuleType Type() const override {
+        return eloq::ModuleType::kRuntime;
+    }
+
     void ExtThdStart(int thd_id) override;
 
     void ExtThdEnd(int thd_id) override;

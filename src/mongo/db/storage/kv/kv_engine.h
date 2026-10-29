@@ -264,6 +264,17 @@ public:
     }
 
     /**
+     * @brief Whether a record read reports the version it read; see
+     * StorageEngine::supportsRecordVersions().
+     *
+     * @return true if the engine's record stores report versions; this must not change over the
+     * lifetime of the engine.
+     */
+    virtual bool supportsRecordVersions() const {
+        return false;
+    }
+
+    /**
      * This must not change over the lifetime of the engine.
      */
     virtual bool supportsCappedCollections() const {

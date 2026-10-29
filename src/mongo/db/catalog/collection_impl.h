@@ -305,6 +305,16 @@ public:
     static StatusWith<ValidationAction> parseValidationAction(StringData);
 
     /**
+     * @brief Whether a collection in this namespace may have a document validator at all.
+     *
+     * @param nss The collection's namespace.
+     * @param uuid The collection's UUID, named in the error when known.
+     * @return InvalidOptions for a system collection that is not drop-pending, or for a
+     *         collection in the local, admin or config database; OK otherwise.
+     */
+    static Status checkValidatorAllowed(const NamespaceString& nss, OptionalCollectionUUID uuid);
+
+    /**
      * Sets the validator for this collection.
      *
      * An empty validator removes all validation.

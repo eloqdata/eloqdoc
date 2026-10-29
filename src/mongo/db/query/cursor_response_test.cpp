@@ -127,6 +127,54 @@ TEST(CursorResponseTest, parseFromBSONLatestOplogEntry) {
     ASSERT_EQ(*response.getLastOplogTimestamp(), Timestamp(1, 2));
 }
 
+TEST(CursorResponseTest, parseFromBSONPostBatchResumeToken) {
+    StatusWith<CursorResponse> result = CursorResponse::parseFromBSON(
+        BSON("cursor" << BSON("id" << CursorId(123) << "ns"
+                                   << "db.coll"
+                                   << "nextBatch"
+                                   << BSONArrayBuilder().arr()
+                                   << "postBatchResumeToken"
+                                   << BSON("_data"
+                                           << "0201"))
+                      << "ok"
+                      << 1));
+    ASSERT_OK(result.getStatus());
+
+    CursorResponse response = std::move(result.getValue());
+    ASSERT_EQ(response.getCursorId(), CursorId(123));
+    ASSERT_EQ(response.getBatch().size(), 0U);
+    ASSERT_TRUE(response.getPostBatchResumeToken());
+    ASSERT_BSONOBJ_EQ(*response.getPostBatchResumeToken(),
+                      BSON("_data"
+                           << "0201"));
+}
+
+TEST(CursorResponseTest, parseFromBSONPostBatchResumeTokenAbsent) {
+    StatusWith<CursorResponse> result = CursorResponse::parseFromBSON(
+        BSON("cursor" << BSON("id" << CursorId(123) << "ns"
+                                   << "db.coll"
+                                   << "nextBatch"
+                                   << BSON_ARRAY(BSON("_id" << 1)))
+                      << "ok"
+                      << 1));
+    ASSERT_OK(result.getStatus());
+    ASSERT_FALSE(result.getValue().getPostBatchResumeToken());
+}
+
+TEST(CursorResponseTest, parseFromBSONPostBatchResumeTokenWrongType) {
+    StatusWith<CursorResponse> result = CursorResponse::parseFromBSON(
+        BSON("cursor" << BSON("id" << CursorId(123) << "ns"
+                                   << "db.coll"
+                                   << "nextBatch"
+                                   << BSONArrayBuilder().arr()
+                                   << "postBatchResumeToken"
+                                   << "0201")
+                      << "ok"
+                      << 1));
+    ASSERT_NOT_OK(result.getStatus());
+    ASSERT_EQ(result.getStatus().code(), ErrorCodes::BadValue);
+}
+
 TEST(CursorResponseTest, parseFromBSONMissingCursorField) {
     StatusWith<CursorResponse> result = CursorResponse::parseFromBSON(BSON("ok" << 1));
     ASSERT_NOT_OK(result.getStatus());
@@ -304,6 +352,67 @@ TEST(CursorResponseTest, addToBSONSubsequentResponse) {
                       << "ok"
                       << 1.0);
     ASSERT_BSONOBJ_EQ(responseObj, expectedResponse);
+}
+
+TEST(CursorResponseTest, serializePostBatchResumeTokenInsideCursorObject) {
+    std::vector<BSONObj> batch = {BSON("_id" << 1)};
+    CursorResponse response(NamespaceString("db.coll"),
+                            CursorId(123),
+                            batch,
+                            boost::none,
+                            boost::none,
+                            boost::none,
+                            BSON("_data"
+                                 << "0201"));
+    BSONObj serialized = response.toBSON(CursorResponse::ResponseType::SubsequentResponse);
+    BSONObj expected = BSON("cursor" << BSON("id" << CursorId(123) << "ns"
+                                                  << "db.coll"
+                                                  << "nextBatch"
+                                                  << BSON_ARRAY(BSON("_id" << 1))
+                                                  << "postBatchResumeToken"
+                                                  << BSON("_data"
+                                                          << "0201"))
+                                     << "ok"
+                                     << 1.0);
+    ASSERT_BSONOBJ_EQ(serialized, expected);
+
+    // The field must survive a round trip through the parser.
+    auto reparsed = CursorResponse::parseFromBSON(serialized);
+    ASSERT_OK(reparsed.getStatus());
+    ASSERT_BSONOBJ_EQ(*reparsed.getValue().getPostBatchResumeToken(),
+                      BSON("_data"
+                           << "0201"));
+}
+
+TEST(CursorResponseBuilderTest, doneEmitsPostBatchResumeTokenInsideCursorObject) {
+    BSONObjBuilder bob;
+    CursorResponseBuilder builder(/*isInitialResponse*/ true, &bob);
+    builder.append(BSON("_id" << 1));
+    builder.setPostBatchResumeToken(BSON("_data"
+                                         << "0201"));
+    builder.done(CursorId(123), "db.coll");
+
+    // The batch array is opened by the constructor, so it precedes id and ns.
+    BSONObj expected = BSON("cursor" << BSON("firstBatch" << BSON_ARRAY(BSON("_id" << 1)) << "id"
+                                                          << CursorId(123)
+                                                          << "ns"
+                                                          << "db.coll"
+                                                          << "postBatchResumeToken"
+                                                          << BSON("_data"
+                                                                  << "0201")));
+    ASSERT_BSONOBJ_EQ(bob.obj(), expected);
+}
+
+TEST(CursorResponseBuilderTest, doneOmitsEmptyPostBatchResumeToken) {
+    BSONObjBuilder bob;
+    CursorResponseBuilder builder(/*isInitialResponse*/ false, &bob);
+    builder.done(CursorId(0), "db.coll");
+
+    BSONObj expected = BSON("cursor" << BSON("nextBatch" << BSONArrayBuilder().arr() << "id"
+                                                         << CursorId(0)
+                                                         << "ns"
+                                                         << "db.coll"));
+    ASSERT_BSONOBJ_EQ(bob.obj(), expected);
 }
 
 TEST(CursorResponseTest, serializeLatestOplogEntry) {

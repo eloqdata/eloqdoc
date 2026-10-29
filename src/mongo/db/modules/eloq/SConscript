@@ -398,10 +398,124 @@ env.CppUnitTest(
     ],
 )
 
+# CDC wire codecs (docs/cdc-change-stream.md, section 5.4 step 3 and section 5.6). These decode
+# logged bytes and build resume tokens; they touch neither the storage engine nor the tx service, so
+# they are kept out of storage_eloq_core to stay linkable from the change-stream stages and cheap to
+# unit test. SCons reads this file with Python 2: keep it ASCII.
+env.Library(
+    target="cdc_codec",
+    source=[
+        "src/base/cdc_blob_decoder.cpp",
+        "src/base/cdc_key_decoder.cpp",
+        "src/base/cdc_resume_token.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/base",
+    ],
+)
+
+env.CppUnitTest(
+    target="cdc_codec_test",
+    source=[
+        "src/base/cdc_blob_decoder_test.cpp",
+        "src/base/cdc_key_decoder_test.cpp",
+        "src/base/cdc_resume_token_test.cpp",
+    ],
+    LIBDEPS=[
+        # The codec decodes KeyString bytes without linking the encoder; only these tests, which
+        # produce their inputs with the real encoder, need it.
+        "$BUILD_DIR/mongo/db/storage/key_string",
+        "cdc_codec",
+    ],
+)
+
+# CDC scan path (docs/cdc-change-stream.md, section 5.3 steps 1-2, section 5.8): the per-cursor
+# wait object, the CdcScan client, and the record source that merges the log groups. It reaches
+# the log service only through the tx service's TxLog.
+env.Library(
+    target="cdc_scan",
+    source=[
+        "src/cdc/cdc_scan_client.cpp",
+        "src/cdc/cdc_scan_source.cpp",
+        "src/cdc/cdc_scan_transport.cpp",
+        "src/cdc/cdc_wait_object.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/base",
+        # CoroutineFunctors.
+        "$BUILD_DIR/mongo/db/service_context",
+    ],
+    SYSLIBDEPS=eloq_dependencies,
+)
+
+env.CppUnitTest(
+    target="cdc_scan_test",
+    source=[
+        "src/cdc/cdc_fake_log_service.cpp",
+        "src/cdc/cdc_scan_test.cpp",
+    ],
+    LIBDEPS=[
+        "cdc_scan",
+    ],
+)
+
+# The change stream's event producer (docs/cdc-change-stream.md, sections 5.3 step 3, 5.4, 5.4a
+# and 5.6): decodes the records the scan source releases into event documents with their resume
+# tokens.
+env.Library(
+    target="cdc_stream",
+    source=[
+        "src/cdc/cdc_ddl_decoder.cpp",
+        "src/cdc/cdc_event_stream.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/db/namespace_string",
+        "$BUILD_DIR/mongo/db/pipeline/document_value",
+        "cdc_codec",
+        "cdc_scan",
+    ],
+)
+
+# EloqDoc's $changeStream stage (docs/cdc-change-stream.md, sections 5.1 and 5.2): the pipeline
+# stage over the event stream, and the factory storage_eloq installs so that $changeStream expands
+# into it.
+env.Library(
+    target="cdc_change_stream",
+    source=[
+        "src/cdc/cdc_stream_registry.cpp",
+        "src/cdc/document_source_eloq_change_stream.cpp",
+    ],
+    LIBDEPS=[
+        "$BUILD_DIR/mongo/db/commands/server_status",
+        "$BUILD_DIR/mongo/db/pipeline/pipeline",
+        "$BUILD_DIR/mongo/db/query/query_common",
+        "$BUILD_DIR/mongo/db/server_parameters",
+        "cdc_stream",
+    ],
+    SYSLIBDEPS=eloq_dependencies,
+)
+
+env.CppUnitTest(
+    target="cdc_stream_test",
+    source=[
+        "src/cdc/cdc_ddl_decoder_test.cpp",
+        "src/cdc/cdc_event_stream_test.cpp",
+        "src/cdc/cdc_fake_log_service.cpp",
+    ],
+    LIBDEPS=[
+        # The tests build their blobs' primary keys with the real KeyString encoder.
+        "$BUILD_DIR/mongo/db/pipeline/document_value_test_util",
+        "$BUILD_DIR/mongo/db/storage/key_string",
+        "cdc_stream",
+    ],
+)
+
 env.Library(
     target="storage_eloq",
     source=[
+        "src/eloq_cluster_gate_command.cpp",
         "src/eloq_init.cpp",
+        "src/eloq_test_commands.cpp",
     ],
     LIBDEPS=[
         # "$BUILD_DIR/mongo/db/db_raii",
@@ -412,7 +526,10 @@ env.Library(
         "storage_eloq_core",
     ],
     LIBDEPS_PRIVATE=[
+        "$BUILD_DIR/mongo/db/commands",
+        "$BUILD_DIR/mongo/db/commands/test_commands_enabled",
         "$BUILD_DIR/mongo/db/storage/storage_engine_common",
+        "cdc_change_stream",
     ],
     LIBDEPS_DEPENDENTS=["$BUILD_DIR/mongo/db/serveronly"],
 )

@@ -154,6 +154,11 @@ public:
         return true;
     }
 
+    /** Every read returns the commit timestamp of the record version it read. */
+    bool supportsRecordVersions() const override {
+        return true;
+    }
+
     bool supportsDirectoryPerDB() const override;
 
     bool supportsCappedCollections() const override {

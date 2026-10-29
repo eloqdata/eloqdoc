@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <exception>
+#include <map>
 #include <numeric>
 #include <thread>
 #include <utility>
@@ -44,6 +45,7 @@
 
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/catalog_key_record.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/cc_protocol.h"
+#include "mongo/db/modules/eloq/data_substrate/tx_service/include/cluster_config_record.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_key.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_request.h"
 #include "mongo/db/modules/eloq/data_substrate/tx_service/include/tx_util.h"
@@ -499,13 +501,45 @@ txservice::TxErrorCode EloqRecoveryUnit::setKV(const txservice::TableName& table
     return err;
 }
 
+Status EloqRecoveryUnit::checkClusterGate() {
+    getTxm();
+    txservice::ClusterConfigRecord clusterConfig;
+    const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
+    // read_local: the cluster config is replicated on every node group, and a local read is
+    // forced to a read lock held until the transaction ends.
+    txservice::ReadTxRequest readTxReq(&txservice::cluster_config_ccm_name,
+                                       0,
+                                       txservice::VoidKey::NegInfTxKey(),
+                                       &clusterConfig,
+                                       false,
+                                       false,
+                                       true,
+                                       0,
+                                       false,
+                                       false,
+                                       false,
+                                       coro.yieldFuncPtr,
+                                       coro.resumeFuncPtr,
+                                       _txm);
+    _txm->Execute(&readTxReq);
+    readTxReq.Wait();
+    if (readTxReq.IsError()) {
+        return TxErrorCodeToMongoStatus(readTxReq.ErrorCode());
+    }
+    if (clusterConfig.GatesSchemaOps()) {
+        return TxErrorCodeToMongoStatus(txservice::TxErrorCode::CLUSTER_GATED);
+    }
+    return Status::OK();
+}
+
 std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
     OperationContext* opCtx,
     const txservice::TableName& tableName,
     uint64_t keySchemaVersion,
     const Eloq::MongoKey* key,
     Eloq::MongoRecord* record,
-    bool isForWrite) {
+    bool isForWrite,
+    uint64_t* version) {
     MONGO_LOG(1) << "EloqRecoveryUnit::getKV"
                  << ". tableName: " << tableName.StringView() << ". txn: " << _txm->TxNumber()
                  << ", isolation: " << (int)_txm->GetIsolationLevel()
@@ -555,6 +589,9 @@ std::pair<bool, txservice::TxErrorCode> EloqRecoveryUnit::getKV(
         txservice::RecordStatus recStatus = readTxReq.Result().first;
         if (recStatus == txservice::RecordStatus::Normal) {
             exists = true;
+            if (version != nullptr) {
+                *version = readTxReq.Result().second;
+            }
             MONGO_LOG(1) << "EloqRecoveryUnit::getKV. RecordStatus::Normal. ";
             break;
         } else {
@@ -576,7 +613,8 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                                                     const txservice::TableName& tableName,
                                                     uint64_t keySchemaVersion,
                                                     std::vector<txservice::ScanBatchTuple>& batch,
-                                                    bool isForWrite) {
+                                                    bool isForWrite,
+                                                    bool pointReadOnMiss) {
     MONGO_LOG(1) << "EloqRecoveryUnit::batchGetKV. tableName: " << tableName.StringView()
                  << ", batch size: " << batch.size();
     const CoroutineFunctors& coro = Client::getCurrent()->coroutineFunctors();
@@ -608,7 +646,6 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
 
     bool isForShare = false;
     bool readLocal = false;
-    bool point_read_on_miss = true;
     txservice::BatchReadTxRequest batchReadTxReq(&tableName,
                                                  keySchemaVersion,
                                                  sortedBatch,
@@ -618,7 +655,7 @@ txservice::TxErrorCode EloqRecoveryUnit::batchGetKV(OperationContext* opCtx,
                                                  coro.yieldFuncPtr,
                                                  coro.resumeFuncPtr,
                                                  _txm,
-                                                 point_read_on_miss);
+                                                 pointReadOnMiss);
     _txm->Execute(&batchReadTxReq);
     batchReadTxReq.Wait();
 
@@ -697,6 +734,9 @@ Status EloqRecoveryUnit::createTable(const txservice::TableName& tableName,
             return Status::OK();
             break;
         case txservice::UpsertResult::Failed:
+            if (upsertTableTxReq.ErrorCode() == txservice::TxErrorCode::CLUSTER_GATED) {
+                return TxErrorCodeToMongoStatus(upsertTableTxReq.ErrorCode());
+            }
             MONGO_LOG(1) << "UpsertTableTxRequest error. UpsertTableOp on multiple nodes at the "
                             "same time may conflict and then backoff.";
             // A lock conflict has to leave as a WriteConflictException, not as a Status: a
@@ -746,6 +786,9 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
             return Status::OK();
             break;
         case txservice::UpsertResult::Failed:
+            if (dropTableTxReq.ErrorCode() == txservice::TxErrorCode::CLUSTER_GATED) {
+                return TxErrorCodeToMongoStatus(dropTableTxReq.ErrorCode());
+            }
             MONGO_LOG(1) << "UpsertTableTxRequest error. Drop temporary table "
                          << tableName.StringView() << " failed at launch.";
             // See createTable: a conflict must be raised as WriteConflictException so the
@@ -766,6 +809,55 @@ Status EloqRecoveryUnit::dropTable(const txservice::TableName& tableName,
     }
 }
 
+namespace {
+/**
+ * @brief Whether two catalog entries describe the same collection.
+ *
+ * Ignores what differs between two writes of one definition: md.options.catalogVersion, which
+ * every write of the entry renews (CollectionCatalogEntry::MetaData::updateCatalogVersion), and the
+ * order of the entry's top-level fields. A collection object built from the entry with the older
+ * version is still current, and one that is not is rebuilt from the transactional catalog
+ * (DatabaseImpl::getCollection), so leaving the older version in place changes nothing.
+ *
+ * @param lhs One entry.
+ * @param rhs The other.
+ * @return true if they differ in nothing else.
+ */
+bool sameCatalogEntry(const BSONObj& lhs, const BSONObj& rhs) {
+    auto fields = [](const BSONObj& entry) {
+        std::map<std::string, BSONObj> out;
+        for (const BSONElement& e : entry) {
+            if (e.fieldNameStringData() == "md" && e.type() == Object) {
+                BSONObjBuilder md;
+                for (const BSONElement& f : e.Obj()) {
+                    if (f.fieldNameStringData() == "options" && f.type() == Object) {
+                        md.append("options", f.Obj().removeField("catalogVersion"));
+                    } else {
+                        md.append(f);
+                    }
+                }
+                out["md"] = md.obj();
+            } else {
+                out[e.fieldName()] = e.wrap();
+            }
+        }
+        return out;
+    };
+    const auto a = fields(lhs);
+    const auto b = fields(rhs);
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (const auto& [name, value] : a) {
+        auto it = b.find(name);
+        if (it == b.end() || !value.binaryEqual(it->second)) {
+            return false;
+        }
+    }
+    return true;
+}
+}  // namespace
+
 Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
                                      const txservice::CatalogRecord& catalogRecord,
                                      std::string_view oldMetadata,
@@ -775,6 +867,15 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
     MONGO_LOG(1) << "EloqRecoveryUnit::updateTable"
                  << ". tableName: " << tableName.StringView();
     getTxm();
+
+    if (sameCatalogEntry(BSONObj(oldMetadata.data()), BSONObj(newMetadata.data()))) {
+        // Nothing changes, so no DDL is needed. The cleanup of an index build whose add the
+        // cluster gate refused writes back the catalog entry it started from: issuing a DDL for
+        // it would meet the paused gate too, and ~MultiIndexBlockImpl treats any failure but a
+        // write conflict as fatal (index_create_impl.cpp, fassert 18644).
+        *insideDmlTxn = false;
+        return Status::OK();
+    }
 
     /**
      * Generate new catalog image.
@@ -877,6 +978,9 @@ Status EloqRecoveryUnit::updateTable(const txservice::TableName& tableName,
                 break;
             case txservice::UpsertResult::Failed: {
                 txservice::TxErrorCode txErr = upsertTableTxReq.ErrorCode();
+                if (txErr == txservice::TxErrorCode::CLUSTER_GATED) {
+                    return TxErrorCodeToMongoStatus(txErr);
+                }
                 if (txErr == txservice::TxErrorCode::UNIQUE_CONSTRAINT) {
                     invariant(opType == txservice::OperationType::AddIndex);
                     return {ErrorCodes::Error::DuplicateKey, upsertTableTxReq.ErrorMsg()};

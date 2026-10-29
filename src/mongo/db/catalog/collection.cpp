@@ -76,6 +76,8 @@ MONGO_DEFINE_SHIM(Collection::parseValidationLevel);
 
 MONGO_DEFINE_SHIM(Collection::parseValidationAction);
 
+MONGO_DEFINE_SHIM(Collection::checkValidatorAllowed);
+
 void Collection::TUHook::hook() noexcept {}
 
 std::string CompactOptions::toString() const {

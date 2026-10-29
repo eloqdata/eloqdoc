@@ -446,6 +446,14 @@ void DatabaseImpl::clearTmpCollections(OperationContext* opCtx) {
         invariant(NamespaceString::normal(ns));
 
         CollectionCatalogEntry* coll = _dbEntry->getCollectionCatalogEntry(opCtx, ns);
+        if (!coll) {
+            // The names come from the data store's table list (EloqKVEngine::listCollections),
+            // the entry from the tx service's catalog. A drop that has committed but not yet
+            // deleted its row from the store is still listed but has no entry; recovery rolls
+            // such a drop forward after the node has started, while this sweep runs. Its
+            // collection is gone already.
+            continue;
+        }
 
         CollectionOptions options = coll->getCollectionOptions(opCtx);
 
@@ -1663,6 +1671,24 @@ MONGO_REGISTER_SHIM(Database::userCreateNS)
         // collections created on versions which do not support the collation feature have the same
         // format for representing the simple collation as collections created on this version.
         collectionOptions.collation = collator ? collator->getSpec().toBSON() : BSONObj();
+    }
+
+    // EloqDoc: the create-table transaction commits on its own before the collection is built.
+    // Whatever the collection's constructor would refuse must be refused here instead, or the
+    // failed create leaves a table that listCollections and the next startup trip over.
+    if (!collectionOptions.validator.isEmpty()) {
+        Status allowed = Collection::checkValidatorAllowed(NamespaceString(ns), boost::none);
+        if (!allowed.isOK()) {
+            return allowed;
+        }
+    }
+    auto validationLevel = Collection::parseValidationLevel(collectionOptions.validationLevel);
+    if (!validationLevel.isOK()) {
+        return validationLevel.getStatus();
+    }
+    auto validationAction = Collection::parseValidationAction(collectionOptions.validationAction);
+    if (!validationAction.isOK()) {
+        return validationAction.getStatus();
     }
 
     if (!collectionOptions.validator.isEmpty()) {

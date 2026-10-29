@@ -266,7 +266,29 @@ error_code("FailPointSetFailed", 266)
 error_code("DataModifiedByRepair", 269);
 error_code("RepairedReplicaSetNode", 270);
 
+# EloqDoc change streams (docs/cdc-change-stream.md section 5.3 step 4). Numbered as the same-named
+# upstream code so drivers classify it as non-resumable.
+error_code("ChangeStreamFatalError", 280)
+# A change stream asked for a position the log service no longer retains (docs/cdc-change-stream.md
+# section 4.5); the consumer re-bootstraps. Numbered as the same-named upstream code.
+error_code("ChangeStreamHistoryLost", 286)
+
 # Error codes 4000-8999 are reserved.
+
+# EloqDoc's own codes, numbered upward from 5000. Upstream appends its named codes sequentially
+# (past 440 by now) and never allocates in its reserved 4000-8999, so a number here cannot collide
+# with a later upstream code; 4000-4999 are avoided because legacy assertion locations use them.
+
+# A change stream opened without a resume token could not fix its start position in time: some log
+# group reported no completed checkpoint round before maxTimeMS or cdc_open_wait_ms ran out
+# (docs/cdc-change-stream.md section 5.1). The client retries the open.
+error_code("ChangeStreamStartNotReady", 5000)
+
+# A schema change (a create, implicit or not, a drop, an index build or drop, a collMod, a view's
+# create, collMod or drop) met a paused cluster gate: change data capture bootstrap is copying the
+# catalog, and no DDL runs until the gate resumes (docs/cdc-change-stream.md section 6.2). The
+# client retries after the resume.
+error_code("ClusterGatePaused", 5001)
 
 # Non-sequential error codes (for compatibility only)
 error_code("SocketException", 9001)

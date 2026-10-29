@@ -43,6 +43,7 @@
 "dropIndex",
 "dropRole",
 "dropUser",
+"eloqClusterGate",  # EloqDoc: pause and resume schema changes for change data capture bootstrap.
 "emptycapped",
 "enableProfiler",
 "enableSharding",

@@ -28,7 +28,9 @@
 #include "mongo/base/status.h"
 #include "mongo/bson/bsonobj.h"
 #include "mongo/bson/simple_bsonobj_comparator.h"
+#include "mongo/db/index/index_access_method.h"
 #include "mongo/db/index/multikey_paths.h"
+#include "mongo/db/namespace_string.h"
 #include "mongo/db/query/get_executor.h"
 #include "mongo/db/storage/key_string.h"
 #include "mongo/db/storage/kv/kv_catalog_feature_tracker.h"
@@ -248,6 +250,10 @@ void EloqCatalogRecordStore::deleteRecord(OperationContext* opCtx, const RecordI
             if (status.isOK()) {
                 ru->deleteDiscoveredTable(tableName);
                 return;
+            }
+            // A paused cluster gate refuses every attempt until it resumes; report it now.
+            if (status.code() == ErrorCodes::ClusterGatePaused) {
+                uassertStatusOK(status);
             }
         }
 
@@ -630,6 +636,7 @@ EloqRecordStore::EloqRecordStore(OperationContext* opCtx, Params& params)
     : RecordStore{params.ns},
       _tableName{std::move(params.tableName)},
       _isCatalog{isMongoCatalog(params.ident.toStringView())},
+      _isSystemViews{NamespaceString(params.ns).isSystemDotViews()},
       _isCapped{params.isCapped},
       _cappedMaxSize{params.cappedMaxSize},
       _cappedMaxDocs{params.cappedMaxDocs},
@@ -758,9 +765,160 @@ bool EloqRecordStore::findRecord(OperationContext* opCtx,
     return true;
 }
 
+bool EloqRecordStore::findRecordVersion(OperationContext* opCtx,
+                                        const RecordId& id,
+                                        RecordData* out,
+                                        uint64_t* version) const {
+    MONGO_LOG(1) << "EloqRecordStore::findRecordVersion" << ". id: " << id.toString();
+
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    Eloq::MongoKey mongoKey(id);
+    Eloq::MongoRecord mongoRecord;
+    uint64_t keySchemaVersion = ru->getIndexSchema(_tableName)->SchemaTs();
+    auto [exists, err] =
+        ru->getKV(opCtx, _tableName, keySchemaVersion, &mongoKey, &mongoRecord, false, version);
+    uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    if (!exists) {
+        return false;
+    }
+    *out =
+        RecordData{mongoRecord.EncodedBlobData(), static_cast<int>(mongoRecord.EncodedBlobSize())}
+            .getOwned();
+    return true;
+}
+
+namespace {
+/**
+ * @brief Maintains a table's indexes under construction for one document write.
+ *
+ * An index under construction is in the dirty schema only. The tx service's index build fills it
+ * from the documents that existed when the build began; writes made during the build maintain it
+ * here. Removes the keys the old document produces and the new one does not, and writes every key
+ * the new document produces. Every key is handled, and a document that produces no key (sparse or
+ * partial index) writes nothing.
+ *
+ * As before, inserts and updates are refused while a unique index is being built, and when a
+ * document would add multikey paths the index has not recorded.
+ *
+ * @param opCtx Operation context.
+ * @param table The table, as discovered in this transaction.
+ * @param id The document's record id.
+ * @param oldDoc The document before the write; nullptr for an insert.
+ * @param newDoc The document after the write; nullptr for a delete.
+ * @param addOp The tx-service operation that writes an added key.
+ * @throws DBException On a conflict, a too-long key, or a tx-service error.
+ */
+void maintainCreatingIndexes(OperationContext* opCtx,
+                             const EloqRecoveryUnit::DiscoveredTable& table,
+                             const RecordId& id,
+                             const BSONObj* oldDoc,
+                             const BSONObj* newDoc,
+                             txservice::OperationType addOp) {
+    auto ru = EloqRecoveryUnit::get(opCtx);
+    for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
+        const txservice::TableName& indexName = index->first;
+        const auto* keySchema =
+            static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
+
+        BSONObjSet newKeys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+        if (newDoc != nullptr) {
+            if (keySchema->Unique()) {
+                uasserted(ErrorCodes::ConflictingOperationInProgress,
+                          str::stream()
+                              << "A conflict create-unique-index transaction is running.");
+            }
+            MultikeyPaths multikeyPaths;
+            keySchema->GetKeys(*newDoc, &newKeys, &multikeyPaths);
+            if (newKeys.size() > 1 || Eloq::MongoKeySchema::IsMultiKeyFromPaths(multikeyPaths)) {
+                if (!keySchema->IsMultiKey() ||
+                    !std::includes(keySchema->MongoMultiKeyPaths().cbegin(),
+                                   keySchema->MongoMultiKeyPaths().cend(),
+                                   multikeyPaths.cbegin(),
+                                   multikeyPaths.cend())) {
+                    uasserted(ErrorCodes::ConflictingOperationInProgress,
+                              str::stream() << "A conflict create-index transaction is running.");
+                }
+            }
+        }
+
+        BSONObjSet oldKeys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
+        if (oldDoc != nullptr) {
+            MultikeyPaths multikeyPaths;
+            keySchema->GetKeys(*oldDoc, &oldKeys, &multikeyPaths);
+        }
+
+        // A unique index keys an entry by the value alone and keeps the record id in the payload
+        // (EloqUniqueIndex); any other index appends the record id to the key.
+        auto makeKeyString = [&](const BSONObj& key) {
+            return keySchema->Unique()
+                ? KeyString(KeyString::kLatestVersion, key, keySchema->Ordering())
+                : KeyString(KeyString::kLatestVersion, key, keySchema->Ordering(), id);
+        };
+
+        for (const BSONObj& key : oldKeys) {
+            if (newKeys.count(key) != 0) {
+                continue;
+            }
+            KeyString keyString = makeKeyString(key);
+            auto mongoKey =
+                std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
+            uassertStatusOK(TxErrorCodeToMongoStatus(ru->setKV(indexName,
+                                                               keySchema->SchemaTs(),
+                                                               std::move(mongoKey),
+                                                               nullptr,
+                                                               txservice::OperationType::Delete,
+                                                               false)));
+        }
+
+        // Every key of the new document is written, including keys the old document also had:
+        // the build's scan may skip a document modified after its scan timestamp and leave that
+        // document's keys to this write. Rewriting a key that is already there is harmless; its
+        // version is this write's, newer than anything the build uploads.
+        for (const BSONObj& key : newKeys) {
+            // The index build rejects a too-long key in an existing document
+            // (MongoSkEncoder::GenerateBSONKeys); a document written during the build must not
+            // slip one in.
+            if (failIndexKeyTooLong.load()) {
+                uassertStatusOK(checkKeySize(key, indexName.StringView()));
+            }
+            KeyString keyString = makeKeyString(key);
+            auto mongoKey =
+                std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
+            auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
+            if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
+                mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
+            }
+            uassertStatusOK(TxErrorCodeToMongoStatus(ru->setKV(indexName,
+                                                               keySchema->SchemaTs(),
+                                                               std::move(mongoKey),
+                                                               std::move(mongoRecord),
+                                                               addOp,
+                                                               false)));
+        }
+    }
+}
+}  // namespace
+
 void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) {
     MONGO_LOG(1) << "EloqRecordStore::deleteRecord" << ". id: " << id;
+    _deleteRecord(opCtx, id, nullptr);
+}
+
+void EloqRecordStore::deleteRecordWithPreImage(OperationContext* opCtx,
+                                               const RecordId& id,
+                                               const BSONObj& doc) {
+    MONGO_LOG(1) << "EloqRecordStore::deleteRecordWithPreImage" << ". id: " << id;
+    _deleteRecord(opCtx, id, &doc);
+}
+
+void EloqRecordStore::_deleteRecord(OperationContext* opCtx,
+                                    const RecordId& id,
+                                    const BSONObj* doc) {
     auto ru = EloqRecoveryUnit::get(opCtx);
+    if (_isSystemViews) {
+        // A view drop: held still by a paused cluster gate.
+        uassertStatusOK(ru->checkClusterGate());
+    }
 
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
 
@@ -769,11 +927,17 @@ void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) 
     Eloq::MongoRecord mongoRecord;
     uint64_t keySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
-    // read the record if the table is creating indexes.
-    if (table._creatingIndexes.size() > 0) {
+    // Without the caller's copy, read the document once if the table is creating indexes: its
+    // keys have to come out of them.
+    BSONObj readDoc;
+    if (doc == nullptr && !table._creatingIndexes.empty()) {
         auto [exists, err] =
             ru->getKV(opCtx, _tableName, keySchemaVersion, mongoKey.get(), &mongoRecord, true);
         uassertStatusOK(TxErrorCodeToMongoStatus(err));
+        if (exists) {
+            readDoc = BSONObj(mongoRecord.EncodedBlobData());
+            doc = &readDoc;
+        }
     }
 
     auto err = ru->setKV(_tableName,
@@ -784,30 +948,8 @@ void EloqRecordStore::deleteRecord(OperationContext* opCtx, const RecordId& id) 
                          false);
     uassertStatusOK(TxErrorCodeToMongoStatus(err));
 
-    // remove record from creating index.
-    if (table._creatingIndexes.size() > 0) {
-        BSONObj recordObj(mongoRecord.EncodedBlobData());
-        for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
-            const txservice::TableName& indexName = index->first;
-            const auto* keySchema =
-                static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
-
-            BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
-            MultikeyPaths multikeyPaths;
-            keySchema->GetKeys(recordObj, &keys, &multikeyPaths);
-            for (const BSONObj& bsonKey : keys) {
-                KeyString keyString(KeyString::kLatestVersion, bsonKey, keySchema->Ordering(), id);
-                auto mongoKey =
-                    std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-                err = ru->setKV(indexName,
-                                keySchema->SchemaTs(),
-                                std::move(mongoKey),
-                                nullptr,
-                                txservice::OperationType::Delete,
-                                false);
-                uassertStatusOK(TxErrorCodeToMongoStatus(err));
-            }
-        }
+    if (doc != nullptr && !table._creatingIndexes.empty()) {
+        maintainCreatingIndexes(opCtx, table, id, doc, nullptr, txservice::OperationType::Delete);
     }
 }
 
@@ -863,9 +1005,10 @@ Status EloqRecordStore::batchCheckDuplicateKey(OperationContext* opCtx,
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
 
-    // Check all keys for duplicates
+    // Load a whole slice on a miss so sequential inserts can reuse it for
+    // duplicate checks on subsequent keys.
     txservice::TxErrorCode err =
-        ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true);
+        ru->batchGetKV(opCtx, _tableName, pkeySchemaVersion, batchTuples, true, false);
     if (err != txservice::TxErrorCode::NO_ERROR) {
         MONGO_LOG(1) << "EloqRecordStore::batchCheckDuplicateKey batchGetKV failed, table: "
                      << _tableName.StringView() << ", error: " << txservice::TxErrorMessage(err);
@@ -917,10 +1060,41 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
     };
     auto guard = MakeGuard(recordLatency);
 
-    mongo::BSONObj recordObj(data);
     MONGO_LOG(1) << "EloqRecordStore::updateRecord" << ". id: " << id;
+    return _updateRecord(opCtx, id, nullptr, data, len);
+}
+
+Status EloqRecordStore::updateRecordWithPreImage(OperationContext* opCtx,
+                                                 const RecordId& id,
+                                                 const BSONObj& oldDoc,
+                                                 const char* data,
+                                                 int len,
+                                                 bool enforceQuota,
+                                                 UpdateNotifier* notifier) {
+    butil::Timer timer;
+    timer.start();
+    auto recordLatency = [&timer]() {
+        timer.stop();
+        recorder::bVarUpdateRecord << timer.u_elapsed();
+    };
+    auto guard = MakeGuard(recordLatency);
+
+    MONGO_LOG(1) << "EloqRecordStore::updateRecordWithPreImage" << ". id: " << id;
+    return _updateRecord(opCtx, id, &oldDoc, data, len);
+}
+
+Status EloqRecordStore::_updateRecord(
+    OperationContext* opCtx, const RecordId& id, const BSONObj* oldDoc, const char* data, int len) {
+    mongo::BSONObj recordObj(data);
 
     auto ru = EloqRecoveryUnit::get(opCtx);
+    if (_isSystemViews) {
+        // A view's collMod: held still by a paused cluster gate.
+        Status admitted = ru->checkClusterGate();
+        if (!admitted.isOK()) {
+            return admitted;
+        }
+    }
 
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
 
@@ -928,6 +1102,22 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
     auto mongoKey = std::make_unique<Eloq::MongoKey>(id);
     auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
+
+    // Without the caller's copy, read the document being replaced once if the table is creating
+    // indexes: its keys have to come out of them.
+    Eloq::MongoRecord oldRecord;
+    BSONObj readDoc;
+    if (oldDoc == nullptr && !table._creatingIndexes.empty()) {
+        auto [exists, err] =
+            ru->getKV(opCtx, _tableName, pkeySchemaVersion, mongoKey.get(), &oldRecord, true);
+        if (err != txservice::TxErrorCode::NO_ERROR) {
+            return TxErrorCodeToMongoStatus(err);
+        }
+        if (exists) {
+            readDoc = BSONObj(oldRecord.EncodedBlobData());
+            oldDoc = &readDoc;
+        }
+    }
 
     mongoRecord->SetEncodedBlob(reinterpret_cast<const unsigned char*>(data), len);
     const BSONObj idObj = getIdBSONObjWithoutFieldName(recordObj);
@@ -945,53 +1135,16 @@ Status EloqRecordStore::updateRecord(OperationContext* opCtx,
         return TxErrorCodeToMongoStatus(err);
     }
 
-    // For creating index
-    try {
-        for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
-            const txservice::TableName& indexName = index->first;
-            const auto* keySchema =
-                static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
-            if (keySchema->Unique()) {
-                uasserted(ErrorCodes::ConflictingOperationInProgress,
-                          str::stream()
-                              << "A conflict create-unique-index transaction is running.");
-            }
-
-            BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
-            MultikeyPaths multikeyPaths;
-            keySchema->GetKeys(recordObj, &keys, &multikeyPaths);
-            if (keys.size() > 1 || Eloq::MongoKeySchema::IsMultiKeyFromPaths(multikeyPaths)) {
-                if (!keySchema->IsMultiKey() ||
-                    !std::includes(keySchema->MongoMultiKeyPaths().cbegin(),
-                                   keySchema->MongoMultiKeyPaths().cend(),
-                                   multikeyPaths.cbegin(),
-                                   multikeyPaths.cend())) {
-                    uasserted(ErrorCodes::ConflictingOperationInProgress,
-                              str::stream() << "A conflict create-index transaction is running.");
-                }
-            }
-
-            const BSONObj& skObj = *keys.cbegin();
-            KeyString keyString(KeyString::kLatestVersion, skObj, keySchema->Ordering(), id);
-            auto mongoKey =
-                std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-            auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-            if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
-                mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
-            }
-            err = ru->setKV(indexName,
-                            keySchema->SchemaTs(),
-                            std::move(mongoKey),
-                            std::move(mongoRecord),
-                            txservice::OperationType::Update,
-                            false);
-            uassertStatusOK(TxErrorCodeToMongoStatus(err));
+    if (!table._creatingIndexes.empty()) {
+        try {
+            maintainCreatingIndexes(
+                opCtx, table, id, oldDoc, &recordObj, txservice::OperationType::Update);
+        } catch (const mongo::DBException& e) {
+            MONGO_LOG(1) << "EloqRecordStore::_updateRecord maintaining indexes under "
+                            "construction raised DBException "
+                         << e.what();
+            return e.toStatus();
         }
-    } catch (const mongo::DBException& e) {
-        MONGO_LOG(1)
-            << "EloqRecordStore::udpateRecord update record for dirty indexes raise DBException "
-            << e.what();
-        return e.toStatus();
     }
 
     return Status::OK();
@@ -1152,6 +1305,13 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
     }
 
     auto ru = EloqRecoveryUnit::get(opCtx);
+    if (_isSystemViews) {
+        // A view's create: held still by a paused cluster gate.
+        Status admitted = ru->checkClusterGate();
+        if (!admitted.isOK()) {
+            return admitted;
+        }
+    }
     MONGO_LOG(1) << "Insert into a Data Table.";
     const EloqRecoveryUnit::DiscoveredTable& table = ru->discoveredTable(_tableName);
     uint64_t pkeySchemaVersion = table._schema->KeySchema()->SchemaTs();
@@ -1188,60 +1348,17 @@ Status EloqRecordStore::_insertRecords(OperationContext* opCtx,
             return TxErrorCodeToMongoStatus(err);
         }
 
-        // For creating index.
-        try {
-            BSONObj obj(data.data());
-            for (const EloqRecoveryUnit::SecondaryIndex* index : table._creatingIndexes) {
-                const txservice::TableName& indexName = index->first;
-                const auto* keySchema =
-                    static_cast<const Eloq::MongoKeySchema*>(index->second.sk_schema_.get());
-
-                bool unique = keySchema->Unique();
-                if (unique) {
-                    uasserted(ErrorCodes::ConflictingOperationInProgress,
-                              str::stream()
-                                  << "A conflict create-unique-index transaction is running.");
-                }
-
-                BSONObjSet keys = SimpleBSONObjComparator::kInstance.makeBSONObjSet();
-                MultikeyPaths multikeyPaths;
-                keySchema->GetKeys(obj, &keys, &multikeyPaths);
-                invariant(keys.size() > 0 && multikeyPaths.size() > 0);
-                if (keys.size() > 1 || Eloq::MongoKeySchema::IsMultiKeyFromPaths(multikeyPaths)) {
-                    if (!keySchema->IsMultiKey() ||
-                        !std::includes(keySchema->MongoMultiKeyPaths().cbegin(),
-                                       keySchema->MongoMultiKeyPaths().cend(),
-                                       multikeyPaths.cbegin(),
-                                       multikeyPaths.cend())) {
-                        uasserted(ErrorCodes::ConflictingOperationInProgress,
-                                  str::stream()
-                                      << "A conflict create-index transaction is running.");
-                    }
-                }
-
-                const BSONObj& skObj = *keys.cbegin();
-                KeyString keyString(
-                    KeyString::kLatestVersion, skObj, keySchema->Ordering(), records[i].id);
-                auto mongoKey =
-                    std::make_unique<Eloq::MongoKey>(keyString.getBuffer(), keyString.getSize());
-                auto mongoRecord = std::make_unique<Eloq::MongoRecord>();
-                if (const auto& typeBits = keyString.getTypeBits(); !typeBits.isAllZeros()) {
-                    mongoRecord->SetUnpackInfo(typeBits.getBuffer(), typeBits.getSize());
-                }
-                bool checkUnique = unique;
-                err = ru->setKV(indexName,
-                                keySchema->SchemaTs(),
-                                std::move(mongoKey),
-                                std::move(mongoRecord),
-                                txservice::OperationType::Insert,
-                                checkUnique);
-                uassertStatusOK(TxErrorCodeToMongoStatus(err));
+        if (!table._creatingIndexes.empty()) {
+            try {
+                BSONObj obj(data.data());
+                maintainCreatingIndexes(
+                    opCtx, table, records[i].id, nullptr, &obj, txservice::OperationType::Insert);
+            } catch (const mongo::DBException& e) {
+                MONGO_LOG(1) << "EloqRecordStore::_insertRecords maintaining indexes under "
+                                "construction raised DBException "
+                             << e.what();
+                return e.toStatus();
             }
-        } catch (const mongo::DBException& e) {
-            MONGO_LOG(1) << "EloqRecordStore::_insertRecords insert record for dirty indexes raise "
-                            "DBException "
-                         << e.what();
-            return e.toStatus();
         }
     }
 

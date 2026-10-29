@@ -50,6 +50,13 @@ class ServerSmokeConfigTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, key):
                     self.config(environment=environment)
 
+    def test_ddl_kv_retries_are_quick(self):
+        for data_store, log_state in (("ELOQDSS_ELOQSTORE", "ROCKSDB_CLOUD_S3"),
+                                      ("ELOQDSS_ROCKSDB", "ROCKSDB")):
+            with self.subTest(data_store=data_store):
+                config = self.config(data_store, log_state)
+                self.assertEqual("1", config["local"]["ddl_kv_retry_interval_seconds"])
+
     def test_local_rocksdb_needs_no_cloud_service(self):
         for data_store in ("ROCKSDB", "ELOQDSS_ROCKSDB"):
             with self.subTest(data_store=data_store):
@@ -58,9 +65,22 @@ class ServerSmokeConfigTest(unittest.TestCase):
                 self.assertNotIn("store", config)
                 self.assertFalse(any("cloud" in key for key in config["local"]))
 
+    def test_eloqstore_with_local_log_keeps_only_its_store_in_s3(self):
+        config = self.config("ELOQDSS_ELOQSTORE", "ROCKSDB")
+        local, store = config["local"], config["store"]
+        self.assertTrue(local.getboolean("enable_wal"))
+        self.assertFalse(any(key.startswith("txlog_rocksdb_cloud") for key in local))
+        self.assertNotIn("aws_access_key_id", store)
+        self.assertNotIn("aws_secret_key", store)
+        self.assertRegex(store["eloq_store_cloud_store_path"],
+                         r"^eloqdoc-smoke-[0-9a-f]{32}/eloqstore$")
+        self.assertEqual("test-access", store["eloq_store_cloud_access_key"])
+        self.assertEqual("test-secret", store["eloq_store_cloud_secret_key"])
+        with self.assertRaisesRegex(ValueError, "S3_ENDPOINT"):
+            self.config("ELOQDSS_ELOQSTORE", "ROCKSDB", environment={})
+
     def test_unsupported_backend_does_not_silently_use_local_rocksdb(self):
-        for data_store, log_state in (("ELOQDSS_ELOQSTORE", "ROCKSDB"),
-                                      ("ELOQDSS_ROCKSDB", "ROCKSDB_CLOUD_S3"),
+        for data_store, log_state in (("ELOQDSS_ROCKSDB", "ROCKSDB_CLOUD_S3"),
                                       ("ELOQDSS_ROCKSDB_CLOUD_S3", "ROCKSDB_CLOUD_S3")):
             with self.subTest(data_store=data_store, log_state=log_state):
                 with self.assertRaisesRegex(ValueError, "Unsupported smoke-test backend"):

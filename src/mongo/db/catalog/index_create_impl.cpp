@@ -240,6 +240,19 @@ StatusWith<std::vector<BSONObj>> MultiIndexBlockImpl::init(const std::vector<BSO
 
         // Any foreground indexes make all indexes be built in the foreground.
         _buildInBackground = (_buildInBackground && info["background"].trueValue());
+
+        // EloqDoc: the tx service builds an index from the existing documents without
+        // detecting duplicate keys among them, so a unique secondary index is only built on
+        // an empty collection. Documents written once the build has started are refused
+        // until it finishes.
+        if (info["unique"].trueValue() && !IndexDescriptor::isIdIndexPattern(info["key"].Obj()) &&
+            _collection->getCursor(_opCtx)->next()) {
+            return Status(ErrorCodes::CannotCreateIndex,
+                          str::stream()
+                              << "Cannot build unique index " << info["name"].str() << " on " << ns
+                              << ": unique indexes can only be created on an empty "
+                                 "collection");
+        }
     }
 
     std::vector<BSONObj> indexInfoObjs;
@@ -382,6 +395,7 @@ Status MultiIndexBlockImpl::insertAllDocumentsInCollection(std::set<RecordId>* d
     while (retries ||
            (PlanExecutor::ADVANCED == (state = exec->getNextSnapshotted(&objToIndex, &loc))) ||
            MONGO_FAIL_POINT(hangAfterStartingIndexBuild)) {
+        bool conflicted = false;
         try {
             if (_allowInterruption)
                 _opCtx->checkForInterrupt();
@@ -436,14 +450,18 @@ Status MultiIndexBlockImpl::insertAllDocumentsInCollection(std::set<RecordId>* d
             retries = 0;
         } catch (const WriteConflictException&) {
             CurOp::get(_opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
-            retries++;  // logAndBackoff expects this to be 1 on first call.
-            WriteConflictException::logAndBackoff(
-                retries, "index creation", _collection->ns().ns());
-
+            retries++;  // logAndBackoffYielding expects this to be 1 on first call.
+            conflicted = true;
+        }
+        if (conflicted) {
+            // Outside the handler, since the abort and the backoff may yield the coroutine.
             // Can't use writeConflictRetry since we need to save/restore exec around call to
-            // abandonSnapshot.
+            // abandonSnapshot. The snapshot goes before the backoff, so that the conflict's winner
+            // has the pause to finish, as in writeConflictRetry.
             exec->saveState();
             _opCtx->recoveryUnit()->abandonSnapshot();
+            WriteConflictException::logAndBackoffYielding(
+                retries, "index creation", _collection->ns().ns());
             auto restoreStatus = exec->restoreState();  // Handles any WCEs internally.
             if (!restoreStatus.isOK()) {
                 return restoreStatus;

@@ -46,6 +46,7 @@ class DocumentSourceSort;
 class ExpressionContext;
 class OperationContext;
 class Pipeline;
+class PostBatchResumeTokenProvider;
 struct PlanSummaryStats;
 class BSONObj;
 struct DepsTracker;
@@ -163,6 +164,14 @@ public:
     static void getPlanSummaryStats(const Pipeline* pipeline, PlanSummaryStats* statsOut);
 
     static Timestamp getLatestOplogTimestamp(const Pipeline* pipeline);
+
+    /**
+     * Returns the pipeline's first stage when it supplies resume tokens, otherwise nullptr. The
+     * first stage of a pipeline never changes once it is running, so callers resolve this once
+     * and keep it rather than asking per document.
+     */
+    static const PostBatchResumeTokenProvider* getPostBatchResumeTokenProvider(
+        const Pipeline* pipeline);
 
 private:
     PipelineD();  // does not exist:  prevent instantiation

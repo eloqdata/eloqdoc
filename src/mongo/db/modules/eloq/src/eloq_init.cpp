@@ -31,6 +31,7 @@
 #include "mongo/db/storage/storage_options.h"
 #include "mongo/util/log.h"
 
+#include "mongo/db/modules/eloq/src/cdc/document_source_eloq_change_stream.h"
 #include "mongo/db/modules/eloq/src/eloq_kv_engine.h"
 #include "src/base/eloq_util.h"
 
@@ -86,6 +87,9 @@ public:
 ServiceContext::ConstructorActionRegisterer registerEloq(
     "EloqEngineInit", [](ServiceContext* service) {
         registerStorageEngine(service, std::make_unique<EloqFactory>());
+        // Change streams read EloqDoc's log service rather than an oplog
+        // (docs/cdc-change-stream.md §5.2).
+        registerEloqChangeStreams();
     });
 
 }  // namespace

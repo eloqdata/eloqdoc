@@ -541,6 +541,17 @@ public:
 
 private:
     /**
+     * @brief Sleeps until a deadline on a service executor coroutine without blocking its thread,
+     * in slices that each check for interruption first.
+     *
+     * @param deadline When to wake.
+     * @return false, without sleeping, when the operation does not run on a coroutine; true once
+     * the deadline has passed.
+     * @throws The interruption, as checkForInterrupt does.
+     */
+    bool _sleepOnCoroutineUntil(Date_t deadline);
+
+    /**
      * Returns true if this operation has a deadline and it has passed according to the fast clock
      * on ServiceContext.
      */

@@ -109,6 +109,8 @@ public:
         return _supportsDBLocking;
     }
 
+    bool supportsRecordVersions() const override;
+
     bool supportsCappedCollections() const override {
         return _supportsCappedCollections;
     }
@@ -176,14 +178,26 @@ public:
     }
 
     /**
-     * Drop abandoned idents. Returns a parallel list of index name, index spec pairs to rebuild.
+     * @brief Reconciles the catalog with the storage engine's idents: in Eloq a no-op that asks for
+     * no index rebuild, since a collection's table and catalog entry are one record (see the
+     * definition).
+     *
+     * @param opCtx The operation context; unused.
+     * @return An empty list of collection and index name pairs to rebuild.
      */
     StatusWith<std::vector<StorageEngine::CollectionIndexNamePair>> reconcileCatalogAndIdents(
         OperationContext* opCtx) override;
 
     /**
-     * When loading after an unclean shutdown, this performs cleanup on the KVCatalog and unsets the
+     * @brief Opens the catalog and every collection the tx service's catalog has, then unsets the
      * startingAfterUncleanShutdown decoration on the global ServiceContext.
+     *
+     * Clean and unclean shutdowns are treated alike: the catalog is not compared with the storage
+     * engine's idents, and nothing is dropped. Repair (--repair) is no exception: it neither
+     * recovers nor drops a catalog collection whose table is missing, and creates no catalog entry
+     * for a table the catalog does not reference.
+     *
+     * @param opCtx The operation context.
      */
     void loadCatalog(OperationContext* opCtx) override;
 
@@ -204,20 +218,6 @@ private:
     //                                      std::list<std::string>& toDrop,
     //                                      CollIter begin,
     //                                      CollIter end);
-
-    /**
-     * When called in a repair context (_options.forRepair=true), attempts to recover a collection
-     * whose entry is present in the KVCatalog, but missing from the KVEngine. Returns an error
-     * Status if called outside of a repair context or the implementation of
-     * KVEngine::recoverOrphanedIdent returns an error other than DataModifiedByRepair.
-     *
-     * Returns Status::OK if the collection was recovered in the KVEngine and a new record store was
-     * created. Recovery does not make any guarantees about the integrity of the data in the
-     * collection.
-     */
-    Status _recoverOrphanedCollection(OperationContext* opCtx,
-                                      const NamespaceString& collectionName,
-                                      StringData collectionIdent);
 
     void _dumpCatalog(OperationContext* opCtx);
 

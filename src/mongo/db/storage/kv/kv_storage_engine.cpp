@@ -146,98 +146,28 @@ void KVStorageEngine::loadCatalog(OperationContext* opCtx) {
         _catalogRecordStore.get(), _options.directoryPerDB, _options.directoryForIndexes);
     _catalog->init(opCtx);
 
-    // We populate 'identsKnownToStorageEngine' only if we are loading after an unclean shutdown or
-    // doing repair.
-    const bool loadingFromUncleanShutdownOrRepair =
-        startingAfterUncleanShutdown(getGlobalServiceContext()) || _options.forRepair;
-
-    std::vector<std::string> identsKnownToStorageEngine;
-    if (loadingFromUncleanShutdownOrRepair) {
-        identsKnownToStorageEngine = _engine->getAllIdents(opCtx);
-        std::sort(identsKnownToStorageEngine.begin(), identsKnownToStorageEngine.end());
-    }
-
+    // Every collection the tx service's catalog has is opened, after a clean or an unclean
+    // shutdown alike. Stock MongoDB compares the _mdb_catalog here with the idents the storage
+    // engine lists and drops a collection whose table is missing, because it creates and drops the
+    // two in separate steps. In Eloq a collection's table and its catalog entry are one record,
+    // changed by one DDL transaction and recovered with it, so there is nothing to repair; two
+    // separate listings can still differ while a recovered DDL finishes its data store step, and
+    // dropping on that difference would drop a live table. The listing comes from the data store
+    // and may lag the tx service, so each name is checked against the tx service's catalog: a
+    // table a recovered drop has removed is skipped, and a table a recovered create has not yet
+    // written to the data store is opened on its first lookup (DatabaseImpl::getCollection).
     std::vector<std::string> collectionsKnownToCatalog;
     _catalog->getAllCollections(&collectionsKnownToCatalog);
-
-    if (_options.forRepair) {
-        // It's possible that there are collection files on disk that are unknown to the catalog. In
-        // a repair context, if we can't find an ident in the catalog, we generate a catalog entry
-        // 'local.orphan.xxxxx' for it. However, in a nonrepair context, the orphaned idents
-        // will be dropped in reconcileCatalogAndIdents().
-        for (const auto& ident : identsKnownToStorageEngine) {
-            if (_catalog->isCollectionIdent(ident)) {
-                bool isOrphan = !std::any_of(collectionsKnownToCatalog.begin(),
-                                             collectionsKnownToCatalog.end(),
-                                             [this, &ident](const auto& coll) {
-                                                 return _catalog->getCollectionIdent(coll) == ident;
-                                             });
-                if (isOrphan) {
-                    // If the catalog does not have information about this
-                    // collection, we create an new entry for it.
-                    WriteUnitOfWork wuow(opCtx);
-                    StatusWith<std::string> statusWithNs = _catalog->newOrphanedIdent(opCtx, ident);
-                    if (statusWithNs.isOK()) {
-                        wuow.commit();
-                        auto orphanCollNs = statusWithNs.getValue();
-                        log() << "Successfully created an entry in the catalog for the orphaned "
-                                 "collection: "
-                              << orphanCollNs;
-                        warning() << orphanCollNs
-                                  << " does not have the _id index. Please manually "
-                                     "build the index.";
-
-                        StorageRepairObserver::get(getGlobalServiceContext())
-                            ->onModification(str::stream() << "Orphan collection created: "
-                                                           << statusWithNs.getValue());
-
-                    } else {
-                        // Log an error message if we cannot create the entry.
-                        // reconcileCatalogAndIdents() will later drop this ident.
-                        error() << "Cannot create an entry in the catalog for the orphaned "
-                                   "collection ident: "
-                                << ident << " due to " << statusWithNs.getStatus().reason();
-                        error() << "Restarting the server will remove this ident.";
-                    }
-                }
-            }
-        }
-    }
 
     KVPrefix maxSeenPrefix = KVPrefix::kNotPrefixed;
     for (const auto& coll : collectionsKnownToCatalog) {
         NamespaceString nss(coll);
         std::string dbName = nss.db().toString();
 
-        if (loadingFromUncleanShutdownOrRepair) {
-            // If we are loading the catalog after an unclean shutdown or during repair, it's
-            // possible that there are collections in the catalog that are unknown to the storage
-            // engine. If we can't find a table in the list of storage engine idents, either
-            // attempt to recover the ident or drop it.
-            const auto collectionIdent = _catalog->getCollectionIdent(coll);
-            bool orphan = !std::binary_search(identsKnownToStorageEngine.begin(),
-                                              identsKnownToStorageEngine.end(),
-                                              collectionIdent);
-            // If the storage engine is missing a collection and is unable to create a new record
-            // store, drop it from the catalog and skip initializing it by continuing past the
-            // following logic.
-            if (orphan) {
-                auto status = _recoverOrphanedCollection(opCtx, nss, collectionIdent);
-                if (!status.isOK()) {
-                    warning() << "Failed to recover orphaned data file for collection '" << coll
-                              << "': " << status;
-                    WriteUnitOfWork wuow(opCtx);
-                    fassert(50716, _catalog->dropCollection(opCtx, coll));
-
-                    if (_options.forRepair) {
-                        StorageRepairObserver::get(getGlobalServiceContext())
-                            ->onModification(str::stream() << "Collection " << coll
-                                                           << " dropped: " << status.reason());
-                    }
-                    wuow.commit();
-                    continue;
-                }
-            }
+        if (_catalog->findEntry(opCtx, coll).isEmpty()) {
+            MONGO_LOG(1) << "KVStorageEngine::loadCatalog: " << coll
+                         << " is no longer in the tx service's catalog; not opened";
+            continue;
         }
 
         // No rollback since this is only for committed dbs.
@@ -289,187 +219,30 @@ void KVStorageEngine::closeCatalog(OperationContext* opCtx) {
     _catalogRecordStore.reset(nullptr);
 }
 
-Status KVStorageEngine::_recoverOrphanedCollection(OperationContext* opCtx,
-                                                   const NamespaceString& collectionName,
-                                                   StringData collectionIdent) {
-    if (!_options.forRepair) {
-        return {ErrorCodes::IllegalOperation, "Orphan recovery only supported in repair"};
-    }
-    log() << "Storage engine is missing collection '" << collectionName
-          << "' from its metadata. Attempting to locate and recover the data for "
-          << collectionIdent;
-
-    WriteUnitOfWork wuow(opCtx);
-    const auto metadata = _catalog->getMetaData(opCtx, collectionName.toString());
-    auto status = _engine->recoverOrphanedIdent(
-        opCtx, collectionName.toString(), collectionIdent, metadata.options);
-
-
-    bool dataModified = status.code() == ErrorCodes::DataModifiedByRepair;
-    if (!status.isOK() && !dataModified) {
-        return status;
-    }
-    if (dataModified) {
-        StorageRepairObserver::get(getGlobalServiceContext())
-            ->onModification(str::stream() << "Collection " << collectionName.ns()
-                                           << " recovered: " << status.reason());
-    }
-    wuow.commit();
-    return Status::OK();
-}
-
 /**
- * This method reconciles differences between idents the KVEngine is aware of and the
- * KVCatalog. There are three differences to consider:
+ * @brief Reconciles the catalog with the storage engine's idents; in Eloq there is nothing to
+ * reconcile, so no index needs a rebuild.
  *
- * First, a KVEngine may know of an ident that the KVCatalog does not. This method will drop
- * the ident from the KVEngine.
+ * Stock MongoDB keeps a collection's table and its _mdb_catalog entry as two artifacts, created
+ * and dropped in separate steps, and at start-up drops tables the catalog does not reference,
+ * fails on a catalog collection whose table is missing, rebuilds a ready index whose table is
+ * missing and drops unfinished indexes from the catalog. None of these states exists in Eloq:
+ * - A collection's table, its indexes and its catalog entry are one record in the tx service,
+ *   changed by one DDL transaction, which the tx service recovers if it was in flight.
+ * - The catalog never holds an unfinished index, background secondary builds included:
+ *   EloqCatalogRecordStore::updateRecord keeps metadata with an index that is not ready in the
+ *   operation's recovery unit and writes the catalog only once every index is ready. An index's
+ *   ident comes from the same record, so a ready index never lacks one either.
+ * Comparing two listings of that one record would only compare two reads, which differ while a
+ * recovered DDL finishes its data store step, and acting on the difference would drop a live table
+ * or abort start-up.
  *
- * Second, a KVCatalog may have a collection ident that the KVEngine does not. This is an
- * illegal state and this method fasserts.
- *
- * Third, a KVCatalog may have an index ident that the KVEngine does not. This method will
- * rebuild the index.
+ * @param opCtx The operation context; unused.
+ * @return An empty list of indexes to rebuild.
  */
 StatusWith<std::vector<StorageEngine::CollectionIndexNamePair>>
 KVStorageEngine::reconcileCatalogAndIdents(OperationContext* opCtx) {
-    // Gather all tables known to the storage engine and drop those that aren't cross-referenced
-    // in the _mdb_catalog. This can happen for two reasons.
-    //
-    // First, collection creation and deletion happen in two steps. First the storage engine
-    // creates/deletes the table, followed by the change to the _mdb_catalog. It's not assumed a
-    // storage engine can make these steps atomic.
-    //
-    // Second, a replica set node in 3.6+ on supported storage engines will only persist "stable"
-    // data to disk. That is data which replication guarantees won't be rolled back. The
-    // _mdb_catalog will reflect the "stable" set of collections/indexes. However, it's not
-    // expected for a storage engine's ability to persist stable data to extend to "stable
-    // tables".
-    std::set<std::string> engineIdents;
-    {
-        std::vector<std::string> vec = _engine->getAllIdents(opCtx);
-        engineIdents.insert(vec.begin(), vec.end());
-        engineIdents.erase(catalogInfo);
-    }
-
-    LOG_FOR_RECOVERY(2) << "Reconciling collection and index idents.";
-    std::set<std::string> catalogIdents;
-    {
-        std::vector<std::string> vec = _catalog->getAllIdents(opCtx);
-        catalogIdents.insert(vec.begin(), vec.end());
-    }
-
-    // Drop all idents in the storage engine that are not known to the catalog. This can happen in
-    // the case of a collection or index creation being rolled back.
-    for (const auto& it : engineIdents) {
-        if (catalogIdents.find(it) != catalogIdents.end()) {
-            continue;
-        }
-
-        if (_catalog->isSystemDataIdent(it)) {
-            continue;
-        }
-
-        // if (!_catalog->isUserDataIdent(it)) {
-        //     continue;
-        // }
-
-        // In repair context, any orphaned collection idents from the engine should already be
-        // recovered in the catalog in loadCatalog().
-        invariant(!(_catalog->isCollectionIdent(it) && _options.forRepair));
-
-        const auto& toRemove = it;
-        log() << "Dropping unknown ident: " << toRemove;
-        WriteUnitOfWork wuow(opCtx);
-        fassert(40591, _engine->dropIdent(opCtx, toRemove));
-        wuow.commit();
-    }
-
-    // Scan all collections in the catalog and make sure their ident is known to the storage
-    // engine. An omission here is fatal. A missing ident could mean a collection drop was rolled
-    // back. Note that startup already attempts to open tables; this should only catch errors in
-    // other contexts such as `recoverToStableTimestamp`.
-    std::vector<std::string> collections;
-    _catalog->getAllCollections(&collections);
-    if (!_options.forRepair) {
-        for (const auto& coll : collections) {
-            const auto& identForColl = _catalog->getCollectionIdent(coll);
-            if (engineIdents.find(identForColl) == engineIdents.end()) {
-                return {ErrorCodes::UnrecoverableRollbackError,
-                        str::stream() << "Expected collection does not exist. Collection: " << coll
-                                      << " Ident: " << identForColl};
-            }
-        }
-    }
-
-    // Scan all indexes and return those in the catalog where the storage engine does not have the
-    // corresponding ident. The caller is expected to rebuild these indexes.
-    //
-    // Also, remove unfinished builds except those that were background index builds started on a
-    // secondary.
-    std::vector<CollectionIndexNamePair> ret;
-    for (const auto& coll : collections) {
-        BSONCollectionCatalogEntry::MetaData metaData = _catalog->getMetaData(opCtx, coll);
-
-        // Batch up the indexes to remove them from `metaData` outside of the iterator.
-        std::vector<std::string> indexesToDrop;
-        for (const auto& indexMetaData : metaData.indexes) {
-            const std::string& indexName = indexMetaData.name();
-            std::string indexIdent = _catalog->getIndexIdent(opCtx, coll, indexName);
-
-            const bool foundIdent = engineIdents.find(indexIdent) != engineIdents.end();
-            // An index drop will immediately remove the ident, but the `indexMetaData` catalog
-            // entry still exists implying the drop hasn't necessarily been replicated to a
-            // majority of nodes. The code will rebuild the index, despite potentially
-            // encountering another `dropIndex` command.
-            if (indexMetaData.ready && !foundIdent) {
-                log() << "Expected index data is missing, rebuilding. Collection: " << coll
-                      << " Index: " << indexName;
-                ret.emplace_back(coll, indexName);
-                continue;
-            }
-
-            // If the index was kicked off as a background secondary index build, replication
-            // recovery will not run into the oplog entry to recreate the index. If the index
-            // table is not found, or the index build did not successfully complete, this code
-            // will return the index to be rebuilt.
-            if (indexMetaData.isBackgroundSecondaryBuild && (!foundIdent || !indexMetaData.ready)) {
-                log()
-                    << "Expected background index build did not complete, rebuilding. Collection: "
-                    << coll << " Index: " << indexName;
-                ret.emplace_back(coll, indexName);
-                continue;
-            }
-
-            // The last anomaly is when the index build did not complete, nor was the index build
-            // a secondary background index build. This implies the index build was on a primary
-            // and the `createIndexes` command never successfully returned, or the index build was
-            // a foreground secondary index build, meaning replication recovery will build the
-            // index when it replays the oplog. In these cases the index entry in the catalog
-            // should be dropped.
-            if (!indexMetaData.ready && !indexMetaData.isBackgroundSecondaryBuild) {
-                log() << "Dropping unfinished index. Collection: " << coll
-                      << " Index: " << indexName;
-                // Ensure the `ident` is dropped while we have the `indexIdent` value.
-                fassert(50713, _engine->dropIdent(opCtx, indexIdent));
-                indexesToDrop.push_back(indexName);
-                continue;
-            }
-        }
-
-        for (auto&& indexName : indexesToDrop) {
-            invariant(metaData.eraseIndex(indexName),
-                      str::stream()
-                          << "Index is missing. Collection: " << coll << " Index: " << indexName);
-        }
-        if (indexesToDrop.size() > 0) {
-            WriteUnitOfWork wuow(opCtx);
-            _catalog->putMetaData(opCtx, coll, metaData);
-            wuow.commit();
-        }
-    }
-
-    return ret;
+    return std::vector<CollectionIndexNamePair>{};
 }
 
 void KVStorageEngine::cleanShutdown() {
@@ -503,6 +276,10 @@ RecoveryUnit::UPtr KVStorageEngine::newRecoveryUnitUPtr() {
         return {nullptr, nullptr};
     }
     return _engine->newRecoveryUnitUPtr();
+}
+
+bool KVStorageEngine::supportsRecordVersions() const {
+    return _engine->supportsRecordVersions();
 }
 
 Status KVStorageEngine::lockCollection(

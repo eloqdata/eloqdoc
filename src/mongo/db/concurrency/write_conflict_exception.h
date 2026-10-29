@@ -34,6 +34,7 @@
 #include <utility>
 
 #include "mongo/base/string_data.h"
+#include "mongo/db/coro_sync.h"
 #include "mongo/db/curop.h"
 #include "mongo/util/assert_util.h"
 
@@ -51,26 +52,56 @@ public:
     WriteConflictException();
 
     /**
-     * Logs a WriteConflictException and performs an uninterruptible backoff.
+     * @brief Logs the conflict and returns how long to back off before the retry.
      *
-     * Use this overload for retry loops that require uninterruptible backoff. It blocks the
-     * current worker thread with sleepmillis(), so operation interruption and deadlines are not
-     * observed while waiting.
+     * The pause is random within its range, so that operations conflicting with each other do
+     * not retry in lock step.
      *
-     * @param attempt - current retry attempt count
-     * @param operation - e.g. "update"
+     * @param attempt What attempt this is, 1 based.
+     * @param operation The operation, e.g. "update".
+     * @param ns Its namespace.
+     * @return The pause: none below attempt 4, then 1-2 ms, 5-10 ms from attempt 10, and from
+     * attempt 100 between 10 ms and a bound that grows by 10 ms every 100 attempts, to 100 ms.
      */
-    static void logAndBackoff(int attempt, StringData operation, StringData ns);
+    static Milliseconds logAndGetBackoff(int attempt, StringData operation, StringData ns);
+
+    /**
+     * @brief Logs the conflict and backs off before the retry, exponentially, so as not to hammer
+     * the same document over and over, without blocking the thread on a service executor
+     * coroutine (coro::sleepUntil).
+     *
+     * EloqDoc runs commands on coroutines of brpc workers, each of which also drives its core's
+     * transaction processor. MongoDB's backoff slept the thread, which stalled that core for the
+     * whole pause; a retry loop sleeping back to back starved a concurrent index build, the very
+     * operation it was waiting for, about 200 times over, so it was replaced by this one, which
+     * yields instead. Like it, it is not interruptible.
+     *
+     * @param attempt What attempt this is, 1 based.
+     * @param operation The operation, e.g. "update".
+     * @param ns Its namespace.
+     * @warning It may yield the coroutine, so call it outside a catch block: coroutines that
+     * share the thread would otherwise interleave their exception handling.
+     */
+    static void logAndBackoffYielding(int attempt, StringData operation, StringData ns) {
+        const Milliseconds pause = logAndGetBackoff(attempt, operation, ns);
+        if (pause > Milliseconds(0)) {
+            coro::sleepUntil(Date_t::now() + pause);
+        }
+    }
 
     /**
      * Logs a WriteConflictException and performs an interruptible backoff.
      *
      * Use this overload when the retry loop should remain responsive to operation interruption
-     * and deadlines. Coroutine-backed executors can yield their worker while sleeping.
+     * and deadlines. It sleeps through the operation context, which yields the coroutine on a
+     * coroutine-backed executor.
      *
      * @param opCtx - must not be null
      * @param attempt - current retry attempt count
      * @param operation - e.g. "update"
+     * @param ns - the operation's namespace
+     * @warning It may yield the coroutine, so call it outside a catch block, as for
+     * logAndBackoffYielding().
      */
     static void logAndBackoff(OperationContext* opCtx,
                               int attempt,
@@ -109,15 +140,19 @@ auto writeConflictRetryImpl(OperationContext* opCtx,
             return f();
         } catch (WriteConflictException const&) {
             CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
-            // Abandon the snapshot before backing off, not after: under Eloq the snapshot is a
-            // transaction whose accumulated catalog/key intents are exactly what the conflict
-            // winner is waiting to drain. Sleeping first parks this loser on top of its locks
-            // for the whole backoff window, starving the winner it is about to retry against;
-            // abandoning first hands the winner the backoff window to finish.
-            opCtx->recoveryUnit()->abandonSnapshot();
-            backoffFn(opCtx, attempts, opStr, ns);
-            ++attempts;
         }
+        // Outside the handler, since both steps may yield the coroutine.
+        //
+        // Abandon the snapshot before backing off, not after: under Eloq the snapshot is a
+        // transaction whose accumulated catalog/key intents are exactly what the conflict
+        // winner is waiting to drain. Sleeping first parks this loser on top of its locks
+        // for the whole backoff window, starving the winner it is about to retry against;
+        // abandoning first hands the winner the backoff window to finish. Neither backoff
+        // blocks the thread: both yield, so the winner's work on this thread's core goes on
+        // meanwhile.
+        opCtx->recoveryUnit()->abandonSnapshot();
+        backoffFn(opCtx, attempts, opStr, ns);
+        ++attempts;
     }
 }
 
@@ -126,7 +161,7 @@ auto writeConflictRetryImpl(OperationContext* opCtx,
 /**
  * Runs the argument function f as many times as needed for f to complete or throw an exception
  * other than WriteConflictException. For each WriteConflictException, abandons the current
- * snapshot and applies uninterruptible backoff before retrying.
+ * snapshot and applies uninterruptible backoff before retrying (logAndBackoffYielding()).
  *
  * The retry count is unbounded, so required timeout behavior must be enforced within f. If called
  * inside a WriteUnitOfWork, invokes f directly without adding another retry loop.
@@ -139,7 +174,7 @@ auto writeConflictRetry(OperationContext* opCtx, StringData opStr, StringData ns
         ns,
         std::forward<F>(f),
         [](OperationContext*, int attempt, StringData operation, StringData ns) {
-            WriteConflictException::logAndBackoff(attempt, operation, ns);
+            WriteConflictException::logAndBackoffYielding(attempt, operation, ns);
         });
 }
 

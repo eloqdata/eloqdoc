@@ -259,7 +259,11 @@ private:
         if (exists) {
             // valid
             _id = RecordId{_key.getBuffer(), _key.getSize()};
-            _typeBits.reset();
+            // The key bytes encode numbers by value only; the original types (int, long,
+            // double, decimal) come from the type bits stored in the entry's unpack info.
+            BufReader br{_idReadRecord.UnpackInfoData(),
+                         static_cast<unsigned int>(_idReadRecord.UnpackInfoSize())};
+            _typeBits.resetFromBuffer(&br);
             _recordPtr = &_idReadRecord;
         } else {
             _eof = true;

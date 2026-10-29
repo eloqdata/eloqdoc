@@ -28,6 +28,29 @@ struct CoroutineFunctors {
 };
 
 namespace coro {
+
+/**
+ * @brief The functors of the service executor coroutine the calling code runs on.
+ *
+ * @return The functors, or nullptr when the caller is not on a coroutine of a thread group, or
+ * its Client has no coroutine context; such a caller can only block its thread.
+ */
+const CoroutineFunctors* currentCoroutine();
+
+/**
+ * @brief Waits until a deadline, without blocking the thread when called on a coroutine.
+ *
+ * On a service executor coroutine a bthread timer resumes the coroutine at the deadline and the
+ * coroutine yields meanwhile, so its thread group keeps running other coroutines and, on a brpc
+ * worker, the transaction processor of the worker's core, which a sleeping thread would stall
+ * (a write conflict's backoff starved a concurrent index build that way). Elsewhere it sleeps
+ * the thread. Not interruptible: a caller that must notice a kill waits in short slices
+ * (OperationContext::sleepUntil).
+ *
+ * @param deadline When to return.
+ */
+void sleepUntil(Date_t deadline);
+
 /**
  * coro::Mutex can be used in both pthread/coroutine.
  * coro::Mutex can be cast to std::mutex.

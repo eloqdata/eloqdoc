@@ -38,6 +38,60 @@ add_custom_target(eloqdoc-server-smoke
     DEPENDS eloqdoc
     USES_TERMINAL)
 
+# Opt-in change-stream driver scenarios (docs/cdc-change-stream.md §10.2, plan C13) through the
+# PyMongo, Node.js and Java drivers' watch(), each against fresh servers. The drivers are test-only
+# dependencies: PyMongo on PYTHONPATH, the other two fetched into the work directory, which needs
+# node, npm, java and javac on PATH.
+add_custom_target(eloqdoc-change-stream-drivers
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/change_stream_drivers.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/change-stream-diagnostics"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/change-stream-clients"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
+# Opt-in DDL crash-recovery scenarios (docs/cdc-change-stream.md §4.4(b), plan B3-B5): a create,
+# drop, ALTER or add index killed at a data substrate fault point is rolled forward after a restart. Needs a server
+# built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own fresh server and also checks the
+# log service's CDC DDL history (plan A3).
+add_custom_target(eloqdoc-ddl-recovery
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/ddl_recovery.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/ddl-recovery-diagnostics"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
+# Opt-in cluster gate scenarios (docs/cdc-change-stream.md §6.2, plan D3, D4, D6, D8, D9): pause
+# and resume through the eloqClusterGate admin command, every kind of DDL refused with
+# ClusterGatePaused, a pause waiting for admitted DDL, a pause that survives restarts, a gate op
+# killed after its log or in its install, rolled forward after a restart, and the command's
+# privileges. Needs a server built with WITH_FAULT_INJECT and PyMongo; each scenario runs on its own
+# fresh server.
+add_custom_target(eloqdoc-cluster-gate
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/cluster_gate.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/cluster-gate-diagnostics"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
+# Opt-in tests of the reference change data capture consumer (tools/cdc_consumer,
+# docs/cdc-change-stream.md §6, plan E1, E2, E5): its unit tests, then the consumer replicating one
+# fresh server into another under concurrent writes, an index created, dropped and recreated during
+# the copy with and without the cluster gate, and a run stopped before it publishes its starting
+# point. Needs PyMongo; each scenario runs on its own pair of fresh servers.
+add_custom_target(eloqdoc-cdc-consumer
+    COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${PROJECT_SOURCE_DIR}/tools/cdc_consumer" -p "test_*.py"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/cmake/tests/cdc_consumer_e2e.py"
+        --server "$<TARGET_FILE:eloqdoc>"
+        --data-store "${WITH_DATA_STORE}" --log-state "${WITH_LOG_STATE}"
+        --diagnostics-dir "${CMAKE_CURRENT_BINARY_DIR}/cdc-consumer-diagnostics"
+    DEPENDS eloqdoc
+    USES_TERMINAL)
+
 # Keep the production objects in archives for tests. Unlike the server executable, a unit test
 # should pull only the MongoDB objects it references; this avoids running unrelated global
 # initializers and keeps individual test binaries reasonably small.

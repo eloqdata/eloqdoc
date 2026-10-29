@@ -175,10 +175,10 @@ Status PlanYieldPolicy::yield(stdx::function<void()> beforeYieldingFn,
             return _planYielding->restoreStateWithoutRetrying();
         } catch (const WriteConflictException&) {
             CurOp::get(opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
-            WriteConflictException::logAndBackoff(
-                attempt, "plan execution restoreState", _planYielding->nss().ns());
-            // retry
         }
+        // Outside the handler, since the backoff may yield the coroutine; then retry.
+        WriteConflictException::logAndBackoffYielding(
+            attempt, "plan execution restoreState", _planYielding->nss().ns());
     }
 }
 

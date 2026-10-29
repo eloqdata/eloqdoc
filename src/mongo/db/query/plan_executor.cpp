@@ -671,7 +671,7 @@ PlanExecutor::ExecState PlanExecutor::getNextImpl(Snapshotted<BSONObj>* objOut, 
                     throw WriteConflictException();
                 CurOp::get(_opCtx)->debug().additiveMetrics.incrementWriteConflicts(1);
                 writeConflictsInARow++;
-                WriteConflictException::logAndBackoff(
+                WriteConflictException::logAndBackoffYielding(
                     writeConflictsInARow, "plan execution", _nss.ns());
 
             } else {
@@ -791,6 +791,18 @@ Timestamp PlanExecutor::getLatestOplogTimestamp() {
     if (auto collectionScan = getStageByType(_root.get(), STAGE_COLLSCAN))
         return static_cast<CollectionScan*>(collectionScan)->getLatestOplogTimestamp();
     return Timestamp();
+}
+
+bool PlanExecutor::tracksResumeToken() {
+    if (auto pipelineProxy = getStageByType(_root.get(), STAGE_PIPELINE_PROXY))
+        return static_cast<PipelineProxyStage*>(pipelineProxy)->tracksResumeToken();
+    return false;
+}
+
+BSONObj PlanExecutor::getPostBatchResumeToken() {
+    if (auto pipelineProxy = getStageByType(_root.get(), STAGE_PIPELINE_PROXY))
+        return static_cast<PipelineProxyStage*>(pipelineProxy)->getPostBatchResumeToken();
+    return BSONObj();
 }
 
 //

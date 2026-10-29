@@ -526,6 +526,17 @@ public:
                          long long* numResults) {
         PlanExecutor* exec = cursor->getExecutor();
 
+        // Progress token for this batch (docs/cdc-change-stream.md, §5.3 step 4). Only cursors
+        // whose pipeline provides one carry a non-empty token. It starts as the token last
+        // reported to the client, becomes the _id of each document appended to the reply,
+        // becomes the executor's watermark once the pipeline reports IS_EOF, and becomes the
+        // stream's invalidate token when the stream closes after it. A stashed document
+        // never advances it, so the client can never be told to resume past a document it has
+        // not received.
+        BSONObj resumeToken = cursor->getPostBatchResumeToken();
+        const bool tracksResumeToken = !resumeToken.isEmpty();
+        bool closedByChangeStream = false;
+
         // If an awaitData getMore is killed during this process due to our max time expiring at
         // an interrupt point, we just continue as normal and return rather than reporting a
         // timeout to the user.
@@ -546,10 +557,40 @@ public:
                 nextBatch->setLatestOplogTimestamp(exec->getLatestOplogTimestamp());
                 nextBatch->append(obj);
                 (*numResults)++;
+                if (tracksResumeToken) {
+                    BSONElement id = obj["_id"];
+                    if (id.type() == BSONType::Object) {
+                        resumeToken = id.Obj().getOwned();
+                    }
+                }
             }
         } catch (const ExceptionFor<ErrorCodes::CloseChangeStream>&) {
             // FAILURE state will make getMore command close the cursor even if it's tailable.
+            // The batch is kept.
             *state = PlanExecutor::FAILURE;
+            closedByChangeStream = true;
+        }
+
+        if (tracksResumeToken) {
+            if (closedByChangeStream) {
+                // The batch's token is the invalidate's, from the stream, even if a user stage
+                // filtered the invalidate out: the last token delivered would restart the stream
+                // into the same invalidate.
+                BSONObj invalidate = exec->getPostBatchResumeToken();
+                if (!invalidate.isEmpty()) {
+                    resumeToken = invalidate;
+                }
+            } else if (*state == PlanExecutor::IS_EOF) {
+                BSONObj watermark = exec->getPostBatchResumeToken();
+                if (!watermark.isEmpty()) {
+                    resumeToken = watermark;
+                }
+            }
+            nextBatch->setPostBatchResumeToken(resumeToken);
+            cursor->setPostBatchResumeToken(resumeToken);
+        }
+
+        if (closedByChangeStream) {
             return Status::OK();
         }
 

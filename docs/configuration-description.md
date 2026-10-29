@@ -144,6 +144,95 @@ Accepted Value: true|false
 Default: false
 Desc: Enable async fsync with io_uring. Available when [enableIOuring](#storageeloqtxserviceenableiouring) is enabled.
 
+## Change Stream Parameters
+
+Server parameters of EloqDoc's change streams (`$changeStream`, see `docs/cdc-change-stream.md`),
+set at startup with `--setParameter` or `setParameter:` in the configuration file, or at runtime
+with the `setParameter` command.
+
+#### cdc_open_wait_ms
+
+Type: Number
+Required: False
+Accepted Values: a positive number of milliseconds
+Default: 30000
+Desc: How long a change stream opened without a resume token may wait, when its `aggregate` has no
+`maxTimeMS`, for every log group to complete a checkpoint round. Until then no start position can
+be fixed, which happens at cluster start-up; past the wait the open fails with
+`ChangeStreamStartNotReady` (5000) and the client retries. Keep it at two or more checkpoint
+rounds: `checkpointer_interval` in the data substrate configuration, default 10 s, never below
+5 s. If an open fails without having waited longer than one round, the error says so and names
+the value to raise.
+
+#### cdc_scan_max_bytes
+
+Type: Number
+Required: False
+Accepted Values: 1 - 33554432 (32 MB, the log service's own cap)
+Default: 4194304 (4 MB)
+Desc: The page size, in bytes, a change stream asks the log service for in each scan. The log
+service stops filling a page before the record that would take it past this size; a page's first
+record always goes in. Each stream also reserves this much of its read buffer
+([cdc_cursor_buffer_bytes](#cdc_cursor_buffer_bytes)) per scan in flight. A `getMore` returns once it has an event, so one reply holds at most about one page per
+log group: a larger page means fewer scans and larger replies, at the cost of memory per stream.
+Read when a stream opens; a change applies to streams opened afterwards.
+
+#### cdc_cursor_buffer_bytes
+
+Type: Number
+Required: False
+Accepted Values: 1 - 4294967296 (4 GB)
+Default: 67108864 (64 MB)
+Desc: Each change stream's read buffer, in bytes: the records it has received and not yet returned,
+plus `cdc_scan_max_bytes` reserved for each scan in flight. A new scan is issued only while that
+count is below this value, except for the log group whose position holds the others back, which is
+always read. A stream can therefore hold up to this value plus one page per log group. Read when a
+stream opens; a change applies to streams opened afterwards.
+
+#### cdc_dedup_set_bytes
+
+Type: Number
+Required: False
+Accepted Values: 0 - 1073741824 (1 GB)
+Default: 4194304 (4 MB)
+Desc: The bytes of (transaction, namespace, key) entries each log group's dedup set holds at one
+commit timestamp. The set suppresses the repeat of a change the log service stores twice; past
+this size further entries go unrecorded, so such a repeat may be returned twice, as two identical
+events at the same timestamp, which a consumer applies idempotently. 0 records nothing. How often
+that happened is `dedupSetOverflows` in `serverStatus`'s `eloqChangeStreams` section; if it grows,
+the workload's transactions are larger than the set. Read when a stream opens; a change applies to
+streams opened afterwards.
+
+#### cdc_scan_max_wait_ms
+
+Type: Number
+Required: False
+Accepted Values: 1 - 600000 (10 minutes)
+Default: 30000
+Desc: The longest a change stream asks the log service to hold one scan open while nothing new has
+arrived (the long poll). A `getMore`'s own remaining time bounds the wait too, and the log service
+caps it with its own `cdc_scan_max_park_ms` (default 60 s). Shorter waits mean more scans on an idle
+stream. Read when a stream opens; a change applies to streams opened afterwards.
+
+#### History retention for change streams
+
+`txlog_cdc_retention_seconds`, in the `[local]` section of the data substrate configuration (or the
+`--txlog_cdc_retention_seconds` flag), is the setting that keeps change-stream history: no purge
+of the log service removes a record from the last that many seconds before the checkpoint.
+
+Type: Number
+Required: False
+Accepted Values: seconds, 0 or more
+Default: 0 (no window: every checkpointed record may be purged)
+Desc: Set it above the longest a change-stream consumer may stay down or behind. In this version a
+stream whose position is older than the retained history is not told; it resumes at the oldest
+record still kept and misses the changes in between (`docs/cdc-change-stream.md` §8), so retention
+is the only protection. It applies to both log states. On the RocksDB log state it costs disk on
+top of `txlog_rocksdb_sst_files_size_limit` (default 500 MB): roughly the log write rate times the
+window. `txlog_rocksdb_cloud_log_retention_days` (RocksDB-Cloud) bounds only the cloud archive of
+purged files, which change streams do not read. Watch the consumer's lag against it
+(`docs/cdc-operations.md` §4).
+
 ## EloqDoc-RocksDBCloud Parameters
 
 ### storage.eloq.txService

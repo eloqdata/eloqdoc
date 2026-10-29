@@ -1581,6 +1581,11 @@ DBCollection.prototype.watch = function(pipeline, options) {
         delete options.resumeAfter;
     }
 
+    if (options.hasOwnProperty("startAfter")) {
+        changeStreamStage.startAfter = options.startAfter;
+        delete options.startAfter;
+    }
+
     if (options.hasOwnProperty("startAtOperationTime")) {
         changeStreamStage.startAtOperationTime = options.startAtOperationTime;
         delete options.startAtOperationTime;

@@ -218,6 +218,21 @@ public:
     }
 
     /**
+     * @brief Whether a record read reports the version it read
+     * (RecordStore::findRecordVersion()).
+     *
+     * EloqDoc: the version is the commit timestamp of the record version a read returns, so a cache
+     * built from a record can tell whether it is still current by reading the record again. The
+     * view catalog relies on it to keep view definitions current across threads and nodes.
+     *
+     * @return true if findRecordVersion() reports versions; this must not change over the lifetime
+     * of the engine.
+     */
+    virtual bool supportsRecordVersions() const {
+        return false;
+    }
+
+    /**
      * Returns whether the storage engine supports capped collections.
      */
     virtual bool supportsCappedCollections() const {

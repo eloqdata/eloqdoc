@@ -710,6 +710,15 @@ function DBCommandCursor(db, cmdResult, batchSize, maxAwaitTimeMS, txnNumber) {
 
     this._batch = cmdResult.cursor.firstBatch.reverse();  // modifies input to allow popping
 
+    // Resume-token tracking, meaningful for change streams only. Two positions are kept apart:
+    // _postBatchResumeToken is the server's token for the most recently *fetched* batch, valid
+    // only once that batch is consumed; _consumedResumeToken is the position of everything the
+    // caller has actually *received* (the _id of the last returned document, or, while a fetched
+    // batch is still unread, the position from before it was fetched). Conflating them would
+    // let a caller save a token past events it never saw.
+    this._postBatchResumeToken = cmdResult.cursor.postBatchResumeToken;
+    this._consumedResumeToken = undefined;
+
     if (db.getMongo().useReadCommands()) {
         this._useReadCommands = true;
         this._cursorid = cmdResult.cursor.id;
@@ -777,6 +786,10 @@ DBCommandCursor.prototype.close = function() {
  * Throws on error.
  */
 DBCommandCursor.prototype._runGetMoreCommand = function() {
+    // The batch about to be fetched replaces _postBatchResumeToken; remember where the caller
+    // stands before that happens, so an unread batch does not move getResumeToken() forward.
+    this._consumedResumeToken = this.getResumeToken();
+
     // Construct the getMore command.
     var getMoreCmd = {getMore: this._cursorid, collection: this._collName};
 
@@ -815,6 +828,32 @@ DBCommandCursor.prototype._runGetMoreCommand = function() {
 
     // Successfully retrieved the next batch.
     this._batch = cmdRes.cursor.nextBatch.reverse();
+    if (cmdRes.cursor.hasOwnProperty("postBatchResumeToken")) {
+        this._postBatchResumeToken = cmdRes.cursor.postBatchResumeToken;
+    }
+};
+
+/**
+ * For a change stream: the token to pass as resumeAfter/startAfter to continue after everything
+ * this cursor has *returned* so far, never past a document that was fetched but not yet
+ * returned. Once the current batch is fully consumed (or arrived empty) it is the token the
+ * server sent with that batch, which also covers events the server produced but did not deliver;
+ * otherwise it is the _id of the last returned document, or, if nothing from the current batch
+ * has been returned, the position from before that batch was fetched. Undefined until the
+ * server has reported a token and something has been consumed or an empty batch received.
+ */
+DBCommandCursor.prototype.getResumeToken = function() {
+    if (this._batch.length === 0 && this._postBatchResumeToken !== undefined) {
+        return this._postBatchResumeToken;
+    }
+    return this._consumedResumeToken;
+};
+
+DBCommandCursor.prototype._noteReturned = function(doc) {
+    if (this._postBatchResumeToken !== undefined && doc && doc.hasOwnProperty("_id")) {
+        this._consumedResumeToken = doc._id;
+    }
+    return doc;
 };
 
 DBCommandCursor.prototype._hasNextUsingCommands = function() {
@@ -842,13 +881,13 @@ DBCommandCursor.prototype.hasNext = function() {
 DBCommandCursor.prototype.next = function() {
     if (this._batch.length) {
         // $err wouldn't be in _firstBatch since ok was true.
-        return this._batch.pop();
+        return this._noteReturned(this._batch.pop());
     } else if (this._useReadCommands) {
         // Have to call hasNext() here, as this is where we may issue a getMore in order to retrieve
         // the next batch of results.
         if (!this.hasNext())
             throw Error("error hasNext: false");
-        return this._batch.pop();
+        return this._noteReturned(this._batch.pop());
     } else {
         if (!this._cursor.hasNext())
             throw Error("error hasNext: false");

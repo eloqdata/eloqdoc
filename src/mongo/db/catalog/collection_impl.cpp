@@ -99,6 +99,11 @@ MONGO_REGISTER_SHIM(Collection::parseValidationAction)
     return CollectionImpl::parseValidationAction(data);
 }
 
+MONGO_REGISTER_SHIM(Collection::checkValidatorAllowed)
+(const NamespaceString& nss, OptionalCollectionUUID uuid)->Status {
+    return CollectionImpl::checkValidatorAllowed(nss, uuid);
+}
+
 namespace {
 // Used below to fail during inserts.
 MONGO_FAIL_POINT_DEFINE(failCollectionInserts);
@@ -276,6 +281,24 @@ Status CollectionImpl::checkValidation(OperationContext* opCtx, const BSONObj& d
     return {ErrorCodes::DocumentValidationFailure, "Document failed validation"};
 }
 
+Status CollectionImpl::checkValidatorAllowed(const NamespaceString& nss,
+                                             OptionalCollectionUUID uuid) {
+    if (nss.isSystem() && !nss.isDropPendingNamespace()) {
+        return {ErrorCodes::InvalidOptions,
+                str::stream() << "Document validators not allowed on system collection " << nss.ns()
+                              << (uuid ? " with UUID " + uuid->toString() : "")};
+    }
+
+    if (nss.isOnInternalDb()) {
+        return {ErrorCodes::InvalidOptions,
+                str::stream() << "Document validators are not allowed on collection " << nss.ns()
+                              << (uuid ? " with UUID " + uuid->toString() : "") << " in the "
+                              << nss.db() << " internal database"};
+    }
+
+    return Status::OK();
+}
+
 StatusWithMatchExpression CollectionImpl::parseValidator(
     OperationContext* opCtx,
     const BSONObj& validator,
@@ -285,17 +308,9 @@ StatusWithMatchExpression CollectionImpl::parseValidator(
     if (validator.isEmpty())
         return {nullptr};
 
-    if (ns().isSystem() && !ns().isDropPendingNamespace()) {
-        return {ErrorCodes::InvalidOptions,
-                str::stream() << "Document validators not allowed on system collection "
-                              << ns().ns() << (_uuid ? " with UUID " + _uuid->toString() : "")};
-    }
-
-    if (ns().isOnInternalDb()) {
-        return {ErrorCodes::InvalidOptions,
-                str::stream() << "Document validators are not allowed on collection " << ns().ns()
-                              << (_uuid ? " with UUID " + _uuid->toString() : "") << " in the "
-                              << ns().db() << " internal database"};
+    Status allowed = checkValidatorAllowed(ns(), _uuid);
+    if (!allowed.isOK()) {
+        return allowed;
     }
 
     // boost::intrusive_ptr<ExpressionContext> expCtx(new ExpressionContext(opCtx,
@@ -682,7 +697,8 @@ void CollectionImpl::deleteDocument(OperationContext* opCtx,
         opDebug->additiveMetrics.incrementKeysDeleted(keysDeleted);
     }
 
-    _recordStore->deleteRecord(opCtx, loc);
+    // EloqDoc: pass the document so the record store need not read it again.
+    _recordStore->deleteRecordWithPreImage(opCtx, loc, doc.value());
 
     getGlobalServiceContext()->getOpObserver()->onDelete(
         opCtx, ns(), uuid(), stmtId, fromMigrate, deletedDoc);
@@ -791,8 +807,14 @@ RecordId CollectionImpl::updateDocument(OperationContext* opCtx,
 
     args->preImageDoc = oldDoc.value().getOwned();
 
-    Status updateStatus = _recordStore->updateRecord(
-        opCtx, oldLocation, newDoc.objdata(), newDoc.objsize(), _enforceQuota(enforceQuota), this);
+    // EloqDoc: pass the old document so the record store need not read it again.
+    Status updateStatus = _recordStore->updateRecordWithPreImage(opCtx,
+                                                                 oldLocation,
+                                                                 oldDoc.value(),
+                                                                 newDoc.objdata(),
+                                                                 newDoc.objsize(),
+                                                                 _enforceQuota(enforceQuota),
+                                                                 this);
 
     if (updateStatus == ErrorCodes::NeedsDocumentMove) {
         return uassertStatusOK(_updateDocumentWithMove(

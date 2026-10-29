@@ -39,8 +39,8 @@
 namespace mongo {
 
 /**
- * Builds the cursor field and the _latestOplogTimestamp field for a reply to a cursor-generating
- * command in place.
+ * Builds the cursor field, its optional postBatchResumeToken, and the _latestOplogTimestamp
+ * field for a reply to a cursor-generating command in place.
  */
 class CursorResponseBuilder {
     MONGO_DISALLOW_COPYING(CursorResponseBuilder);
@@ -76,6 +76,14 @@ public:
         _latestOplogTimestamp = ts;
     }
 
+    /**
+     * Sets the token clients may resume from once they have consumed this batch. Emitted inside
+     * the cursor object by done(); an empty object means the field is omitted.
+     */
+    void setPostBatchResumeToken(BSONObj token) {
+        _postBatchResumeToken = token.getOwned();
+    }
+
     long long numDocs() const {
         return _numDocs;
     }
@@ -101,6 +109,7 @@ private:
     BSONArrayBuilder _batch;
     long long _numDocs = 0;
     Timestamp _latestOplogTimestamp;
+    BSONObj _postBatchResumeToken;
 };
 
 /**
@@ -171,7 +180,8 @@ public:
                    std::vector<BSONObj> batch,
                    boost::optional<long long> numReturnedSoFar = boost::none,
                    boost::optional<Timestamp> latestOplogTimestamp = boost::none,
-                   boost::optional<BSONObj> writeConcernError = boost::none);
+                   boost::optional<BSONObj> writeConcernError = boost::none,
+                   boost::optional<BSONObj> postBatchResumeToken = boost::none);
 
     CursorResponse(CursorResponse&& other) = default;
     CursorResponse& operator=(CursorResponse&& other) = default;
@@ -217,6 +227,10 @@ public:
         return _writeConcernError;
     }
 
+    boost::optional<BSONObj> getPostBatchResumeToken() const {
+        return _postBatchResumeToken;
+    }
+
     /**
      * Converts this response to its raw BSON representation.
      */
@@ -233,6 +247,7 @@ private:
     boost::optional<long long> _numReturnedSoFar;
     boost::optional<Timestamp> _latestOplogTimestamp;
     boost::optional<BSONObj> _writeConcernError;
+    boost::optional<BSONObj> _postBatchResumeToken;
 };
 
 }  // namespace mongo

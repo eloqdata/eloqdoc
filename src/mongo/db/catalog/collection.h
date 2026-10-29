@@ -679,6 +679,20 @@ public:
     static MONGO_DECLARE_SHIM((StringData)->StatusWith<ValidationAction>) parseValidationAction;
 
     /**
+     * @brief Whether a collection in this namespace may have a document validator at all.
+     *
+     * parseValidator applies it, and so does the create path before it creates the table: a
+     * create refused only once the collection is built would leave its committed table behind.
+     *
+     * @param nss The collection's namespace.
+     * @param uuid The collection's UUID, named in the error when known.
+     * @return InvalidOptions for a system collection that is not drop-pending, or for a
+     *         collection in the local, admin or config database; OK otherwise.
+     */
+    static MONGO_DECLARE_SHIM((const NamespaceString&, OptionalCollectionUUID)->Status)
+        checkValidatorAllowed;
+
+    /**
      * Sets the validator for this collection.
      *
      * An empty validator removes all validation.

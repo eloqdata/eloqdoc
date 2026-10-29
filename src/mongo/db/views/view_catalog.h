@@ -55,6 +55,14 @@ class OperationContext;
  *
  * All public methods of the view catalog obtain the mutex and refresh the in-memory map with the
  * views catalog collection if necessary, throwing if the refresh fails.
+ *
+ * EloqDoc: when the durable catalog reports versions (DurableViewCatalog::supportsVersionedLookup),
+ * a view is data, read like a document: lookup() and resolveView() read each view's system.views
+ * document in the operation's transaction and reuse a cached definition only if it was built from
+ * the version read, so a view changed on another thread or node is seen at once, as of the
+ * operation's own snapshot. iterate() and the view DDL methods read all of system.views first.
+ * Every read and write of system.views happens with the mutex released: the catalog belongs to a
+ * per-thread Database whose coroutines share the mutex, and a read can yield the coroutine.
  */
 class ViewCatalog {
     MONGO_DISALLOW_COPYING(ViewCatalog);
@@ -136,7 +144,63 @@ public:
     }
 
 private:
+    /**
+     * @brief A cached definition and the version of the system.views document it was built from.
+     */
+    struct VersionedEntry {
+        uint64_t version = 0;                  ///< Commit timestamp of the document version.
+        std::shared_ptr<ViewDefinition> view;  ///< The definition built from it.
+    };
+
+    /**
+     * @brief Builds a view definition from its system.views document.
+     *
+     * @param opCtx Operation context, for the collator factory.
+     * @param view The document, already structurally valid (DurableViewCatalog).
+     * @return The definition, or InvalidViewDefinition / a collation error.
+     */
+    static StatusWith<std::shared_ptr<ViewDefinition>> _parseView(OperationContext* opCtx,
+                                                                  const BSONObj& view);
+
+    /**
+     * @brief lookup() when the durable catalog reports versions: reads the view's document and
+     * returns the cached definition if it was built from the version read, else one built now.
+     *
+     * A definition read at version 0 (this transaction's own uncommitted write) is never cached,
+     * and an older version never replaces a newer one, so an operation on an older snapshot does
+     * not undo what a newer one cached. Takes the mutex only around the cache.
+     *
+     * @param opCtx Operation context; the read is part of its transaction.
+     * @param ns The namespace.
+     * @return The view's definition, or nullptr if the namespace is not a view.
+     */
+    std::shared_ptr<ViewDefinition> _lookupVersioned(OperationContext* opCtx, StringData ns);
+
+    /**
+     * @brief resolveView() when the durable catalog reports versions: each link of the chain is a
+     * _lookupVersioned(), so the chain is read in the operation's snapshot.
+     *
+     * @param opCtx Operation context.
+     * @param nss The view to resolve.
+     * @return The resolved view, or the depth or pipeline size error.
+     */
+    StatusWith<ResolvedView> _resolveViewVersioned(OperationContext* opCtx,
+                                                   const NamespaceString& nss);
+
+    /**
+     * @brief Reads every view of system.views, outside the mutex, then installs them as _viewMap,
+     * marks the catalog valid and the graph for a rebuild.
+     *
+     * Used, when the durable catalog reports versions, before iterate() and every view DDL, which
+     * need the whole set as of the operation's snapshot.
+     *
+     * @param opCtx Operation context.
+     * @return OK, or the first invalid definition's error (the catalog then stays invalid).
+     */
+    Status _refreshAll(OperationContext* opCtx);
+
     Status _createOrUpdateView_inlock(OperationContext* opCtx,
+                                      stdx::unique_lock<stdx::mutex>& lk,
                                       const NamespaceString& viewName,
                                       const NamespaceString& viewOn,
                                       const BSONArray& pipeline,
@@ -176,5 +240,18 @@ private:
     AtomicBool _valid;
     ViewGraph _viewGraph;
     bool _viewGraphNeedsRefresh = true;  // Defers initializing the graph until the first insert.
+    /**
+     * _lookupVersioned()'s cache, under _mutex. A committed drop removes its entry, every
+     * _refreshAll() removes the entries of views system.views no longer holds, and a lookup that
+     * finds no view removes the namespace's entry; views dropped elsewhere that this thread never
+     * looks up or refreshes again are bounded by kMaxVersionedViews.
+     */
+    StringMap<VersionedEntry> _versionedViews;
+
+    /**
+     * The most entries _versionedViews holds: adding one more clears it first. Entries are only
+     * a cache of parsed definitions, so clearing costs a parse per view on its next lookup.
+     */
+    static constexpr size_t kMaxVersionedViews = 1024;
 };
 }  // namespace mongo

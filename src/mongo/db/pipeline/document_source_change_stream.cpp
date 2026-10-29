@@ -330,6 +330,20 @@ intrusive_ptr<DocumentSource> createTransformationStage(
         expCtx, changeStreamSpec, fcv, isIndependentOfAnyCollection));
 }
 
+/**
+ * Rejects a $changeStream spec that names more than one resume option.
+ *
+ * Both checks of combined resume options (a resume token with a start time, and resumeAfter with
+ * startAfter) go through this one assertion, so that every combination fails with the same code:
+ * an assertion code must be unique to its site, which SCons's error code check enforces.
+ *
+ * @param atMostOne whether the options the caller checks name at most one starting point.
+ */
+void uassertAtMostOneResumeOption(bool atMostOne) {
+    uassert(
+        40674, "Only one type of resume option is allowed, but multiple were found.", atMostOne);
+}
+
 list<intrusive_ptr<DocumentSource>> buildPipeline(
     const intrusive_ptr<ExpressionContext>& expCtx,
     const DocumentSourceChangeStreamSpec spec,
@@ -359,9 +373,8 @@ list<intrusive_ptr<DocumentSource>> buildPipeline(
     auto resumeAfterClusterTime = spec.getResumeAfterClusterTimeDeprecated();
     auto startAtOperationTime = spec.getStartAtOperationTime();
 
-    uassert(40674,
-            "Only one type of resume option is allowed, but multiple were found.",
-            !resumeStage || (!resumeAfterClusterTime && !startAtOperationTime));
+    uassertAtMostOneResumeOption(!resumeStage ||
+                                 (!resumeAfterClusterTime && !startAtOperationTime));
 
     if (resumeAfterClusterTime) {
         if (fcv >= ServerGlobalParams::FeatureCompatibility::Version::kFullyUpgradedTo40) {
@@ -420,6 +433,29 @@ list<intrusive_ptr<DocumentSource>> buildPipeline(
 
 }  // namespace
 
+namespace {
+
+/**
+ * @brief The storage engine's own $changeStream expansion, if it installed one.
+ *
+ * @return The factory slot; set once at startup, read-only afterwards.
+ */
+DocumentSourceChangeStream::StageFactory& stageFactory() {
+    static DocumentSourceChangeStream::StageFactory factory;
+    return factory;
+}
+
+}  // namespace
+
+void DocumentSourceChangeStream::setStageFactory(StageFactory factory) {
+    invariant(!stageFactory());
+    stageFactory() = std::move(factory);
+}
+
+bool DocumentSourceChangeStream::hasStageFactory() {
+    return static_cast<bool>(stageFactory());
+}
+
 list<intrusive_ptr<DocumentSource>> DocumentSourceChangeStream::createFromBson(
     BSONElement elem, const intrusive_ptr<ExpressionContext>& expCtx) {
     uassert(50808,
@@ -446,6 +482,22 @@ list<intrusive_ptr<DocumentSource>> DocumentSourceChangeStream::createFromBson(
             fullDocOption == "updateLookup"_sd || fullDocOption == "default"_sd);
 
     const bool shouldLookupPostImage = (fullDocOption == "updateLookup"_sd);
+
+    uassertAtMostOneResumeOption(!(spec.getResumeAfter() && spec.getStartAfter()));
+
+    if (hasStageFactory()) {
+        // Every event of the storage engine's own stream carries its full document, so
+        // 'updateLookup' needs no post-image lookup stage.
+        auto stages = stageFactory()(spec, expCtx);
+        if (!expCtx->needsMerge) {
+            stages.push_back(DocumentSourceCloseCursor::create(expCtx));
+        }
+        return stages;
+    }
+
+    uassert(ErrorCodes::InvalidOptions,
+            "The 'startAfter' option of $changeStream is not supported by this storage engine",
+            !spec.getStartAfter());
 
     auto stages = buildPipeline(expCtx, spec, fcv, elem);
     if (!expCtx->needsMerge) {

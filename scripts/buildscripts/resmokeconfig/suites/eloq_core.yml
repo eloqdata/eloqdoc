@@ -19,7 +19,7 @@ selector:
   # - tests/jstests/core/apitest_dbcollection.js # 160: capped collection
   - tests/jstests/core/apply_ops1.js
   - tests/jstests/core/apply_ops2.js
-  - tests/jstests/core/apply_ops_dups.js
+  # - tests/jstests/core/apply_ops_dups.js # 16: unique index on a non-empty collection
   - tests/jstests/core/apply_ops_index_collation.js
   - tests/jstests/core/apply_ops_invalid_index_spec.js
   - tests/jstests/core/apply_ops_without_ns.js
@@ -130,8 +130,8 @@ selector:
   - tests/jstests/core/covered_index_compound_1.js
   # - tests/jstests/core/covered_index_negative_1.js # 84: hash index.
   - tests/jstests/core/covered_index_simple_1.js
-  - tests/jstests/core/covered_index_simple_2.js
-  - tests/jstests/core/covered_index_simple_3.js
+  # - tests/jstests/core/covered_index_simple_2.js # 19: unique index on a non-empty collection
+  # - tests/jstests/core/covered_index_simple_3.js # 22: unique index on a non-empty collection
   - tests/jstests/core/covered_index_simple_id.js
   - tests/jstests/core/covered_index_sort_1.js
   - tests/jstests/core/covered_index_sort_2.js

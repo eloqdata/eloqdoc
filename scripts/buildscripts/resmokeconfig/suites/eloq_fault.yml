@@ -1,0 +1,31 @@
+# Fault-injection tests (tests/jstests/eloq_fault). They arm data substrate fault points through
+# the eloqFaultInject test command, which needs a server whose data substrate has the fault points
+# compiled in: configure with -DWITH_FAULT_INJECT=ON (the default for Debug builds; CI's CMake
+# server build turns it on). On any other build eloqFaultInject fails with CommandNotSupported and
+# every test here fails, so run this suite only against such a server.
+test_kind: js_test
+
+selector:
+  roots:
+  - tests/jstests/eloq_fault/*.js
+executor:
+  archive:
+    hooks:
+      - ValidateCollections
+  config:
+    shell_options:
+      readMode: commands
+      eval: load("tests/jstests/libs/override_methods/detect_spawning_own_mongod.js");
+  hooks:
+  - class: ValidateCollections
+    shell_options:
+      global_vars:
+        TestData:
+          skipValidationOnNamespaceNotFound: false
+  - class: CleanEveryN
+    n: 20
+  fixture:
+    class: MongoDFixture
+    mongod_options:
+      set_parameters:
+        enableTestCommands: 1

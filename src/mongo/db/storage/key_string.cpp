@@ -201,6 +201,11 @@ const double kMinLargeDouble = 1ULL << 63;
 // Integers larger than this may not be representable as doubles.
 const double kMaxIntForDouble = 1ULL << 53;
 
+// The same bound, typed for comparison against an integer. Comparing an int64 with the double
+// above would convert the int64 first, and 2**53 + 1 converts to 2**53, so such a comparison
+// answers false for the very first value that is not representable as a double.
+const int64_t kMaxIntForDoubleAsInt = 1LL << 53;
+
 // Factors for scaling a double by powers of 256 to do a logical shift left of x bytes.
 const double kPow256[] = {1.0,                                             // 2**0
                           1.0 * 256,                                       // 2**8
@@ -1706,8 +1711,12 @@ void toBsonValue(uint8_t ctype,
                         bin, Decimal128::kRoundTo34Digits, Decimal128::kRoundTowardPositive);
                     break;
                 default:
-                    // Deal with decimal continuation
-                    dec = integerPart > kMaxIntForDouble
+                    // Deal with decimal continuation. The bound is compared as an integer: with
+                    // the double-typed kMaxIntForDouble, 'integerPart' would be converted to
+                    // double first and 2**53 + 1 would round to 2**53, taking the inexact branch
+                    // for the one value that most needs the exact one and returning a decimal one
+                    // unit low.
+                    dec = integerPart > kMaxIntForDoubleAsInt
                         ? Decimal128(integerPart)
                         : Decimal128(
                               bin, Decimal128::kRoundTo34Digits, Decimal128::kRoundTowardPositive);
