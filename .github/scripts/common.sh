@@ -145,6 +145,9 @@ setParameter:
   diagnosticDataCollectionEnabled: false
   disableLogicalSessionCacheRefresh: true
   ttlMonitorEnabled: true
+  # The jstest suites declare it for their server (their fixture's set_parameters), and the
+  # CMake CI fixture sets it as well; eloq_cdc arms a fail point through configureFailPoint.
+  enableTestCommands: 1
 EOF
 
   cat > "${run_dir}/data_substrate.cnf" <<EOF
