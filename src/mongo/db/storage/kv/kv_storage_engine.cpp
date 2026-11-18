@@ -369,18 +369,20 @@ Status KVStorageEngine::_dropCollections(OperationContext* opCtx,
                                          std::vector<std::string>& collections) {
     MONGO_LOG(1) << "KVStorageEngine::_dropCollections";
 
+    // Each collection drop needs its own transaction. Reusing a transaction number makes the
+    // log service treat later schema drops as retries, so their CDC records are lost.
+    invariant(!opCtx->lockState()->inAWriteUnitOfWork());
     Status firstError = Status::OK();
-    WriteUnitOfWork wuow(opCtx);
     for (const auto& collection : collections) {
-        // NamespaceString nss{std::move(collection)};
+        WriteUnitOfWork wuow(opCtx);
 
         Status result = dbce->dropCollection(opCtx, collection);
         if (!result.isOK() && firstError.isOK()) {
             firstError = result;
         }
+        wuow.commit();
     }
 
-    wuow.commit();
     return firstError;
 }
 /**

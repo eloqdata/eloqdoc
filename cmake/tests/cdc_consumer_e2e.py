@@ -27,7 +27,10 @@ Each scenario starts a fresh source node and a fresh sink node and runs the cons
         over them would make a cycle, which the sink refuses, so the consumer halts;
   (v)   documents just under 16 MB, whose events would pass the limit and so arrive without them
         (fullDocumentOmitted): the consumer reads them from the source, and skips one deleted
-        since.
+        since;
+  (vi)  drop-database: after the bootstrap copies three collections and a view, dropping the
+        source database removes them from the sink through streamed drops, not another bootstrap;
+        an empty system.views may remain, and an out-of-scope sink sentinel stays unchanged.
 
 The source needs the change stream, so a WAL; a node built with fault points is not required.
 Requires pymongo.
@@ -297,6 +300,61 @@ def scenario_converge(source, sink):
           flush=True)
 
 
+def scenario_drop_database(source, sink):
+    """(vi) A database drop streams every collection drop, including system.views."""
+    db = source.client[DB]
+    collections = ("empty", "populated", "indexed")
+    for name in collections:
+        db.create_collection(name)
+    db.populated.insert_one({"_id": 1, "value": "copied"})
+    db.indexed.insert_one({"_id": 1, "x": 1})
+    db.indexed.create_index("x")
+    db.command({"create": "all_items", "viewOn": "populated", "pipeline": []})
+    sink.client[OTHER_DB].keep.insert_one({"_id": "sink-only"})
+    # Make the initial bootstrap issue dropDatabase, so the listener is exercised before the test.
+    sink.client[DB].stale.insert_one({"_id": "stale"})
+    recorder = DdlRecorder()
+    sink_client = MongoClient("127.0.0.1", sink.port, directConnection=True, w=1,
+                              event_listeners=[recorder])
+    consumer = ConsumerThread(source.client, sink_client)
+    try:
+        copied = wait_converged(source.client, sink.client, "before dropping the database")
+        assert set(collections) | {"all_items"} <= set(copied), copied
+        assert any(name == "dropDatabase" for name, _ in recorder.commands), recorder.commands
+        bootstrap_end = len(recorder.commands)
+
+        source.client.drop_database(DB)
+        deadline = time.monotonic() + CONVERGE_TIMEOUT_S
+        while True:
+            assert consumer.error is None, consumer.error
+            assert consumer.thread.is_alive(), "the consumer stopped after dropDatabase"
+            remaining = set(sink.client[DB].list_collection_names())
+            # drop_views drops each view, not system.views itself; MongoDB may retain it empty.
+            if remaining <= {cdc.VIEWS_COLLECTION}:
+                break
+            assert time.monotonic() < deadline, \
+                f"after dropDatabase: the sink still holds {sorted(remaining)}"
+            time.sleep(1)
+        assert list(sink.client[DB].system.views.find()) == []
+        assert sink.client[OTHER_DB].list_collection_names() == ["keep"], \
+            sink.client[OTHER_DB].list_collection_names()
+        assert list(sink.client[OTHER_DB].keep.find()) == [{"_id": "sink-only"}]
+        progress = sink.client.admin[cdc.PROGRESS_COLLECTION].find_one({"_id": "progress"})
+        assert progress is not None and progress["state"] == "streaming", progress
+    finally:
+        consumer.stop()
+        sink_client.close()
+    # Inspect the complete command history after stopping: a fresh bootstrap could otherwise
+    # clear the sink and make missing CDC drops look successful.
+    streamed = recorder.commands[bootstrap_end:]
+    assert all(name != "dropDatabase" for name, _ in streamed), streamed
+    # Three collection drops, plus the view drop caused by the source's system.views drop.
+    assert sum(name == "drop" for name, _ in streamed) >= len(collections) + 1, streamed
+    assert consumer.error is None, consumer.error
+    print("PASS (vi) dropDatabase streamed all collection and view drops without bootstrapping "
+          "again; the out-of-scope sentinel stayed unchanged", flush=True)
+
+
 INDEX_STEPS = (lambda db: db.orders.create_index([("x", 1)], name="i"),
                lambda db: db.orders.drop_index("i"),
                lambda db: db.orders.create_index([("y", 1)], name="i"))
@@ -513,7 +571,7 @@ def main():
     parser.add_argument("--scenario", action="append",
                         help="Run only this scenario (converge, index-race-gate, "
                              "index-race-no-gate, crash-before-publish, view-race-gate, "
-                             "view-race-no-gate, oversized); may be repeated")
+                             "view-race-no-gate, oversized, drop-database); may be repeated")
     args = parser.parse_args()
     if hasattr(os, "sched_getaffinity"):
         os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:8])
@@ -524,7 +582,8 @@ def main():
                  ("crash-before-publish", scenario_crash_before_publish),
                  ("view-race-gate", lambda s, k: scenario_view_race(s, k, True)),
                  ("view-race-no-gate", lambda s, k: scenario_view_race(s, k, False)),
-                 ("oversized", scenario_oversized))
+                 ("oversized", scenario_oversized),
+                 ("drop-database", scenario_drop_database))
     for label, scenario in scenarios:
         if args.scenario and label not in args.scenario:
             continue
