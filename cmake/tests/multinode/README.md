@@ -32,6 +32,16 @@ Tests that need several node groups, each node a separate EloqDoc process on one
   `RecoveryService`'s watchdog): node 1 restarts with its first replay stream dropped (the
   `replay_drop_stream_once` fault point, armed from the start through `ELOQ_TX_FAULT_INJECT`), and
   the log group replaces the idle shipping agent when node 1 asks again.
+- `voter_takeover.py` (cloud mode): a voter leads a killed node's node group, hosting its data
+  shard beside its own, and hands the group back when the node returns.
+- `ckpt_cycles.py`: the per-node count of concluded checkpoint cycles that ages requests parked for
+  memory (data substrate `docs/07-durability-and-recovery.md`), read through the
+  `checkpoint_cycles_concluded_total` metric: (d) rounds whose task is deduplicated into a task an
+  earlier round still has pending (held by the `ckpt_hold_data_sync_task` fault point) conclude no
+  cycle until that flush lands, then one each; (a, cloud mode) a voter's round over a taken-over node group,
+  held after joining its cycle (the `ckpt_hold_round_after_join` fault point) while the group goes
+  back to its node, abandons its part and its cycle still concludes. Both hold new rounds off with
+  the `checkpointer_skip_ckpt` fault point while the count settles.
 
 The server must be built with fault points, with either data store service: `smoke.py` passes with
 the RocksDB and the EloqStore services alike (`-DWITH_DATA_STORE=ELOQDSS_ROCKSDB` or
